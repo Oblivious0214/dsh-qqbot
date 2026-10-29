@@ -4,6 +4,8 @@
  * 一个会话有三种状态：没有记录（还没开始，或从没用过角色库）、绑定了某个角色、主动选了"不用角色"（null）。
  * 没有记录的会话第一次真实组装时取新会话默认角色并写下来，之后改默认角色不影响已有会话。
  * 不按时间清理记录：长期使用的会话不能丢角色，每条记录只有几十字节。
+ *
+ * 每个会话还记着各轮用的角色（`turns`），只在换人时追加一条，供界面按消息显示头像。不进提示词。
  */
 
 import { join } from 'node:path'
@@ -14,11 +16,26 @@ export const NO_ROLE = null
 
 export type RoleChoice = string | typeof NO_ROLE
 
+/** 从 turn 这一轮起用 role，直到下一条。role 是当时组装用的角色 id，没有角色时为 null。 */
+export interface TurnRole {
+  readonly turn: number
+  readonly role: string | null
+}
+
+/** 每个会话最多记多少次换人。超出时丢最早的，那几轮的头像按最早留下的一条显示。 */
+const TURN_HISTORY_LIMIT = 200
+
+interface SessionEntry {
+  readonly role: RoleChoice
+  readonly at: string
+  readonly turns?: readonly TurnRole[]
+}
+
 interface BindingFile {
   readonly version: 1
   /** 新 qqbot 会话的默认角色；为空表示新会话不带角色。 */
   readonly defaultRole?: string
-  readonly sessions: Readonly<Record<string, { readonly role: RoleChoice; readonly at: string }>>
+  readonly sessions: Readonly<Record<string, SessionEntry>>
 }
 
 export class SessionBindings {
@@ -39,8 +56,29 @@ export class SessionBindings {
 
   /** 记下会话的选择；值没变时不写盘。 */
   set(sessionId: string, role: RoleChoice): void {
-    if (this.state.sessions[sessionId]?.role === role) return
-    this.commit({ ...this.state, sessions: { ...this.state.sessions, [sessionId]: { role, at: this.now().toISOString() } } })
+    const entry = this.state.sessions[sessionId]
+    if (entry?.role === role) return
+    this.commitSession(sessionId, { ...entry, role, at: this.now().toISOString() })
+  }
+
+  /** 会话各轮用的角色，按轮次升序；没有记录时为空。 */
+  turnsOf(sessionId: string): readonly TurnRole[] {
+    return this.state.sessions[sessionId]?.turns ?? []
+  }
+
+  /**
+   * 记下第 turn 轮用的角色。和上一条相同时不写盘，所以每轮调用也只在换人时写。
+   * 比 turn 晚的记录是撤回或重新生成前的旧轮次，一起去掉。会话还没有选择记录时不记。
+   */
+  recordTurn(sessionId: string, turn: number, role: string | null): void {
+    const entry = this.state.sessions[sessionId]
+    if (entry === undefined || !Number.isSafeInteger(turn) || turn < 0) return
+    const current = entry.turns ?? []
+    const kept = current.filter(item => item.turn < turn)
+    const turns = (kept.at(-1)?.role === role ? kept : [...kept, { turn, role }]).slice(-TURN_HISTORY_LIMIT)
+    // 同一轮的后续步骤（工具调用之后）算出来和现有记录一样。
+    if (turns.length === current.length && turns.every((item, i) => item.turn === current[i]!.turn && item.role === current[i]!.role)) return
+    this.commitSession(sessionId, { ...entry, turns })
   }
 
   get defaultRole(): string | undefined {
@@ -51,6 +89,10 @@ export class SessionBindings {
     if (this.state.defaultRole === role) return
     const { defaultRole: _previous, ...rest } = this.state
     this.commit(role === undefined ? rest : { ...rest, defaultRole: role })
+  }
+
+  private commitSession(sessionId: string, entry: SessionEntry): void {
+    this.commit({ ...this.state, sessions: { ...this.state.sessions, [sessionId]: entry } })
   }
 
   private commit(next: BindingFile): void {
@@ -64,13 +106,14 @@ export class SessionBindings {
       if (raw !== undefined) this.warn(`qqbot: ${file} 格式无效，会话绑定从空开始`)
       return { version: 1, sessions: {} }
     }
-    const sessions: Record<string, { role: RoleChoice; at: string }> = {}
+    const sessions: Record<string, SessionEntry> = {}
     if (isRecord(raw['sessions'])) {
       for (const [id, entry] of Object.entries(raw['sessions'])) {
         if (!isRecord(entry)) continue
         const role = entry['role']
         if (role !== NO_ROLE && (typeof role !== 'string' || role === '')) continue
-        sessions[id] = { role, at: typeof entry['at'] === 'string' ? entry['at'] : '' }
+        const turns = loadTurns(entry['turns'])
+        sessions[id] = { role, at: typeof entry['at'] === 'string' ? entry['at'] : '', ...turns.length === 0 ? {} : { turns } }
       }
     }
     const defaultRole = raw['defaultRole']
@@ -78,4 +121,18 @@ export class SessionBindings {
       ? { version: 1, defaultRole, sessions }
       : { version: 1, sessions }
   }
+}
+
+/** 读各轮角色：去掉格式不对的条目，按轮次升序，同一轮只留最后一条。 */
+function loadTurns(value: unknown): TurnRole[] {
+  if (!Array.isArray(value)) return []
+  const byTurn = new Map<number, string | null>()
+  for (const item of value) {
+    if (!isRecord(item)) continue
+    const { turn, role } = item
+    if (typeof turn !== 'number' || !Number.isSafeInteger(turn) || turn < 0) continue
+    if (role !== null && (typeof role !== 'string' || role === '')) continue
+    byTurn.set(turn, role)
+  }
+  return [...byTurn].sort((a, b) => a[0] - b[0]).map(([turn, role]) => ({ turn, role })).slice(-TURN_HISTORY_LIMIT)
 }

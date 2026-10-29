@@ -15,7 +15,7 @@ import { ROLE_ID_PATTERN } from './roles.ts'
 import { isRecord, readJson, renameWithRetry, writeJson, type Warn } from './storage.ts'
 import {
   BACKGROUND_FITS, DEFAULT_UI_SETTINGS, IMAGE_BYTE_LIMIT, IMAGE_PATH, INTERVAL_METHODS, PALETTES, UI_LIMITS, UI_PATH,
-  type UiError, type UiSettings, type UiView,
+  type UiError, type UiRole, type UiSettings, type UiView,
 } from './ui-types.ts'
 
 export const name = 'qqbot-ui'
@@ -184,8 +184,15 @@ export function uiView(data: QqbotData, ui: UiStore, sessionId: string | undefin
   let session: UiView['session']
   if (sessionId !== undefined) {
     data.roles.reload()
-    const role = data.roleFor({ id: sessionId })
-    session = { role: role === undefined ? null : { id: role.id, name: role.name } }
+    // 名称按角色库现读，角色改名后旧消息也显示新名字的首字。
+    const show = (id: string | null | undefined): UiRole => {
+      const role = id == null ? undefined : data.roles.get(id)
+      return role === undefined ? null : { id: role.id, name: role.name }
+    }
+    session = {
+      role: show(data.roleIdFor({ id: sessionId })),
+      turns: data.bindings.turnsOf(sessionId).map(item => ({ turn: item.turn, role: show(item.role) })),
+    }
   }
   return {
     settings: ui.settings,

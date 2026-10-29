@@ -126,6 +126,14 @@ export function apply(ctx: Context): void {
     },
   })
 
+  // 记下每轮用的角色，界面据此按消息显示头像。pre-step 在组装之后，settle 已经定下新会话的角色。
+  // 只写插件自己的 sessions.json，不改发给模型的内容。
+  ctx.on('agent/pre-step', async ({ agent, turn }, next) => {
+    const decision = await next()
+    if (decision.kind !== 'reject') content.recordTurn({ id: agent.id }, turn)
+    return decision
+  })
+
   // `/role` 挂在预设内，所以只出现在 qqbot 会话里。缺 commands 服务（无 UI 的场景）时不加载。
   ctx.plugin(roleCommand)
 }

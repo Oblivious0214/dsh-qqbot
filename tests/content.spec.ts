@@ -136,6 +136,46 @@ describe('session binding', () => {
     expect(content.bindings.get('s1')).toBe('gone')
   })
 
+  it('records the role of each turn only when it changes, and survives a reload', () => {
+    const dir = temp()
+    const content = data(dir)
+    // 还没定下角色的会话不记。
+    content.bindings.recordTurn('s1', 1, 'alice')
+    expect(content.bindings.turnsOf('s1')).toEqual([])
+    content.bindings.set('s1', 'alice')
+    content.bindings.recordTurn('s1', 1, 'alice')
+    content.bindings.recordTurn('s1', 1, 'alice')
+    content.bindings.recordTurn('s1', 2, 'alice')
+    content.bindings.set('s1', 'bee')
+    content.bindings.recordTurn('s1', 3, 'bee')
+    content.bindings.set('s1', NO_ROLE)
+    content.bindings.recordTurn('s1', 5, null)
+    const expected = [{ turn: 1, role: 'alice' }, { turn: 3, role: 'bee' }, { turn: 5, role: null }]
+    expect(content.bindings.turnsOf('s1')).toEqual(expected)
+    expect(data(dir).bindings.turnsOf('s1')).toEqual(expected)
+    expect(data(dir).bindings.get('s1')).toBe(NO_ROLE)
+  })
+
+  it('a re-run turn drops the records of later turns', () => {
+    const content = data()
+    content.bindings.set('s1', 'alice')
+    content.bindings.recordTurn('s1', 1, 'alice')
+    content.bindings.recordTurn('s1', 3, 'bee')
+    content.bindings.recordTurn('s1', 4, 'alice')
+    // 撤回到第 3 轮重新生成，这次用 alice。
+    content.bindings.recordTurn('s1', 3, 'alice')
+    expect(content.bindings.turnsOf('s1')).toEqual([{ turn: 1, role: 'alice' }])
+  })
+
+  it('loads turn records tolerantly', () => {
+    const dir = temp()
+    writeFileSync(join(dir, 'sessions.json'), JSON.stringify({
+      version: 1,
+      sessions: { s1: { role: 'bee', at: '', turns: [{ turn: 4, role: 'bee' }, { turn: 'x', role: 'a' }, { turn: 1, role: 'alice' }, { turn: 2, role: '' }, 7] } },
+    }))
+    expect(data(dir).bindings.turnsOf('s1')).toEqual([{ turn: 1, role: 'alice' }, { turn: 4, role: 'bee' }])
+  })
+
   it('jailbreak follows the role the session uses', () => {
     const dir = temp()
     writeRole(join(dir, 'roles'), 'alice', ROLE_A)

@@ -1,9 +1,10 @@
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionBindings } from '../src/bindings.ts'
 import { buildQqCss } from '../src/client/qq-style.ts'
+import { UiState } from '../src/client/ui-state.ts'
 import { QqbotData } from '../src/content.ts'
 import { applyLibraryAction } from '../src/library.ts'
 import { JailbreakStore } from '../src/presets.ts'
@@ -47,9 +48,56 @@ describe('ui settings', () => {
   it('reports the session role only when asked', () => {
     const { data, ui } = setup()
     expect(uiView(data, ui, undefined).session).toBeUndefined()
-    expect(uiView(data, ui, 's1').session).toEqual({ role: null })
+    expect(uiView(data, ui, 's1').session).toEqual({ role: null, turns: [] })
     data.bindings.set('s1', 'alice')
-    expect(uiView(data, ui, 's1').session).toEqual({ role: { id: 'alice', name: '爱丽丝' } })
+    expect(uiView(data, ui, 's1').session).toEqual({ role: { id: 'alice', name: '爱丽丝' }, turns: [] })
+  })
+
+  it('reports the role of each turn, with names read from the library', () => {
+    const { data, ui } = setup()
+    data.roles.save({ id: 'bob', name: '鲍勃', description: '', persona: '设定。' }, true)
+    data.bindings.set('s1', 'alice')
+    data.recordTurn({ id: 's1' }, 1)
+    data.recordTurn({ id: 's1' }, 2)
+    data.bindings.set('s1', 'bob')
+    data.recordTurn({ id: 's1' }, 3)
+    data.roles.save({ id: 'alice', name: '小爱', description: '', persona: '设定。' }, false)
+    expect(uiView(data, ui, 's1').session).toEqual({
+      role: { id: 'bob', name: '鲍勃' },
+      turns: [{ turn: 1, role: { id: 'alice', name: '小爱' } }, { turn: 3, role: { id: 'bob', name: '鲍勃' } }],
+    })
+    // 删掉的角色在旧轮次上显示为没有角色。
+    data.roles.remove('alice')
+    expect(uiView(data, ui, 's1').session?.turns[0]).toEqual({ turn: 1, role: null })
+  })
+})
+
+describe('avatar per turn in the browser', () => {
+  it('picks the role recorded for each turn and re-reads on a new turn', async () => {
+    const a = { id: 'a', name: '甲' }
+    const b = { id: 'b', name: '乙' }
+    let session: unknown = { role: b, turns: [{ turn: 2, role: a }, { turn: 4, role: b }] }
+    const fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ settings: DEFAULT_UI_SETTINGS, avatars: {}, session }))))
+    vi.stubGlobal('fetch', fetch)
+    try {
+      const state = new UiState()
+      expect(state.roleAt('s1', 1)).toBeUndefined()
+      await vi.waitFor(() => { expect(state.roleAt('s1', 1)).toEqual(a) })
+      // 最早一条之前按最早一条，之后的轮次按最后一条。
+      expect([1, 2, 3, 4, 9].map(turn => state.roleAt('s1', turn)?.id)).toEqual(['a', 'a', 'a', 'b', 'b'])
+      state.noteTurn('s1', 4)
+      session = { role: null, turns: [{ turn: 2, role: a }, { turn: 4, role: b }, { turn: 5, role: null }] }
+      state.noteTurn('s1', 5)
+      await vi.waitFor(() => { expect(state.roleAt('s1', 5)).toBeNull() })
+      expect(state.roleAt('s1', 4)).toEqual(b)
+      // 还没有记录的会话按当前角色。
+      session = { role: a, turns: [] }
+      state.refreshRole('s2')
+      await vi.waitFor(() => { expect(state.roleAt('s2', 7)).toEqual(a) })
+      state.dispose()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 

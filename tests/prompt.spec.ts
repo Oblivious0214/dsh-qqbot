@@ -1,5 +1,6 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
+import { NO_ROLE } from '../src/bindings.ts'
 import * as host from '../src/index.ts'
 import * as prompt from '../src/prompt.ts'
 import { assembleParts } from '../src/prompt.ts'
@@ -151,6 +152,27 @@ describe('prompt plugin', () => {
     expect(fake.contexts({ agent: { id: 's1' } })).toEqual([{ name: 'qqbot:runtime', text: 'mood: r1\ntoy: connected' }])
     expect(fake.contexts({ agent: { id: 's2' } })[0]?.text).toBe('mood: r1')
     expect(fake.systemPrompt.contexts.get('qqbot:runtime')?.required).toBe(true)
+  })
+
+  it('records the role of each entered step, not rejected ones', async () => {
+    const fake = await setup()
+    const { content } = fake.qqbot
+    content.roles.save({ id: 'turn-a', name: 'A', description: '', persona: 'A。' }, true)
+    content.bindings.set('turns-1', 'turn-a')
+    const step = (turn: number, kind: 'enter' | 'reject') => (fake.root as unknown as {
+      waterfall: (name: string, payload: unknown, next: () => Promise<unknown>) => Promise<unknown>
+    }).waterfall('agent/pre-step', { agent: { id: 'turns-1' }, turn, step: 1 }, () => Promise.resolve({ kind }))
+    await expect(step(1, 'enter')).resolves.toEqual({ kind: 'enter' })
+    content.bindings.set('turns-1', NO_ROLE)
+    await step(2, 'reject')
+    expect(content.bindings.turnsOf('turns-1')).toEqual([{ turn: 1, role: 'turn-a' }])
+    await step(2, 'enter')
+    expect(content.bindings.turnsOf('turns-1')).toEqual([{ turn: 1, role: 'turn-a' }, { turn: 2, role: null }])
+    // 插件关闭后不再记录。
+    content.bindings.set('turns-1', 'turn-a')
+    await fake.disposePrompt()
+    await step(3, 'enter')
+    expect(content.bindings.turnsOf('turns-1')).toHaveLength(2)
   })
 
   it('disposing the prompt plugin removes its section and context', async () => {

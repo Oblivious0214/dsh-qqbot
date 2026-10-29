@@ -80,8 +80,20 @@ export interface UiView {
   readonly background?: number
   /** 角色 id → 头像版本。 */
   readonly avatars: Readonly<Record<string, number>>
-  /** 带 `?session=` 请求时才有：这个会话当前的角色，没有角色时为 null。 */
-  readonly session?: { readonly role: { readonly id: string; readonly name: string } | null }
+  /** 带 `?session=` 请求时才有。 */
+  readonly session?: UiSessionView
+}
+
+export type UiRole = { readonly id: string; readonly name: string } | null
+
+export interface UiSessionView {
+  /** 这个会话当前的角色，没有角色时为 null。 */
+  readonly role: UiRole
+  /**
+   * 各轮用的角色：从 turn 这一轮起用 role，直到下一条，按轮次升序。角色已删除时为 null。
+   * 最早一条之前的轮次按最早一条显示；为空表示还没记录，按当前角色显示。
+   */
+  readonly turns: readonly { readonly turn: number; readonly role: UiRole }[]
 }
 
 export type UiAction =

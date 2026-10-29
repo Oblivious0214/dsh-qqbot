@@ -25,6 +25,8 @@ export interface QqbotContent {
    * 只读路径（提示词查看器）不调用它。
    */
   settle(session: QqbotSession): void
+  /** 记下这一轮用的角色，供界面按消息显示头像。真实组装的每一步调用，只在换人时写盘。 */
+  recordTurn(session: QqbotSession, turn: number): void
 }
 
 export function createDefaultContent(): QqbotContent {
@@ -34,6 +36,7 @@ export function createDefaultContent(): QqbotContent {
     roleIdFor: () => undefined,
     memeFrequencyFor: () => DEFAULT_MEME_FREQUENCY,
     settle: () => {},
+    recordTurn: () => {},
   }
 }
 
@@ -82,6 +85,14 @@ export class QqbotData implements QqbotContent {
     } catch (error) {
       // 写不了盘时本轮照常组装（用的就是默认角色），下一轮再试。
       this.warn(`qqbot: 记不下会话 ${session.id} 的角色：${String(error)}`)
+    }
+  }
+
+  recordTurn(session: QqbotSession, turn: number): void {
+    try {
+      this.bindings.recordTurn(session.id, turn, this.roleIdFor(session) ?? null)
+    } catch (error) {
+      this.warn(`qqbot: 记不下会话 ${session.id} 第 ${turn} 轮的角色：${String(error)}`)
     }
   }
 }

@@ -6,7 +6,7 @@
  * - 只处理 [qq] 块；没有 [qq] 块的回复整条作为一个气泡显示，不按标点自动拆分。
  *   提示词让模型"无需分段时直接正常回复"，这时就是一条消息。
  * - 没写 durationMs 的段落按界面设置的间隔（ui-types.ts 的 segmentDelay）。
- * - 外面包一层 REPLY_ATTRIBUTE 节点，带上当前角色的头像或首字，样式见 qq-style.ts。
+ * - 外面包一层 REPLY_ATTRIBUTE 节点，带上这一轮回复时角色的头像或首字（`/role` 换人后旧消息不变），样式见 qq-style.ts。
  * - 历史消息直接全部显示；只有本页打开后生成的回复才按间隔逐段出现。
  * - 用户在逐段显示途中发了新消息，没显示的段落不再出现（和 QQ 里打断对方一样）。只在内存里记，刷新后完整显示。
  */
@@ -128,7 +128,7 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     useSyncExternalStore(ui.subscribe, ui.getVersion)
     const data = props.node.data
     const running = data.status === 'running'
-    const role = ui.roleOf(props.sessionId)
+    const role = ui.roleAt(props.sessionId, data.turn)
     useEffect(() => { ui.noteTurn(props.sessionId, data.turn) }, [props.sessionId, data.turn])
     const final = data.finalNode
     const source = data.blocks.filter(block => block.kind === 'text').map(block => block.text).join('')

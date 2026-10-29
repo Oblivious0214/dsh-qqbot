@@ -20,7 +20,10 @@ https://github.com/yupaoa/dsh-persona-switcher
 Copyright (c) 2026 yupaoa
 MIT License
 
-来源文件：尚未迁移。
+来源文件：
+- lib/index.js 的 parseRole / scanRoles / splitFrontmatter：角色卡格式和解析规则 → src/roles.ts（重写）
+- lib/session-state.js：会话角色记忆和"主动不用角色"的语义 → src/bindings.ts（重写，去掉 180 天清理）
+- lib/index.js 的 /role 命令语法 → src/role-command.ts（重写，输出改为中文）
 
 ------------------------------------------------------------
 设计参考（未复制代码）

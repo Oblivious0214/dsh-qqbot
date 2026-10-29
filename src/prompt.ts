@@ -11,6 +11,7 @@ import { MEMORY_HINT } from './content.ts'
 import type {} from './index.ts'
 import { CONTEXT_NAME, CONTEXT_ORDER, PROMPT_ORDER, SECTION_NAME, SECTION_ORDER } from './order.ts'
 import { resolveText, type QqbotRegistryStore, type QqbotSession } from './registry.ts'
+import * as roleCommand from './role-command.ts'
 
 export const name = 'qqbot-prompt'
 export const inject = ['systemPrompt', 'qqbot']
@@ -79,8 +80,11 @@ export function apply(ctx: Context): void {
     complete: true,
     interpolate: false,
     text: (context) => {
-      const text = assembleParts(content, store, sessionOf(context)).map(part => part.text).join(PART_SEPARATOR)
-      // 只有 agent-loop 的真实组装带 agent（agent-loop/src/agent.ts），这份记录就是发给模型的系统提示词。
+      const session = sessionOf(context)
+      // 只有 agent-loop 的真实组装带 agent（agent-loop/src/agent.ts）。新会话在这里定下角色，之后改默认角色不影响它。
+      if (session !== undefined) content.settle(session)
+      const text = assembleParts(content, store, session).map(part => part.text).join(PART_SEPARATOR)
+      // 这份记录就是发给模型的系统提示词。
       if (context.agent !== undefined) lastPrompt.set(context.agent, text)
       return text
     },
@@ -97,4 +101,7 @@ export function apply(ctx: Context): void {
       return session === undefined ? '' : renderRuntime(store, session)
     },
   })
+
+  // `/role` 挂在预设内，所以只出现在 qqbot 会话里。缺 commands 服务（无 UI 的场景）时不加载。
+  ctx.plugin(roleCommand)
 }

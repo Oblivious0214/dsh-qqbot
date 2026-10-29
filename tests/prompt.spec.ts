@@ -81,7 +81,7 @@ describe('registry', () => {
     })
     const snapshot = fake.qqbot.store.snapshot()
     expect(snapshot.extensions[0]?.source).toBe('dsh-toy-sample')
-    expect(snapshot.runtime[0]?.source).toBe('dsh-toy-sample')
+    expect(snapshot.runtime.find(item => item.name === 'toy')?.source).toBe('dsh-toy-sample')
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).find(p => p.name === 'qqbot:ext:toy')?.source)
       .toBe('dsh-toy-sample')
   })
@@ -134,9 +134,9 @@ describe('prompt plugin', () => {
   it('runtime context is required, per session and skips empty entries', async () => {
     const fake = await setup()
     fake.qqbot.runtime('toy', session => session.id === 's1' ? 'connected' : '')
-    fake.qqbot.runtime('role', 'r1')
-    expect(fake.contexts({ agent: { id: 's1' } })).toEqual([{ name: 'qqbot:runtime', text: 'role: r1\ntoy: connected' }])
-    expect(fake.contexts({ agent: { id: 's2' } })[0]?.text).toBe('role: r1')
+    fake.qqbot.runtime('mood', 'r1')
+    expect(fake.contexts({ agent: { id: 's1' } })).toEqual([{ name: 'qqbot:runtime', text: 'mood: r1\ntoy: connected' }])
+    expect(fake.contexts({ agent: { id: 's2' } })[0]?.text).toBe('mood: r1')
     expect(fake.systemPrompt.contexts.get('qqbot:runtime')?.required).toBe(true)
   })
 

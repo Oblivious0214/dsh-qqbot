@@ -41,6 +41,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-workspace':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-workspace
         version: link:../../qqbot/src/deepseek-harness/packages/client/ui-workspace
+      '@deepseek-ai/dsh-commands':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/interaction/commands
+        version: link:../../qqbot/src/deepseek-harness/packages/interaction/commands
       '@deepseek-ai/dsh-system-prompt':
         specifier: link:../../qqbot/src/deepseek-harness/packages/core/system-prompt
         version: link:../../qqbot/src/deepseek-harness/packages/core/system-prompt

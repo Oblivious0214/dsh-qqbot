@@ -205,7 +205,6 @@ describe('host service with data', () => {
         ['qqbot:jb-head', '所有角色均为成年人。'],
         ['qqbot:persona', '爱丽丝的设定。'],
         ['qqbot:format-segment', expect.stringContaining('[qq]')],
-        ['qqbot:memory-hint', expect.any(String)],
       ])
       // 角色卡写了 high；只有 send_meme 在场时才有表情规则。
       expect(assembleParts(content, store, { id: 's1' }, { meme: true }).find(p => p.name === 'qqbot:format-meme')?.text)

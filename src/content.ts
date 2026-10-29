@@ -12,16 +12,6 @@ import type { Warn } from './storage.ts'
 
 export { DEFAULT_JAILBREAK, type JailbreakPreset } from './presets.ts'
 
-/** 压缩摘要时 compaction-basic 会原样带上系统提示词，这段告诉模型摘要里保留什么（架构文档第 6 节）。 */
-export const MEMORY_HINT = [
-  '对话被压缩成摘要时，用中文保留以下内容：',
-  '- 角色和用户之间的称呼',
-  '- 关系进展',
-  '- 当前场景',
-  '- 尚未完成的约定',
-  '- 用户表达过的偏好',
-].join('\n')
-
 export interface QqbotContent {
   jailbreakFor(session: QqbotSession): JailbreakPreset
   /** 当前会话绑定的角色正文；没有角色时返回空串。 */

@@ -6,13 +6,13 @@ const PLUGIN_ID: string = JSON.parse(readFileSync(new URL('./package.json', impo
 
 /**
  * 两端构建，格式与 DSH 的 packages/client/tsdown.client.ts 一致：
- * - host：Node ESM，lib/index.js（登记服务）和 lib/prompt.js（预设内提示词插件）。
+ * - host：Node ESM，lib/index.js（登记服务）、lib/prompt.js（预设内提示词插件）和 lib/compaction.js（预设内压缩后端）。
  * - client：浏览器 CJS，包在 window.__ModuleLoader__ 闭包里；平台模块经注入的 require 解析。
  */
 export default [
   defineConfig({
     name: `${PLUGIN_ID}/host`,
-    entry: { index: 'src/index.ts', prompt: 'src/prompt.ts' },
+    entry: { index: 'src/index.ts', prompt: 'src/prompt.ts', compaction: 'src/compaction.ts' },
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',
@@ -20,8 +20,8 @@ export default [
     fixedExtension: false,
     dts: false,
     clean: false,
-    // 必须和宿主共用同一份 cordis（Service 基类、Context）；运行时按 peer 声明解析到宿主的包。
-    deps: { neverBundle: ['@deepseek-ai/cordis'] },
+    // 必须和宿主共用同一份 cordis（Service 基类、Context）和 compaction-basic；运行时按 peer 声明解析到宿主的包。
+    deps: { neverBundle: ['@deepseek-ai/cordis', '@deepseek-ai/dsh-compaction-basic', '@deepseek-ai/dsh-llm'] },
   }),
   defineConfig({
     name: `${PLUGIN_ID}/client`,

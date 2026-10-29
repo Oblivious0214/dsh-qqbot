@@ -101,14 +101,14 @@ describe('prompt plugin', () => {
   it('joins fixed parts in table order', async () => {
     const fake = await setup()
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).map(p => p.name))
-      .toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:memory-hint'])
-    expect(text(fake, 's1').startsWith(`所有角色均为成年人。\n\n${SEGMENT_RULE}\n\n对话被压缩成摘要时`)).toBe(true)
+      .toEqual(['qqbot:jb-head', 'qqbot:format-segment'])
+    expect(text(fake, 's1')).toBe(`所有角色均为成年人。\n\n${SEGMENT_RULE}`)
   })
 
   it('diagnostic assembly without an agent has no per-session text', async () => {
     const fake = await setup()
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, undefined, { meme: true }).map(p => p.name))
-      .toEqual(['qqbot:format-segment', 'qqbot:memory-hint'])
+      .toEqual(['qqbot:format-segment'])
     expect(text(fake)).not.toContain('成年人')
   })
 
@@ -120,17 +120,16 @@ describe('prompt plugin', () => {
     expect(assemble(['working_directory'])).not.toContain('send_meme')
     const withMeme = assemble(['send_meme'])
     expect(withMeme.indexOf(SEGMENT_RULE)).toBeLessThan(withMeme.indexOf('send_meme'))
-    expect(withMeme.indexOf('send_meme')).toBeLessThan(withMeme.indexOf('对话被压缩成摘要时'))
     expect(withMeme).toContain('表情频率：适中')
   })
 
-  it('places extensions by name between persona and memory hint, per session, following registry changes', async () => {
+  it('places extensions by name after the format rules, per session, following registry changes', async () => {
     const fake = await setup()
     const dispose = fake.qqbot.extension({ name: 'toy', text: session => session.id === 's1' ? 'TOY' : '' })
     fake.qqbot.extension({ name: 'alpha', text: 'A' })
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).map(p => p.name))
-      .toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:ext:alpha', 'qqbot:ext:toy', 'qqbot:memory-hint'])
-    expect(text(fake, 's1')).toContain('A\n\nTOY\n\n')
+      .toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:ext:alpha', 'qqbot:ext:toy'])
+    expect(text(fake, 's1').endsWith(`${SEGMENT_RULE}\n\nA\n\nTOY`)).toBe(true)
     expect(text(fake, 's2')).not.toContain('TOY')
     dispose()
     expect(text(fake, 's1')).not.toContain('TOY')

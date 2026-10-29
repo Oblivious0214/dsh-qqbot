@@ -34,6 +34,15 @@ ServeU DSH 工作区 shared/dialogue-timing/，MIT
 来源文件：src/vendor/dialogue-timing/ 原样复制，SHA-256 见该目录 README.md
 
 ------------------------------------------------------------
+DeepSeek Harness（@deepseek-ai/dsh-compaction-basic）
+https://github.com/deepseek-ai/deepseek-harness
+MIT License，版权声明见原仓库 LICENSE
+
+来源文件：
+- packages/compaction/compaction-basic/src/summarizer.ts 的 summarizeWithLlm()、finishError()、summaryText()：
+  src/compaction.ts 的 summarizeChat() 等改写自这些函数（原函数未导出），摘要指令换成中文聊天模板
+
+------------------------------------------------------------
 设计参考（未复制代码）
 
 - dsh-tavern，https://github.com/flizzywine/dsh-tavern：Agent 预设声明和隔离组压缩的写法。

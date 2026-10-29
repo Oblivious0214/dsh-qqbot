@@ -29,8 +29,9 @@
               compaction: true
               toolResultPruner: true
             config:
+              # compaction-basic 换成中文聊天摘要模板，其余行为不变（src/compaction.ts）。
               - id: compaction-basic
-                name: '@deepseek-ai/dsh-compaction-basic'
+                name: dsh-qqbot/compaction
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner

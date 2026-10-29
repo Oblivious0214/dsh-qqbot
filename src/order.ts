@@ -16,7 +16,6 @@ export const SECTION_ORDER = {
   FORMAT_MEME: 410,
   FORMAT_VOICE: 420,
   EXT: 500,
-  MEMORY_HINT: 800,
   JB_TAIL: 900,
 } as const
 
@@ -35,7 +34,6 @@ export const SECTION_NAME = {
   JB_MID: 'qqbot:jb-mid',
   FORMAT_SEGMENT: 'qqbot:format-segment',
   FORMAT_MEME: 'qqbot:format-meme',
-  MEMORY_HINT: 'qqbot:memory-hint',
   JB_TAIL: 'qqbot:jb-tail',
   EXT_PREFIX: 'qqbot:ext:',
 } as const

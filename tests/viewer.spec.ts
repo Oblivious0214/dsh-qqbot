@@ -27,14 +27,13 @@ describe('buildPromptView', () => {
       ['qqbot:jb-head', 'qqbot', undefined],
       ['qqbot:format-segment', 'qqbot', undefined],
       ['qqbot:ext:toy', 'extension', 'dsh-toy-buttplug'],
-      ['qqbot:memory-hint', 'qqbot', undefined],
     ])
   })
 
   it('shows the meme rule only when send_meme is registered for the session', () => {
     const names = (meme: boolean) => buildPromptView(input(undefined, { features: { meme } })).system.parts.map(p => p.name)
     expect(names(false)).not.toContain('qqbot:format-meme')
-    expect(names(true)).toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:format-meme', 'qqbot:memory-hint'])
+    expect(names(true)).toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:format-meme'])
   })
 
   it('compares with the last real assembly', () => {
@@ -44,10 +43,9 @@ describe('buildPromptView', () => {
     expect(buildPromptView(input(undefined, { lastPrompt: joined })).lastSent).toEqual({ state: 'same' })
     const store = new QqbotRegistryStore()
     store.extension({ name: 'toy', text: 'TOY' })
-    // 加一个外部段落后，变化从记忆说明原来的位置开始。
+    // 外部段落接在原来的末尾之后，变化从上一轮的结尾开始。
     const changed = buildPromptView(input(store, { lastPrompt: joined }))
-    const memoryHint = current.system.parts.find(p => p.name === 'qqbot:memory-hint')!
-    expect(changed.lastSent).toEqual({ state: 'changed', firstDiff: memoryHint.start, previousLength: joined.length })
+    expect(changed.lastSent).toEqual({ state: 'changed', firstDiff: joined.length, previousLength: joined.length })
   })
 
   it('lists working directory and each runtime registration with its source', () => {

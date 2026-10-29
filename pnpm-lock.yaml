@@ -56,6 +56,15 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: link:../../qqbot/src/deepseek-harness/packages/interaction/commands
         version: link:../../qqbot/src/deepseek-harness/packages/interaction/commands
+      '@deepseek-ai/dsh-compaction':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/compaction/compaction
+        version: link:../../qqbot/src/deepseek-harness/packages/compaction/compaction
+      '@deepseek-ai/dsh-compaction-basic':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/compaction/compaction-basic
+        version: link:../../qqbot/src/deepseek-harness/packages/compaction/compaction-basic
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/llm/llm
+        version: link:../../qqbot/src/deepseek-harness/packages/llm/llm
       '@deepseek-ai/dsh-system-prompt':
         specifier: link:../../qqbot/src/deepseek-harness/packages/core/system-prompt
         version: link:../../qqbot/src/deepseek-harness/packages/core/system-prompt

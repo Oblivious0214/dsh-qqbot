@@ -8,7 +8,6 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { QqbotContent } from './content.ts'
-import { MEMORY_HINT } from './content.ts'
 import { MEME_TOOL, memeRule, SEGMENT_RULE } from './format.ts'
 import type {} from './index.ts'
 import { CONTEXT_NAME, CONTEXT_ORDER, PROMPT_ORDER, SECTION_NAME, SECTION_ORDER } from './order.ts'
@@ -77,7 +76,6 @@ export function assembleParts(
       text: perSession(s => resolveText(entry.text, s)),
       ...entry.source === undefined ? {} : { source: entry.source },
     })),
-    { name: SECTION_NAME.MEMORY_HINT, order: SECTION_ORDER.MEMORY_HINT, text: MEMORY_HINT },
     { name: SECTION_NAME.JB_TAIL, order: SECTION_ORDER.JB_TAIL, text: jailbreak?.tail ?? '' },
   ]
   return parts

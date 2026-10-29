@@ -1,6 +1,6 @@
 /**
- * 角色和破限预设编辑器：一个弹窗，挂在 `shell.overlay`（全局常驻），从侧边栏"更多"菜单或提示词查看器打开。
- * 数据来自 host 的 LIBRARY_PATH；保存后下一条消息起生效。
+ * 角色、破限预设和界面设置编辑器：一个弹窗，挂在 `shell.overlay`（全局常驻），从侧边栏"更多"菜单或提示词查看器打开。
+ * 角色和预设来自 host 的 LIBRARY_PATH，保存后下一条消息起生效；界面设置和头像见 ui-editor.tsx。
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
@@ -11,6 +11,8 @@ import {
   DEFAULT_MEME_FREQUENCY, LIBRARY_PATH, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS,
   type LibraryAction, type LibraryPreset, type LibraryRole, type LibraryRoleDraft, type LibraryView,
 } from '../library-types.ts'
+import { RoleAvatarField, UiForm } from './ui-editor.tsx'
+import type { UiState } from './ui-state.ts'
 
 /** 所有样式都在这个根 class 下（CLAUDE.md 隔离原则第 3 条）。 */
 export const EDITOR_CLASS = 'dsh-qqbot-library'
@@ -39,9 +41,14 @@ export const EDITOR_CSS = `
 .${EDITOR_CLASS} .ql-state { padding: 6px 10px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-1); font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .${EDITOR_CLASS} .ql-warn { color: var(--dsw-alias-state-warn-label); }
 .${EDITOR_CLASS} .ql-empty { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.${EDITOR_CLASS} .ql-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 16px; }
+.${EDITOR_CLASS} .ql-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dsw-alias-label-primary); }
+.${EDITOR_CLASS} .ql-avatar { width: 40px; height: 40px; border-radius: 50%; corner-shape: round; object-fit: cover; flex: none; }
+.${EDITOR_CLASS} .ql-avatar-initial { display: flex; align-items: center; justify-content: center; background: var(--dsw-alias-brand-primary); color: #fff; font-weight: 600; }
+.${EDITOR_CLASS} .ql-background { height: 56px; max-width: 120px; border-radius: var(--dsw-radius-sm); object-fit: cover; }
 `
 
-export type EditorTab = 'roles' | 'presets'
+export type EditorTab = 'roles' | 'presets' | 'ui'
 
 /** 打开编辑器时要定位到的条目；id 为空时选第一个。 */
 export interface EditorTarget {
@@ -86,13 +93,14 @@ const BLANK_PRESET: LibraryPreset = { id: '', name: '', head: '', mid: '', tail:
 
 interface FormProps {
   readonly view: LibraryView
+  readonly ui: UiState
   readonly busy: boolean
   readonly onDirty: (dirty: boolean) => void
   readonly run: (action: LibraryAction) => Promise<boolean>
 }
 
 /** 角色表单。role 为空表示新建；保存成功后由父组件换 key 重新挂载。 */
-function RoleForm({ view, busy, onDirty, run, role, template, onSaved, onRemoved }: FormProps & {
+function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRemoved }: FormProps & {
   readonly role: LibraryRole | undefined
   readonly template: LibraryRoleDraft
   readonly onSaved: (id: string) => void
@@ -115,6 +123,7 @@ function RoleForm({ view, busy, onDirty, run, role, template, onSaved, onRemoved
     <Field label="名称">
       <input value={draft.name} onChange={(event) => { edit({ name: event.target.value }) }} />
     </Field>
+    <RoleAvatarField ui={ui} role={role} />
     <Field label="简介" hint="只在角色列表和 /role 里显示，不进提示词。">
       <input value={draft.description} onChange={(event) => { edit({ description: event.target.value }) }} />
     </Field>
@@ -155,7 +164,7 @@ function RoleForm({ view, busy, onDirty, run, role, template, onSaved, onRemoved
     <div className="ql-note">
       {create
         ? `保存为 ${view.rolesDir} 下的 ${draft.id === '' ? '<id>' : draft.id}/ROLE.md。`
-        : '只改名称、简介、设定和表情频率，角色文件里的其他字段（语音等）原样保留。'}
+        : '只改名称、简介、设定和表情频率，角色文件里的其他字段（语音等）原样保留。删除角色时头像一起移到回收站。'}
       {' '}保存后下一条消息起生效。正在用这个角色的会话，下一轮前缀缓存从角色设定开始失效。
     </div>
   </div>
@@ -226,7 +235,7 @@ function PresetForm({ view, busy, onDirty, run, preset, template, onSaved, onRem
 /** 列表里选中的条目：已有条目的 id，或一份还没保存的新条目。 */
 type Selection<T> = { readonly id: string } | { readonly draft: T }
 
-function LibraryDialog({ target, onClose }: { readonly target: EditorTarget; readonly onClose: () => void }) {
+function LibraryDialog({ target, ui, onClose }: { readonly target: EditorTarget; readonly ui: UiState; readonly onClose: () => void }) {
   const [view, setView] = useState<LibraryView | undefined>()
   const [loadError, setLoadError] = useState<string | undefined>()
   const [actionError, setActionError] = useState<string | undefined>()
@@ -253,6 +262,8 @@ function LibraryDialog({ target, onClose }: { readonly target: EditorTarget; rea
     setActionError(undefined)
     try {
       setView(await request(action))
+      // 名称变了头像首字跟着变，删了角色要去掉头像：让各会话重读当前角色。
+      if (action.action === 'role.save' || action.action === 'role.remove') ui.forgetRoles()
       return true
     } catch (error) {
       setActionError(messageOf(error))
@@ -260,7 +271,7 @@ function LibraryDialog({ target, onClose }: { readonly target: EditorTarget; rea
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [ui])
 
   const guard = (next: () => void) => {
     if (dirty) setPending(() => next)
@@ -272,7 +283,8 @@ function LibraryDialog({ target, onClose }: { readonly target: EditorTarget; rea
   const body = (() => {
     if (loadError !== undefined) return <div className="ql-state ql-warn">{loadError}</div>
     if (view === undefined) return <div className="ql-empty">加载中…</div>
-    const formProps = { view, busy, onDirty: setDirty, run }
+    const formProps = { view, ui, busy, onDirty: setDirty, run }
+    if (tab === 'ui') return <div className="ql-main"><UiForm ui={ui} /></div>
     if (tab === 'roles') {
       const selected = roleSel ?? (view.roles[0] === undefined ? { draft: BLANK_ROLE } : { id: view.roles[0].id })
       const role = 'id' in selected ? view.roles.find(r => r.id === selected.id) : undefined
@@ -316,7 +328,7 @@ function LibraryDialog({ target, onClose }: { readonly target: EditorTarget; rea
     </div>
   })()
 
-  return <Modal open onClose={() => { guard(onClose) }} title="角色与破限预设" closeLabel="关闭" className={EDITOR_CLASS}
+  return <Modal open onClose={() => { guard(onClose) }} title="QQ Bot 设置" closeLabel="关闭" className={EDITOR_CLASS}
     description="只用于 QQ Bot 会话。也可以直接编辑文件，打开这里或执行 /role 时重新读取。">
     <div className="ql-body">
       <div className="ql-tabs">
@@ -324,6 +336,8 @@ function LibraryDialog({ target, onClose }: { readonly target: EditorTarget; rea
           onClick={() => { if (tab !== 'roles') go(() => { setTab('roles') }) }}>角色</Button>
         <Button size="sm" variant={tab === 'presets' ? 'outline' : 'ghost'}
           onClick={() => { if (tab !== 'presets') go(() => { setTab('presets') }) }}>破限预设</Button>
+        <Button size="sm" variant={tab === 'ui' ? 'outline' : 'ghost'}
+          onClick={() => { if (tab !== 'ui') go(() => { setTab('ui') }) }}>界面</Button>
       </div>
       {pending !== undefined && <div className="ql-state ql-warn">
         <span>有没保存的改动。</span>
@@ -339,11 +353,12 @@ function LibraryDialog({ target, onClose }: { readonly target: EditorTarget; rea
 export interface LibraryEditorInjected {
   readonly hooks: { readonly editorTarget: SnapshotStore<EditorTarget | null> }
   readonly closeEditor: () => void
+  readonly ui: UiState
 }
 
 /** `shell.overlay` 里的常驻组件：没有打开时什么也不渲染。target 变化时换 key，重新加载。 */
-export function LibraryEditorHost({ useEditorTarget, closeEditor }: InjectFace<LibraryEditorInjected>) {
+export function LibraryEditorHost({ useEditorTarget, closeEditor, ui }: InjectFace<LibraryEditorInjected>) {
   const target = useEditorTarget(state => state)
   if (target === null) return null
-  return <LibraryDialog key={`${target.tab}:${target.id ?? ''}`} target={target} onClose={closeEditor} />
+  return <LibraryDialog key={`${target.tab}:${target.id ?? ''}`} target={target} ui={ui} onClose={closeEditor} />
 }

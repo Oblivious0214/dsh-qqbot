@@ -3,12 +3,15 @@
  * 标准会话原样交给 DSH 自带的渲染器。
  *
  * 计时和打断的行为迁移自 dsh-qq-skin（MIT，lispking）的 src/client/segments/，按本插件重写：
- * - 只处理 [qq] 块；没有 [qq] 块的回复原样显示（按标点自动拆分留到 QQ 界面迁移时再做）。
+ * - 只处理 [qq] 块；没有 [qq] 块的回复整条作为一个气泡显示，不按标点自动拆分。
+ *   提示词让模型"无需分段时直接正常回复"，这时就是一条消息。
+ * - 没写 durationMs 的段落按界面设置的间隔（ui-types.ts 的 segmentDelay）。
+ * - 外面包一层 REPLY_ATTRIBUTE 节点，带上当前角色的头像或首字，样式见 qq-style.ts。
  * - 历史消息直接全部显示；只有本页打开后生成的回复才按间隔逐段出现。
  * - 用户在逐段显示途中发了新消息，没显示的段落不再出现（和 QQ 里打断对方一样）。只在内存里记，刷新后完整显示。
  */
 
-import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from 'react'
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatNodeViewProps, PresentationInjected } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -16,9 +19,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { FactoryComponentPropsOf, InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Interruptions, chatActivity, submissionActivity } from '../vendor/dialogue-timing/interruptions.js'
 import { parseTimedReply, stripTimedReply, type TimedReply } from '../vendor/dialogue-timing/protocol.js'
-
-/** 没写 durationMs 的段落，间隔在这个范围里随机（毫秒）。和 dsh-qq-skin 的默认值一致。 */
-const FALLBACK_DELAY = { min: 500, max: 1500 } as const
+import { segmentDelay } from '../ui-types.ts'
+import { imageUrl, REPLY_ATTRIBUTE } from './qq-style.ts'
+import type { SessionRole, UiState } from './ui-state.ts'
 
 type ViewProps = ChatNodeViewProps<'assistant-step'> & InjectFace<PresentationInjected>
 type NativeProps = ViewProps & Pick<PropsRenderSlots<'conversation.chat.reasoning.body' | 'conversation.chat.message.images'>, 'renderSlot'>
@@ -29,23 +32,19 @@ export interface QqbotSessionFilter {
   readonly isQqbot: (sessionId: string) => boolean
 }
 
-function fallbackDelay(): number {
-  return FALLBACK_DELAY.min + Math.random() * (FALLBACK_DELAY.max - FALLBACK_DELAY.min)
-}
-
 /** 每条回复的计时。存在组件外，React 重新挂载（滚动、切换会话）后接着走，不从头开始。 */
 class ReplyClocks {
   readonly openedAt = Date.now()
   private rows = new Map<string, { source: string; start: number; deadlines: number[]; done: boolean }>()
 
   /** 返回现在该显示几段，以及多久后显示下一段（全部显示完为 null）。 */
-  project(key: string, source: string, reply: TimedReply, live: boolean): { count: number; next: number | null } {
+  project(key: string, source: string, reply: TimedReply, live: boolean, delay: (text: string) => number): { count: number; next: number | null } {
     let row = this.rows.get(key)
     if (row === undefined || row.source !== source) {
       let elapsed = 0
       const deadlines = reply.stages.map((stage) => {
         const at = elapsed
-        elapsed += stage.durationMs ?? fallbackDelay()
+        elapsed += stage.durationMs ?? delay(stage.text)
         return at
       })
       row = { source, start: Date.now(), deadlines, done: !live }
@@ -104,7 +103,17 @@ class SegmentModel {
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
-function createView(model: SegmentModel, filter: QqbotSessionFilter, Native: ComponentType<NativeProps>) {
+/** 外层节点的头像变量：有头像图片用图片，没有用角色名首字。没有角色时不显示头像。 */
+function avatarStyle(ui: UiState, role: SessionRole | undefined): CSSProperties | undefined {
+  if (role === undefined || role === null) return undefined
+  const version = ui.avatarVersion(role.id)
+  const vars: Record<string, string> = version === undefined
+    ? { '--qqbot-initial': JSON.stringify(Array.from(role.name.trim())[0] ?? '') }
+    : { '--qqbot-avatar': `url("${imageUrl('avatar', version, role.id)}")` }
+  return vars as CSSProperties
+}
+
+function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState, Native: ComponentType<NativeProps>) {
   // 包装后拿不到原渲染器的子槽位，改用 DSH 默认的内容工厂（和 dsh-qq-skin 相同）。
   const renderSlotFor = (props: ViewProps): NativeProps['renderSlot'] => (key, owner) => {
     if (key === 'conversation.chat.reasoning.body') {
@@ -116,8 +125,11 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, Native: Com
 
   function QqbotSegments(props: ViewProps) {
     useSyncExternalStore(model.subscribe, model.getVersion)
+    useSyncExternalStore(ui.subscribe, ui.getVersion)
     const data = props.node.data
     const running = data.status === 'running'
+    const role = ui.roleOf(props.sessionId)
+    useEffect(() => { ui.noteTurn(props.sessionId, data.turn) }, [props.sessionId, data.turn])
     const final = data.finalNode
     const source = data.blocks.filter(block => block.kind === 'text').map(block => block.text).join('')
     const displayKey = `${props.sessionId}:${data.turn}:${data.step}`
@@ -134,7 +146,7 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, Native: Com
     }, [source])
     const reply = decoded.reply
     const progress = reply !== null && !running
-      ? model.clocks.project(`${props.sessionId}:${final?.messageId ?? displayKey}`, source, reply, isLive)
+      ? model.clocks.project(`${props.sessionId}:${final?.messageId ?? displayKey}`, source, reply, isLive, text => segmentDelay(text, ui.settings))
       : null
 
     const [, tick] = useState(0)
@@ -160,7 +172,9 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, Native: Com
     const projected = frozen ?? blocks
     if (frozen === undefined) model.remember(displayKey, props.sessionId, projected)
     const node = projected === data.blocks ? props.node : { ...props.node, data: { ...data, blocks: projected } }
-    return createElement(Native, { ...props, node, renderSlot: renderSlotFor(props) })
+    return <div {...{ [REPLY_ATTRIBUTE]: '' }} style={avatarStyle(ui, role)}>
+      {createElement(Native, { ...props, node, renderSlot: renderSlotFor(props) })}
+    </div>
   }
 
   return function SegmentView(props: ViewProps) {
@@ -188,7 +202,7 @@ function createInputObserver(model: SegmentModel, filter: QqbotSessionFilter) {
  * 包装 DSH 自带的 assistant-step 渲染器（按它声明的子槽位认出来），插件关闭时撤掉。
  * 只认自带的那一个，不去包装别的插件的包装，避免两个插件互相重包。
  */
-export function installSegments(ctx: Context, filter: QqbotSessionFilter): void {
+export function installSegments(ctx: Context, filter: QqbotSessionFilter, ui: UiState): void {
   const model = new SegmentModel()
   ctx.effect(() => () => { model.dispose() }, 'qqbot: segment model')
 
@@ -213,7 +227,7 @@ export function installSegments(ctx: Context, filter: QqbotSessionFilter): void 
       const inject = candidate.inject as unknown as () => PresentationInjected
       remove = ctx.slots.register({
         name: 'conversation.chat.node', key: 'assistant-step', priority: -30, locale: 'chat', inject, registrant: 'dsh-qqbot',
-      }, createView(model, filter, Native))
+      }, createView(model, filter, ui, Native))
     }
     const unsubscribe = ctx.slots.subscribe('conversation.chat.node', refresh)
     refresh()

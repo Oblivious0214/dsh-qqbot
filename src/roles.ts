@@ -222,9 +222,9 @@ export class RoleLibrary {
 
   /**
    * 删除角色：移到 `<数据目录>/roles-trash/`，不真正删除文件，用户可以手动放回。
-   * 目录形式的角色整个目录一起移走（里面可能有头像等文件）。
+   * 目录形式的角色整个目录一起移走。alsoMove 用同一个时间戳把相关文件（头像）也移进回收站。
    */
-  remove(id: string): void {
+  remove(id: string, alsoMove?: (trashDir: string, stamp: string) => void): void {
     this.reload()
     const file = this.files.get(id)
     if (file === undefined) throw new Error(`没有 id 为 "${id}" 的角色`)
@@ -234,6 +234,7 @@ export class RoleLibrary {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     renameWithRetry(source, join(trash, `${stamp}-${basename(source)}`))
     this.reload()
+    alsoMove?.(trash, stamp)
   }
 
   get(id: string): Role | undefined {

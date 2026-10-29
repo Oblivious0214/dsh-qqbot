@@ -1,6 +1,6 @@
 /**
- * dsh-qqbot 浏览器端：给 qqbot 会话根节点加 data-qqbot（QQ 样式只写在它下面），
- * 在侧边栏"更多"菜单里提供"新建 QQ 会话"和"QQ 角色与破限预设"入口（不提供"设为默认"），
+ * dsh-qqbot 浏览器端：给 qqbot 会话根节点加 data-qqbot，QQ 样式（qq-style.ts）只写在它下面；
+ * 在侧边栏"更多"菜单里提供"新建 QQ 会话"和"QQ Bot 设置"入口（不提供"设为默认"），
  * 在 qqbot 会话标题栏放提示词查看器，编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复。
  */
 
@@ -16,10 +16,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { PRESET_ID } from '../view-types.ts'
 import { EDITOR_CLASS, EDITOR_CSS, LibraryEditorHost, type EditorTarget, type LibraryEditorInjected } from './library-editor.tsx'
 import { PromptViewerButton, ROOT_CLASS, VIEWER_CSS, type PromptViewerInjected } from './prompt-viewer.tsx'
+import { buildQqCss, MARK_ATTRIBUTE } from './qq-style.ts'
 import { installSegments } from './segments.tsx'
+import { UiState } from './ui-state.ts'
 
-export { PRESET_ID }
-export const MARK_ATTRIBUTE = 'data-qqbot'
+export { MARK_ATTRIBUTE, PRESET_ID }
 
 type SessionId = keyof SessionListState['byId']
 
@@ -45,7 +46,7 @@ type LibraryItemProps = PropsRuntime<'sidebar.panellist.actions'> & InjectFace<L
 
 function LibraryItem({ onDismiss, openLibrary }: LibraryItemProps) {
   return <MenuItemButton icon={<IconPersonalizationOutlineRegular size={16} />} onSelect={() => { onDismiss(); openLibrary() }}>
-    QQ 角色与破限预设
+    QQ Bot 设置
   </MenuItemButton>
 }
 
@@ -62,11 +63,31 @@ export function apply(ctx: Context): void {
     }
   }
 
+  // 界面设置、头像版本和各会话的角色；读不到时用默认设置。
+  const ui = new UiState()
+  ctx.effect(() => () => { ui.dispose() }, 'qqbot: ui state')
+  void ui.reload().catch(() => {})
+
+  // QQ 样式：规则都在 [data-qqbot] 下，设置变了整份重写。插件关闭时移除。
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.dataset['qqbotStyle'] = MARK_ATTRIBUTE
+    let css = ''
+    const render = () => {
+      const next = buildQqCss(ui.settings, ui.background)
+      if (next !== css) style.textContent = css = next
+    }
+    render()
+    document.head.append(style)
+    const stop = ui.subscribe(render)
+    return () => { stop(); style.remove() }
+  }, 'qqbot: qq style')
+
   // [qq] 分段只在 qqbot 会话里显示，标准会话交给 DSH 自带的渲染器。
   installSegments(ctx, {
     subscribe: listener => ctx.sessions.list.subscribe(listener),
     isQqbot: sessionId => presetOf(sessionId) === PRESET_ID,
-  })
+  }, ui)
 
   ctx.effect(() => {
     const observer = new MutationObserver(sync)
@@ -103,13 +124,13 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'qqbot-library-editor',
-    inject: (): LibraryEditorInjected => ({ hooks: { editorTarget }, closeEditor }),
+    inject: (): LibraryEditorInjected => ({ hooks: { editorTarget }, closeEditor, ui }),
   }, LibraryEditorHost))
 
   // 查看器和编辑器的样式分别在 ROOT_CLASS、EDITOR_CLASS 下；插件关闭时移除。
   ctx.effect(() => {
     const style = document.createElement('style')
-    style.dataset['qqbot'] = `${ROOT_CLASS} ${EDITOR_CLASS}`
+    style.dataset['qqbotStyle'] = `${ROOT_CLASS} ${EDITOR_CLASS}`
     style.textContent = VIEWER_CSS + EDITOR_CSS
     document.head.append(style)
     return () => { style.remove() }

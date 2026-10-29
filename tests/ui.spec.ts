@@ -1,0 +1,136 @@
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { SessionBindings } from '../src/bindings.ts'
+import { buildQqCss } from '../src/client/qq-style.ts'
+import { QqbotData } from '../src/content.ts'
+import { applyLibraryAction } from '../src/library.ts'
+import { JailbreakStore } from '../src/presets.ts'
+import { RoleLibrary } from '../src/roles.ts'
+import { applyUiAction, BadRequest, decodeImage, imageResponse, UiStore, uiView } from '../src/ui.ts'
+import { DEFAULT_UI_SETTINGS, IMAGE_PATH, segmentDelay } from '../src/ui-types.ts'
+
+function setup() {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-qqbot-ui-'))
+  const warn = () => {}
+  const data = new QqbotData(new RoleLibrary(join(dir, 'roles'), warn), SessionBindings.at(dir, warn), JailbreakStore.at(dir, warn), warn)
+  data.roles.save({ id: 'alice', name: '爱丽丝', description: '', persona: '设定。' }, true)
+  return { dir, data, ui: new UiStore(dir, warn) }
+}
+
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
+const JPEG = Buffer.from('ffd8ffe000104a464946', 'hex')
+const dataUrl = (type: string, bytes: Buffer) => `data:image/${type};base64,${bytes.toString('base64')}`
+
+describe('ui settings', () => {
+  it('uses defaults without a file and saves validated settings', () => {
+    const { dir, data, ui } = setup()
+    expect(uiView(data, ui, undefined).settings).toEqual(DEFAULT_UI_SETTINGS)
+    applyUiAction(data, ui, { action: 'settings.save', settings: { ...DEFAULT_UI_SETTINGS, palette: 'green', chatMaxWidth: 1000.4 } })
+    expect(new UiStore(dir, () => {}).settings).toMatchObject({ palette: 'green', chatMaxWidth: 1000 })
+  })
+
+  it('rejects invalid settings', () => {
+    const { data, ui } = setup()
+    expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { ...DEFAULT_UI_SETTINGS, palette: 'pink' } })).toThrow(BadRequest)
+    expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { ...DEFAULT_UI_SETTINGS, intervalMax: 11 } })).toThrow('最长间隔')
+    expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { palette: 'green' } })).toThrow(BadRequest)
+  })
+
+  it('keeps the valid fields of a hand-edited file', () => {
+    const { dir } = setup()
+    writeFileSync(join(dir, 'ui.json'), JSON.stringify({ palette: 'black', chatMaxWidth: 'wide', bubbleTail: false }))
+    expect(new UiStore(dir, () => {}).settings).toEqual({ ...DEFAULT_UI_SETTINGS, palette: 'black', bubbleTail: false })
+  })
+
+  it('reports the session role only when asked', () => {
+    const { data, ui } = setup()
+    expect(uiView(data, ui, undefined).session).toBeUndefined()
+    expect(uiView(data, ui, 's1').session).toEqual({ role: null })
+    data.bindings.set('s1', 'alice')
+    expect(uiView(data, ui, 's1').session).toEqual({ role: { id: 'alice', name: '爱丽丝' } })
+  })
+})
+
+describe('images', () => {
+  it('checks the file signature, not the declared type', () => {
+    expect(decodeImage(dataUrl('png', PNG), 1024).type).toBe('png')
+    expect(() => decodeImage(dataUrl('png', JPEG), 1024)).toThrow('不符')
+    expect(() => decodeImage(dataUrl('svg+xml', PNG), 1024)).toThrow('只支持')
+    expect(() => decodeImage(dataUrl('png', PNG), 4)).toThrow('太大')
+  })
+
+  it('stores one avatar per role and serves it', async () => {
+    const { dir, data, ui } = setup()
+    expect(() => applyUiAction(data, ui, { action: 'avatar.set', role: 'bob', data: dataUrl('png', PNG) })).toThrow('没有')
+    expect(() => applyUiAction(data, ui, { action: 'avatar.set', role: '../x', data: dataUrl('png', PNG) })).toThrow(BadRequest)
+    applyUiAction(data, ui, { action: 'avatar.set', role: 'alice', data: dataUrl('png', PNG) })
+    applyUiAction(data, ui, { action: 'avatar.set', role: 'alice', data: dataUrl('jpeg', JPEG) })
+    expect(readdirSync(join(dir, 'images', 'avatars'))).toEqual(['alice.jpeg'])
+    expect(Object.keys(uiView(data, ui, undefined).avatars)).toEqual(['alice'])
+
+    const response = imageResponse(ui, new Request(`http://x${IMAGE_PATH}?kind=avatar&role=alice&v=1`))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/jpeg')
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(JPEG)
+    expect(imageResponse(ui, new Request(`http://x${IMAGE_PATH}?kind=avatar&role=bob`)).status).toBe(404)
+    expect(imageResponse(ui, new Request(`http://x${IMAGE_PATH}?kind=avatar&role=..%2Fui`)).status).toBe(400)
+    expect(imageResponse(ui, new Request(`http://x${IMAGE_PATH}?kind=file`)).status).toBe(400)
+
+    applyUiAction(data, ui, { action: 'avatar.remove', role: 'alice' })
+    expect(uiView(data, ui, undefined).avatars).toEqual({})
+  })
+
+  it('sets and removes the background', () => {
+    const { data, ui } = setup()
+    applyUiAction(data, ui, { action: 'background.set', data: dataUrl('jpeg', JPEG) })
+    expect(uiView(data, ui, undefined).background).toBeTypeOf('number')
+    applyUiAction(data, ui, { action: 'background.remove' })
+    expect(uiView(data, ui, undefined).background).toBeUndefined()
+  })
+
+  it('moves the avatar to the trash with its role', () => {
+    const { dir, data, ui } = setup()
+    applyUiAction(data, ui, { action: 'avatar.set', role: 'alice', data: dataUrl('png', PNG) })
+    applyLibraryAction(data, { action: 'role.remove', id: 'alice' }, ui)
+    expect(existsSync(join(dir, 'images', 'avatars', 'alice.png'))).toBe(false)
+    const trash = readdirSync(join(dir, 'roles-trash'))
+    expect(trash).toHaveLength(2)
+    expect(trash.find(name => name.endsWith('-alice.avatar.png'))).toBeDefined()
+  })
+})
+
+describe('segment delay', () => {
+  it('picks between min and max for random', () => {
+    const settings = { ...DEFAULT_UI_SETTINGS, intervalMin: 2, intervalMax: 1 }
+    expect(segmentDelay('x', settings, 0)).toBe(1000)
+    expect(segmentDelay('x', settings, 0.5)).toBe(1500)
+  })
+
+  it('grows with length for log and caps at 10 seconds', () => {
+    const settings = { ...DEFAULT_UI_SETTINGS, intervalMethod: 'log' as const }
+    expect(segmentDelay('好的', settings, 0)).toBeLessThan(segmentDelay('今天下班以后我们一起去江边看烟花吧', settings, 0))
+    expect(segmentDelay('字'.repeat(100000), { ...settings, logBase: 1.1 }, 1)).toBe(10000)
+  })
+})
+
+describe('qq style', () => {
+  it('scopes every rule under [data-qqbot]', () => {
+    const css = buildQqCss({ ...DEFAULT_UI_SETTINGS, avatars: true, bubbleTail: true, immersive: true }, 1)
+    // 去掉 @keyframes 块和 @media 外壳，剩下的每条规则的每个选择器都要在 qqbot 节点下。
+    const flat = css.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '').replace(/@media[^{]*\{/g, '')
+    const selectors = [...flat.matchAll(/([^{}]+)\{[^{}]*\}/g)].flatMap(match => match[1]!.split(','))
+      .map(selector => selector.replace(/\/\*[\s\S]*?\*\//g, '').trim()).filter(Boolean)
+    expect(selectors.length).toBeGreaterThan(20)
+    for (const selector of selectors) expect(selector).toMatch(/^(?:body\[data-ds-dark-theme\] )?\[data-qqbot\]/)
+  })
+
+  it('follows the switches', () => {
+    expect(buildQqCss({ ...DEFAULT_UI_SETTINGS, avatars: false }, undefined)).not.toContain('--qqbot-initial')
+    expect(buildQqCss({ ...DEFAULT_UI_SETTINGS, immersive: false }, undefined)).not.toContain("turn-process'")
+    expect(buildQqCss(DEFAULT_UI_SETTINGS, undefined)).not.toContain('background-image')
+    expect(buildQqCss(DEFAULT_UI_SETTINGS, 5)).toContain('kind=background&v=5')
+    expect(buildQqCss({ ...DEFAULT_UI_SETTINGS, palette: 'green' }, undefined)).toContain('#95EC69')
+  })
+})

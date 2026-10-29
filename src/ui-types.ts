@@ -1,0 +1,115 @@
+/**
+ * QQ 界面设置和图片接口的约定，host 和浏览器端共用。不 import 任何东西，两端都能直接打包。
+ * 设置存 `<DSH_HOME>/qqbot/ui.json`，图片存 `<DSH_HOME>/qqbot/images/`。
+ */
+
+/** GET 读设置和图片版本，POST 提交一个操作；`?session=<id>` 时顺带返回这个会话当前的角色。 */
+export const UI_PATH = '/api/qqbot/ui'
+/** GET `?kind=avatar&role=<id>` 或 `?kind=background`，返回图片本身。 */
+export const IMAGE_PATH = '/api/qqbot/image'
+
+/** 色板来自 dsh-qq-skin：经典蓝、炫彩紫、简洁白、经典绿气泡、深空黑。 */
+export const PALETTES = ['classic', 'vivid', 'clean', 'green', 'black'] as const
+export type Palette = typeof PALETTES[number]
+
+export const PALETTE_LABELS: Record<Palette, string> = {
+  classic: '经典蓝',
+  vivid: '炫彩紫',
+  clean: '简洁白',
+  green: '经典绿气泡',
+  black: '深空黑',
+}
+
+export const BACKGROUND_FITS = ['cover', 'contain', 'fill'] as const
+export type BackgroundFit = typeof BACKGROUND_FITS[number]
+
+export const BACKGROUND_FIT_LABELS: Record<BackgroundFit, string> = {
+  cover: '铺满裁切',
+  contain: '完整显示',
+  fill: '拉伸',
+}
+
+export const INTERVAL_METHODS = ['random', 'log'] as const
+export type IntervalMethod = typeof INTERVAL_METHODS[number]
+
+export interface UiSettings {
+  readonly palette: Palette
+  /** 用户气泡右侧的小尾巴。 */
+  readonly bubbleTail: boolean
+  /** 角色消息左侧的头像。 */
+  readonly avatars: boolean
+  /** 聊天区最大宽度（px）。 */
+  readonly chatMaxWidth: number
+  /** 隐藏工具调用过程和回合统计，只留消息和时间。 */
+  readonly immersive: boolean
+  readonly backgroundFit: BackgroundFit
+  /**
+   * 没写 durationMs 的段落怎么算间隔。random：在最短和最长之间随机；
+   * log：按字数取对数（字数越多停得越久，最多 10 秒），参考 AstrBot 的分段间隔。
+   */
+  readonly intervalMethod: IntervalMethod
+  /** 秒。 */
+  readonly intervalMin: number
+  readonly intervalMax: number
+  readonly logBase: number
+}
+
+/** 默认值和 dsh-qq-skin 一致。 */
+export const DEFAULT_UI_SETTINGS: UiSettings = {
+  palette: 'classic',
+  bubbleTail: true,
+  avatars: true,
+  chatMaxWidth: 880,
+  immersive: true,
+  backgroundFit: 'cover',
+  intervalMethod: 'random',
+  intervalMin: 0.5,
+  intervalMax: 1.5,
+  logBase: 2.6,
+}
+
+export const UI_LIMITS = {
+  chatMaxWidth: { min: 480, max: 1600 },
+  interval: { min: 0, max: 10 },
+  logBase: { min: 1.1, max: 10 },
+} as const
+
+/** 图片版本号（保存时的毫秒时间戳），拼进图片地址，换图后浏览器不会用旧缓存。 */
+export interface UiView {
+  readonly settings: UiSettings
+  readonly background?: number
+  /** 角色 id → 头像版本。 */
+  readonly avatars: Readonly<Record<string, number>>
+  /** 带 `?session=` 请求时才有：这个会话当前的角色，没有角色时为 null。 */
+  readonly session?: { readonly role: { readonly id: string; readonly name: string } | null }
+}
+
+export type UiAction =
+  | { readonly action: 'settings.save'; readonly settings: UiSettings }
+  /** data 是 `data:image/png|jpeg|webp;base64,...`。 */
+  | { readonly action: 'avatar.set'; readonly role: string; readonly data: string }
+  | { readonly action: 'avatar.remove'; readonly role: string }
+  | { readonly action: 'background.set'; readonly data: string }
+  | { readonly action: 'background.remove' }
+
+export interface UiError {
+  readonly error: 'bad-request' | 'failed' | 'not-found'
+  readonly message: string
+}
+
+/** 浏览器端压缩后的尺寸上限；host 再按字节数兜底。 */
+export const AVATAR_SIZE = 256
+export const BACKGROUND_MAX_EDGE = 1920
+export const IMAGE_BYTE_LIMIT = { avatar: 1024 * 1024, background: 8 * 1024 * 1024 } as const
+
+/** 没写 durationMs 的段落等多久（毫秒）。random 传 [0,1) 的随机数，测试时可以固定。 */
+export function segmentDelay(text: string, settings: UiSettings, random = Math.random()): number {
+  if (settings.intervalMethod === 'log') {
+    const ascii = /^[\x00-\x7f]*$/.test(text)
+    const units = ascii ? text.trim().split(/\s+/).filter(Boolean).length : (text.match(/[\p{L}\p{N}]/gu) ?? []).length
+    return Math.min(10, Math.log(units + 1) / Math.log(settings.logBase) + random * 0.5) * 1000
+  }
+  const min = Math.min(settings.intervalMin, settings.intervalMax)
+  const max = Math.max(settings.intervalMin, settings.intervalMax)
+  return (min + random * (max - min)) * 1000
+}

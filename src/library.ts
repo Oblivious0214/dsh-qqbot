@@ -9,6 +9,7 @@ import type { QqbotData } from './content.ts'
 import type {} from './index.ts'
 import { LIBRARY_PATH, type LibraryError, type LibraryView } from './library-types.ts'
 import { isRecord } from './storage.ts'
+import type { UiStore } from './ui.ts'
 
 export const name = 'qqbot-library'
 
@@ -60,7 +61,7 @@ function requireRole(data: QqbotData, id: string): void {
 }
 
 /** 执行一个操作。格式错误抛 BadRequest，操作失败（重名、找不到、写不了盘）抛 Error。 */
-export function applyLibraryAction(data: QqbotData, body: unknown): void {
+export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore): void {
   if (!isRecord(body)) throw new BadRequest('请求格式无效')
   switch (body['action']) {
     case 'role.save':
@@ -68,7 +69,8 @@ export function applyLibraryAction(data: QqbotData, body: unknown): void {
       return
     case 'role.remove':
       // 会话绑定、默认角色和预设选择都留着：角色卡放回来就恢复。没有角色的会话按无角色运行。
-      data.roles.remove(text(body, 'id'))
+      // 头像跟着移到回收站：之后新建同 id 的角色不会继承旧头像。
+      data.roles.remove(text(body, 'id'), (trash, stamp) => { ui?.trashAvatar(text(body, 'id'), trash, stamp) })
       return
     case 'role.default': {
       const id = optionalText(body, 'id')
@@ -131,7 +133,7 @@ export function apply(ctx: Context): void {
           return fail(400, 'bad-request', '请求不是有效的 JSON')
         }
         try {
-          applyLibraryAction(data, body)
+          applyLibraryAction(data, body, ctx.qqbot.ui)
         } catch (error) {
           if (error instanceof BadRequest) return fail(400, 'bad-request', error.message)
           return fail(409, 'failed', error instanceof Error ? error.message : String(error))

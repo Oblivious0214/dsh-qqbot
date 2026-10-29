@@ -26,6 +26,9 @@ importers:
       '@deepseek-ai/dsh-client-store':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/store
         version: link:../../qqbot/src/deepseek-harness/packages/client/store
+      '@deepseek-ai/dsh-client-ui-chat':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-chat
+        version: link:../../qqbot/src/deepseek-harness/packages/client/ui-chat
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-conversation
         version: link:../../qqbot/src/deepseek-harness/packages/client/ui-conversation
@@ -38,6 +41,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-renderer':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-renderer
         version: link:../../qqbot/src/deepseek-harness/packages/client/ui-renderer
+      '@deepseek-ai/dsh-client-ui-session':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-session
+        version: link:../../qqbot/src/deepseek-harness/packages/client/ui-session
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-sidebar
         version: link:../../qqbot/src/deepseek-harness/packages/client/ui-sidebar
@@ -53,6 +59,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: link:../../qqbot/src/deepseek-harness/packages/core/system-prompt
         version: link:../../qqbot/src/deepseek-harness/packages/core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/core/tools
+        version: link:../../qqbot/src/deepseek-harness/packages/core/tools
       '@deepseek-ai/dsh-working-directory':
         specifier: link:../../qqbot/src/deepseek-harness/packages/session/working-directory
         version: link:../../qqbot/src/deepseek-harness/packages/session/working-directory

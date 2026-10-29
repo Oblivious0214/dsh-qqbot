@@ -8,7 +8,7 @@ import { Button, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  LIBRARY_PATH,
+  DEFAULT_MEME_FREQUENCY, LIBRARY_PATH, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS,
   type LibraryAction, type LibraryPreset, type LibraryRole, type LibraryRoleDraft, type LibraryView,
 } from '../library-types.ts'
 
@@ -121,6 +121,16 @@ function RoleForm({ view, busy, onDirty, run, role, template, onSaved, onRemoved
     <Field label="角色设定" hint="设定、性格、说话方式、示例对话。通用规则（例如成年人声明）写在破限预设里，不用在这里重复。">
       <textarea rows={14} value={draft.persona} onChange={(event) => { edit({ persona: event.target.value }) }} />
     </Field>
+    <Field label="表情频率" hint="装了 dsh-meme 时生效。随角色保存，改动让这个角色的会话下一轮从表情规则开始缓存失效。">
+      <select value={draft.memeFrequency ?? ''} onChange={(event) => {
+        const value = MEME_FREQUENCIES.find(f => f === event.target.value)
+        setDraft(({ memeFrequency: _, ...rest }) => value === undefined ? rest : { ...rest, memeFrequency: value })
+        onDirty(true)
+      }}>
+        <option value="">默认（{MEME_FREQUENCY_LABELS[DEFAULT_MEME_FREQUENCY]}）</option>
+        {MEME_FREQUENCIES.map(f => <option key={f} value={f}>{MEME_FREQUENCY_LABELS[f]}</option>)}
+      </select>
+    </Field>
     {!create && <Field label="破限预设" hint="改了立即保存。">
       <select value={role.preset ?? ''} disabled={busy}
         onChange={(event) => { void run({ action: 'role.preset', id: role.id, ...event.target.value === '' ? {} : { preset: event.target.value } }) }}>
@@ -145,7 +155,7 @@ function RoleForm({ view, busy, onDirty, run, role, template, onSaved, onRemoved
     <div className="ql-note">
       {create
         ? `保存为 ${view.rolesDir} 下的 ${draft.id === '' ? '<id>' : draft.id}/ROLE.md。`
-        : '只改名称、简介和设定，角色文件里的其他字段（语音、表情偏好等）原样保留。'}
+        : '只改名称、简介、设定和表情频率，角色文件里的其他字段（语音等）原样保留。'}
       {' '}保存后下一条消息起生效。正在用这个角色的会话，下一轮前缀缓存从角色设定开始失效。
     </div>
   </div>

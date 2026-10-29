@@ -6,8 +6,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-tools'
 import type { QqbotContent } from './content.ts'
 import { MEMORY_HINT } from './content.ts'
+import { MEME_TOOL, memeRule, SEGMENT_RULE } from './format.ts'
 import type {} from './index.ts'
 import { CONTEXT_NAME, CONTEXT_ORDER, PROMPT_ORDER, SECTION_NAME, SECTION_ORDER } from './order.ts'
 import { resolveText, type QqbotRegistryStore, type QqbotSession } from './registry.ts'
@@ -28,23 +30,47 @@ export interface PromptPart {
 /** 各段之间的分隔，和 DSH 拼接 section 时一致（system-prompt 的 renderPrompt）。 */
 export const PART_SEPARATOR = '\n\n'
 
+/** 本轮组装时宿主环境的情况：哪些按工具在场才输出的规则要出现。 */
+export interface PromptFeatures {
+  /** 本会话能用 dsh-meme 的 send_meme。 */
+  readonly meme: boolean
+}
+
+const NO_FEATURES: PromptFeatures = { meme: false }
+
 /** 诊断性组装没有 agent，此时所有按会话求值的内容都为空。 */
 function sessionOf(context: AssembleContext): QqbotSession | undefined {
   const id = context.agent?.id
   return id === undefined ? undefined : { id }
 }
 
+/** 真实组装带着本步放行的工具集；send_meme 不在里面（没装 dsh-meme、被关掉）时不写表情规则。 */
+function featuresOf(context: AssembleContext): PromptFeatures {
+  return { meme: context.toolSet?.view(context.scope).has(MEME_TOOL) === true }
+}
+
 /**
  * 按 SECTION_ORDER 列出本会话的各段，去掉空段。同 order 按名称排序，和 DSH 的 section 排序规则一致。
  * session 为空时只剩不按会话求值的段落。
  */
-export function assembleParts(content: QqbotContent, store: QqbotRegistryStore, session: QqbotSession | undefined): PromptPart[] {
+export function assembleParts(
+  content: QqbotContent,
+  store: QqbotRegistryStore,
+  session: QqbotSession | undefined,
+  features: PromptFeatures = NO_FEATURES,
+): PromptPart[] {
   const perSession = (read: (session: QqbotSession) => string) => session === undefined ? '' : read(session)
   const jailbreak = session === undefined ? undefined : content.jailbreakFor(session)
   const parts: PromptPart[] = [
     { name: SECTION_NAME.JB_HEAD, order: SECTION_ORDER.JB_HEAD, text: jailbreak?.head ?? '' },
     { name: SECTION_NAME.PERSONA, order: SECTION_ORDER.PERSONA, text: perSession(s => content.personaFor(s)) },
     { name: SECTION_NAME.JB_MID, order: SECTION_ORDER.JB_MID, text: jailbreak?.mid ?? '' },
+    { name: SECTION_NAME.FORMAT_SEGMENT, order: SECTION_ORDER.FORMAT_SEGMENT, text: SEGMENT_RULE },
+    {
+      name: SECTION_NAME.FORMAT_MEME,
+      order: SECTION_ORDER.FORMAT_MEME,
+      text: features.meme ? perSession(s => memeRule(content.memeFrequencyFor(s))) : '',
+    },
     ...store.snapshot().extensions.map(entry => ({
       name: `${SECTION_NAME.EXT_PREFIX}${entry.name}`,
       order: SECTION_ORDER.EXT,
@@ -83,7 +109,7 @@ export function apply(ctx: Context): void {
       const session = sessionOf(context)
       // 只有 agent-loop 的真实组装带 agent（agent-loop/src/agent.ts）。新会话在这里定下角色，之后改默认角色不影响它。
       if (session !== undefined) content.settle(session)
-      const text = assembleParts(content, store, session).map(part => part.text).join(PART_SEPARATOR)
+      const text = assembleParts(content, store, session, featuresOf(context)).map(part => part.text).join(PART_SEPARATOR)
       // 这份记录就是发给模型的系统提示词。
       if (context.agent !== undefined) lastPrompt.set(context.agent, text)
       return text

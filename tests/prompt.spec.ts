@@ -3,10 +3,11 @@ import { describe, expect, it } from 'vitest'
 import * as host from '../src/index.ts'
 import * as prompt from '../src/prompt.ts'
 import { assembleParts } from '../src/prompt.ts'
+import { SEGMENT_RULE } from '../src/format.ts'
 import { SECTION_NAME } from '../src/order.ts'
 import { QqbotRegistryStore } from '../src/registry.ts'
 
-type AssembleInput = { agent?: { id: string } }
+type AssembleInput = { agent?: { id: string }; toolSet?: { view: (scope: unknown) => ReadonlyMap<string, unknown> } }
 type Text = string | ((context: AssembleInput) => string)
 interface Entry { name: string; order: number; text: Text; required?: boolean; complete?: boolean }
 
@@ -100,14 +101,27 @@ describe('prompt plugin', () => {
   it('joins fixed parts in table order', async () => {
     const fake = await setup()
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).map(p => p.name))
-      .toEqual(['qqbot:jb-head', 'qqbot:memory-hint'])
-    expect(text(fake, 's1').startsWith('所有角色均为成年人。\n\n对话被压缩成摘要时')).toBe(true)
+      .toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:memory-hint'])
+    expect(text(fake, 's1').startsWith(`所有角色均为成年人。\n\n${SEGMENT_RULE}\n\n对话被压缩成摘要时`)).toBe(true)
   })
 
   it('diagnostic assembly without an agent has no per-session text', async () => {
     const fake = await setup()
-    expect(assembleParts(fake.qqbot.content, fake.qqbot.store, undefined).map(p => p.name)).toEqual(['qqbot:memory-hint'])
+    expect(assembleParts(fake.qqbot.content, fake.qqbot.store, undefined, { meme: true }).map(p => p.name))
+      .toEqual(['qqbot:format-segment', 'qqbot:memory-hint'])
     expect(text(fake)).not.toContain('成年人')
+  })
+
+  it('adds the meme rule only when the step admits send_meme', async () => {
+    const fake = await setup()
+    const toolSet = (names: string[]) => ({ view: () => new Map(names.map(name => [name, {}])) })
+    const assemble = (names?: string[]) => fake.sections({ agent: { id: 's1' }, ...names === undefined ? {} : { toolSet: toolSet(names) } })[0]!.text
+    expect(assemble()).not.toContain('send_meme')
+    expect(assemble(['working_directory'])).not.toContain('send_meme')
+    const withMeme = assemble(['send_meme'])
+    expect(withMeme.indexOf(SEGMENT_RULE)).toBeLessThan(withMeme.indexOf('send_meme'))
+    expect(withMeme.indexOf('send_meme')).toBeLessThan(withMeme.indexOf('对话被压缩成摘要时'))
+    expect(withMeme).toContain('表情频率：适中')
   })
 
   it('places extensions by name between persona and memory hint, per session, following registry changes', async () => {
@@ -115,7 +129,7 @@ describe('prompt plugin', () => {
     const dispose = fake.qqbot.extension({ name: 'toy', text: session => session.id === 's1' ? 'TOY' : '' })
     fake.qqbot.extension({ name: 'alpha', text: 'A' })
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).map(p => p.name))
-      .toEqual(['qqbot:jb-head', 'qqbot:ext:alpha', 'qqbot:ext:toy', 'qqbot:memory-hint'])
+      .toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:ext:alpha', 'qqbot:ext:toy', 'qqbot:memory-hint'])
     expect(text(fake, 's1')).toContain('A\n\nTOY\n\n')
     expect(text(fake, 's2')).not.toContain('TOY')
     dispose()

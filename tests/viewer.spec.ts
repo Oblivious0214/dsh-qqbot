@@ -9,7 +9,10 @@ import { QqbotRegistryStore } from '../src/registry.ts'
 const session = { id: 's1' }
 
 function input(store = new QqbotRegistryStore(), overrides: Partial<Parameters<typeof buildPromptView>[0]> = {}) {
-  return { session, content: createDefaultContent(), store, lastPrompt: undefined, workingDirectory: undefined, tools: [], ...overrides }
+  return {
+    session, content: createDefaultContent(), store, lastPrompt: undefined, workingDirectory: undefined, tools: [],
+    features: { meme: false }, ...overrides,
+  }
 }
 
 describe('buildPromptView', () => {
@@ -22,9 +25,16 @@ describe('buildPromptView', () => {
     for (const part of view.system.parts) expect(joined.slice(part.start, part.start + part.text.length)).toBe(part.text)
     expect(view.system.parts.map(p => [p.name, p.owner, p.source])).toEqual([
       ['qqbot:jb-head', 'qqbot', undefined],
+      ['qqbot:format-segment', 'qqbot', undefined],
       ['qqbot:ext:toy', 'extension', 'dsh-toy-buttplug'],
       ['qqbot:memory-hint', 'qqbot', undefined],
     ])
+  })
+
+  it('shows the meme rule only when send_meme is registered for the session', () => {
+    const names = (meme: boolean) => buildPromptView(input(undefined, { features: { meme } })).system.parts.map(p => p.name)
+    expect(names(false)).not.toContain('qqbot:format-meme')
+    expect(names(true)).toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:format-meme', 'qqbot:memory-hint'])
   })
 
   it('compares with the last real assembly', () => {
@@ -36,7 +46,8 @@ describe('buildPromptView', () => {
     store.extension({ name: 'toy', text: 'TOY' })
     // 加一个外部段落后，变化从记忆说明原来的位置开始。
     const changed = buildPromptView(input(store, { lastPrompt: joined }))
-    expect(changed.lastSent).toEqual({ state: 'changed', firstDiff: current.system.parts[1]!.start, previousLength: joined.length })
+    const memoryHint = current.system.parts.find(p => p.name === 'qqbot:memory-hint')!
+    expect(changed.lastSent).toEqual({ state: 'changed', firstDiff: memoryHint.start, previousLength: joined.length })
   })
 
   it('lists working directory and each runtime registration with its source', () => {
@@ -54,8 +65,9 @@ describe('buildPromptView', () => {
 describe('prompt view route', () => {
   type Route = { path: string; fetch: (request: Request) => Promise<Response> }
 
-  async function mount(presets: Record<string, string>) {
+  async function mount(presets: Record<string, string>, tools?: string[]) {
     const root = new Context()
+    if (tools !== undefined) root.provide('tools', { get: (name: string) => tools.includes(name) ? {} : undefined })
     const routes = new Map<string, Route>()
     const agents = new Map(Object.keys(presets).map(id => [id, {
       id,
@@ -81,6 +93,12 @@ describe('prompt view route', () => {
     expect(ok.status).toBe(200)
     expect(ok.body.tools.map(t => t.name)).toEqual(['working_directory'])
     expect(ok.body.system.parts[0]?.text).toBe('所有角色均为成年人。')
+  })
+
+  it('predicts the meme rule from the registered tools', async () => {
+    const names = async (tools?: string[]) => (await (await mount({ q: 'qqbot' }, tools)).get('?session=q')).body.system.parts.map(p => p.name)
+    expect(await names()).not.toContain('qqbot:format-meme')
+    expect(await names(['send_meme'])).toContain('qqbot:format-meme')
   })
 
   it('removes the route with the plugin', async () => {

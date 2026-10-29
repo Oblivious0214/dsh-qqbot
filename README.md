@@ -2,7 +2,7 @@
 
 在 DeepSeek Harness（DSH）里做 QQ 聊天式角色扮演。插件注册一个独立的 `qqbot` Agent 预设，所有提示词、界面和压缩都只在这个预设的会话里生效；关闭或卸载插件后，DSH 和没装过一样。
 
-当前是 0.1.0 开发版：有预设、提示词槽位、入口、提示词查看器、角色库、`/role` 命令，以及角色和破限预设编辑器。QQ 界面、分段、表情和语音规则还在迁移。
+当前是 0.1.0 开发版：有预设、提示词槽位、入口、提示词查看器、角色库、`/role` 命令、角色和破限预设编辑器、分段回复和表情规则。QQ 界面和语音还在迁移。
 
 ## 使用
 
@@ -35,11 +35,30 @@ description: 同居室友
 
 改了角色卡文件后，执行一次 `/role` 就会重新读取。会话的角色在第一条消息时定下来，记在 `qqbot/sessions.json`，重启后保留。
 
+### 分段回复
+
+QQ Bot 会话里，模型用一个 `[qq]` 块把回复分成几段，界面按每段的 `durationMs` 依次显示，像对方一条条发消息。格式见 `src/vendor/dialogue-timing/protocol.js` 的 `SEGMENT_PROMPT`。
+
+- 只有本页打开后生成的回复才逐段出现；历史消息直接全部显示。系统设置了"减少动态效果"时也直接全部显示。
+- 逐段显示途中你发了新消息，没出现的段落就不再出现。这只记在页面内存里，刷新后完整显示。
+- `[qq]` 块格式不对时显示"分段回复格式无效，请让 AI 重试"。没有 `[qq]` 块的回复原样显示。
+- 标准会话不处理 `[qq]` 块。
+
+### 表情
+
+装了 [dsh-meme](https://github.com/yyh-001/dsh-meme) 时，QQ Bot 会话的系统提示词里有一段表情规则：用 `send_meme` 找图、一次最多一张，以及当前角色的表情频率。dsh-meme 自己的"斗图规则"不进 QQ Bot 会话，发送方式（Web 标记、纯文字模式等）仍按 dsh-meme 的设置和工具说明。没装或关掉 dsh-meme 时这段不出现。
+
+表情频率写在角色卡 frontmatter 里，也可以在编辑器里选：
+
+```md
+memeFrequency: low   # low 低 / medium 适中 / high 高 / off 不主动发；不写时为适中
+```
+
 ### 角色与破限预设编辑器
 
 侧边栏"更多"菜单 → **QQ 角色与破限预设**；或在提示词查看器里点角色、破限预设段落旁的"编辑"。
 
-- 角色：新建、修改名称/简介/设定、删除、设为新会话默认、单独选破限预设。修改只换这几个字段，角色文件里的语音、表情偏好等其他字段原样保留。删除的角色移到 `qqbot/roles-trash/`，放回 `roles/` 就恢复。
+- 角色：新建、修改名称/简介/设定/表情频率、删除、设为新会话默认、单独选破限预设。修改只换这几个字段，角色文件里的语音等其他字段原样保留。删除的角色移到 `qqbot/roles-trash/`，放回 `roles/` 就恢复。
 - 破限预设：一份预设有开头、中间、结尾三段，分别放在系统提示词最前、角色设定之后、最后。可以新建、复制、修改、删除（至少留一份）、设为默认。没有单独选择的角色和无角色会话用默认预设。
 - 保存后下一条消息起生效。改动会让用到它的会话下一轮的前缀缓存从改动处开始失效，平时不要频繁改。
 - id 保存后不能改，会话绑定和预设选择都按 id 记录。
@@ -89,7 +108,7 @@ pnpm test
 
 dsh-qqbot 建立在这些项目之上，感谢各位作者：
 
-- [lispking/dsh-qq-skin](https://github.com/lispking/dsh-qq-skin)：QQ 聊天界面。本插件的界面、头像背景和语音条外观由它迁移而来。
+- [lispking/dsh-qq-skin](https://github.com/lispking/dsh-qq-skin)：QQ 聊天界面。本插件的分段显示（计时和打断），以及之后的界面、头像背景和语音条外观由它迁移而来。
 - [yupaoa/dsh-persona-switcher](https://github.com/yupaoa/dsh-persona-switcher)：人设切换与吉祥物立绘。本插件的角色库、`/role` 命令和会话绑定由它迁移而来。
 - [flizzywine/dsh-tavern](https://github.com/flizzywine/dsh-tavern)：独立 Agent 预设和隔离组压缩的写法参考了它。只借鉴了思路，没有复制代码。
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)：宿主，以及预设、提示词和压缩的原生机制。

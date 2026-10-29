@@ -12,7 +12,9 @@ import type {} from '@deepseek-ai/dsh-working-directory'
 import type { QqbotContent } from './content.ts'
 import type {} from './index.ts'
 import { CONTEXT_NAME, SECTION_NAME } from './order.ts'
-import { assembleParts, PART_SEPARATOR } from './prompt.ts'
+import type {} from '@deepseek-ai/dsh-tools'
+import { MEME_TOOL } from './format.ts'
+import { assembleParts, PART_SEPARATOR, type PromptFeatures } from './prompt.ts'
 import { resolveText, type QqbotRegistryStore, type QqbotSession } from './registry.ts'
 import {
   PRESET_ID, PROMPT_VIEW_PATH,
@@ -33,13 +35,15 @@ export interface PromptViewInput {
   /** 当前工作目录；读不到时为空，不显示这条 context。 */
   readonly workingDirectory: string | undefined
   readonly tools: readonly PromptViewTool[]
+  /** 下一轮组装时的工具情况，决定表情规则是否出现。 */
+  readonly features: PromptFeatures
 }
 
 /** 组装查看器数据。纯函数，便于测试。 */
 export function buildPromptView(input: PromptViewInput): PromptView {
   const { session, content, store } = input
   let cursor = 0
-  const parts = assembleParts(content, store, session).map((part, index) => {
+  const parts = assembleParts(content, store, session, input.features).map((part, index) => {
     if (index > 0) cursor += PART_SEPARATOR.length
     const start = cursor
     cursor += part.text.length
@@ -133,6 +137,9 @@ export function apply(ctx: Context): void {
         lastPrompt: lastPrompt.get(agent),
         workingDirectory,
         tools,
+        // 查看器显示的是下一轮要发的内容，所以按当前登记的工具判断，不看上一轮请求。
+        // send_meme 没有 when 条件，登记了就会进下一轮的工具集。
+        features: { meme: ctx.get('tools')?.get(MEME_TOOL, agent) !== undefined },
       })))
     },
   }), 'qqbot: prompt viewer route')

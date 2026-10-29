@@ -33,6 +33,8 @@ export const SECTION_NAME = {
   JB_HEAD: 'qqbot:jb-head',
   PERSONA: 'qqbot:persona',
   JB_MID: 'qqbot:jb-mid',
+  FORMAT_SEGMENT: 'qqbot:format-segment',
+  FORMAT_MEME: 'qqbot:format-meme',
   MEMORY_HINT: 'qqbot:memory-hint',
   JB_TAIL: 'qqbot:jb-tail',
   EXT_PREFIX: 'qqbot:ext:',

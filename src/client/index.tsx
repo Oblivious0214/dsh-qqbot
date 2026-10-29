@@ -1,7 +1,7 @@
 /**
  * dsh-qqbot 浏览器端：给 qqbot 会话根节点加 data-qqbot（QQ 样式只写在它下面），
  * 在侧边栏"更多"菜单里提供"新建 QQ 会话"和"QQ 角色与破限预设"入口（不提供"设为默认"），
- * 在 qqbot 会话标题栏放提示词查看器，编辑器弹窗挂在 shell.overlay。
+ * 在 qqbot 会话标题栏放提示词查看器，编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -16,6 +16,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { PRESET_ID } from '../view-types.ts'
 import { EDITOR_CLASS, EDITOR_CSS, LibraryEditorHost, type EditorTarget, type LibraryEditorInjected } from './library-editor.tsx'
 import { PromptViewerButton, ROOT_CLASS, VIEWER_CSS, type PromptViewerInjected } from './prompt-viewer.tsx'
+import { installSegments } from './segments.tsx'
 
 export { PRESET_ID }
 export const MARK_ATTRIBUTE = 'data-qqbot'
@@ -60,6 +61,12 @@ export function apply(ctx: Context): void {
       if (isQqbot !== node.hasAttribute(MARK_ATTRIBUTE)) node.toggleAttribute(MARK_ATTRIBUTE, isQqbot)
     }
   }
+
+  // [qq] 分段只在 qqbot 会话里显示，标准会话交给 DSH 自带的渲染器。
+  installSegments(ctx, {
+    subscribe: listener => ctx.sessions.list.subscribe(listener),
+    isQqbot: sessionId => presetOf(sessionId) === PRESET_ID,
+  })
 
   ctx.effect(() => {
     const observer = new MutationObserver(sync)

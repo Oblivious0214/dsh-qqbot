@@ -6,11 +6,27 @@
 /** `/api` 下的精确路由，由 DSH 的 connection 做认证；只有 owner 能读写。 */
 export const LIBRARY_PATH = '/api/qqbot/library'
 
+/** 角色卡 `memeFrequency` 字段的取值。 */
+export const MEME_FREQUENCIES = ['low', 'medium', 'high', 'off'] as const
+export type MemeFrequency = typeof MEME_FREQUENCIES[number]
+
+/** 角色卡没写表情频率时用的档位。 */
+export const DEFAULT_MEME_FREQUENCY: MemeFrequency = 'medium'
+
+export const MEME_FREQUENCY_LABELS: Record<MemeFrequency, string> = {
+  low: '低',
+  medium: '适中',
+  high: '高',
+  off: '不主动发',
+}
+
 export interface LibraryRole {
   readonly id: string
   readonly name: string
   readonly description: string
   readonly persona: string
+  /** 没写时为空，用 DEFAULT_MEME_FREQUENCY。 */
+  readonly memeFrequency?: MemeFrequency
   /** 单独选的破限预设；跟随默认时为空。 */
   readonly preset?: string
 }
@@ -38,6 +54,7 @@ export interface LibraryRoleDraft {
   readonly name: string
   readonly description: string
   readonly persona: string
+  readonly memeFrequency?: MemeFrequency
 }
 
 /** create 为真时 id 不能已存在，防止新建时覆盖同名条目；为假时必须已存在。 */

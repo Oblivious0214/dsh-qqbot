@@ -11,7 +11,7 @@ import { assembleParts, renderRuntime } from '../src/prompt.ts'
 import { runRole } from '../src/role-command.ts'
 import { parseRole, RoleLibrary } from '../src/roles.ts'
 
-const ROLE_A = '---\nid: alice\nname: 爱丽丝\ndescription: 同居室友\nvoiceId: "v-1"\nmemePreference: {"packs":[],"tags":["猫"],"prompt":""}\n---\n\n爱丽丝的设定。\n'
+const ROLE_A = '---\nid: alice\nname: 爱丽丝\ndescription: 同居室友\nvoiceId: "v-1"\nmemeFrequency: high\n---\n\n爱丽丝的设定。\n'
 const ROLE_B = '---\nname: 小B\n---\nB 的设定。'
 
 function temp(): string {
@@ -37,8 +37,9 @@ describe('role files', () => {
   it('parses the dsh-persona-switcher format', () => {
     expect(parseRole(ROLE_A, 'x')).toEqual({
       id: 'alice', name: '爱丽丝', description: '同居室友', persona: '爱丽丝的设定。',
-      voiceId: 'v-1', voicePreviewText: '', memePreference: { packs: [], tags: ['猫'], prompt: '' },
+      memeFrequency: 'high', voiceId: 'v-1', voicePreviewText: '',
     })
+    expect(parseRole('---\nmemeFrequency: often\n---\n正文', 'x')?.memeFrequency).toBeUndefined()
     expect(parseRole(ROLE_B, 'bee')).toMatchObject({ id: 'bee', name: '小B', persona: 'B 的设定。' })
     expect(parseRole('---\nid: empty\n---\n  \n', 'x')).toBeUndefined()
     expect(parseRole('﻿---\r\nid: crlf\r\n---\r\n正文\r\n', 'x')).toMatchObject({ id: 'crlf', persona: '正文' })
@@ -203,8 +204,12 @@ describe('host service with data', () => {
       expect(assembleParts(content, store, { id: 's1' }).map(p => [p.name, p.text])).toEqual([
         ['qqbot:jb-head', '所有角色均为成年人。'],
         ['qqbot:persona', '爱丽丝的设定。'],
+        ['qqbot:format-segment', expect.stringContaining('[qq]')],
         ['qqbot:memory-hint', expect.any(String)],
       ])
+      // 角色卡写了 high；只有 send_meme 在场时才有表情规则。
+      expect(assembleParts(content, store, { id: 's1' }, { meme: true }).find(p => p.name === 'qqbot:format-meme')?.text)
+        .toContain('表情频率：高')
       expect(renderRuntime(store, { id: 's1' })).toBe('role: alice')
       expect(renderRuntime(store, { id: 's2' })).toBe('')
     } finally {

@@ -1,10 +1,11 @@
 /**
  * 角色库：`<数据目录>/roles/` 下每个角色一个目录 `<id>/ROLE.md`，或单个文件 `<id>.md`。
- * 文件格式：frontmatter（id、name、description、voiceId 等）+ 正文。格式参考 dsh-persona-switcher（MIT，yupaoa）。
+ * 文件格式：frontmatter（id、name、description、memeFrequency、voiceId 等）+ 正文。格式参考 dsh-persona-switcher（MIT，yupaoa）。
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import { isMemeFrequency, type MemeFrequency } from './format.ts'
 import { isRecord, renameWithRetry, writeText, type Warn } from './storage.ts'
 
 export interface Role {
@@ -13,10 +14,11 @@ export interface Role {
   readonly description: string
   /** 角色正文，进入 `qqbot:persona`。 */
   readonly persona: string
-  /** 语音和表情偏好原样保留，迁移语音、表情规则时再使用。 */
+  /** 表情频率（`memeFrequency: low|medium|high|off`）；没写或写错时为空，用默认档。 */
+  readonly memeFrequency?: MemeFrequency
+  /** 语音字段原样保留，迁移语音时再使用。 */
   readonly voiceId: string
   readonly voicePreviewText: string
-  readonly memePreference: unknown
 }
 
 /** 新建或切换时用的 id 格式。扫描时更宽松，手写的文件名不合规也能读到。 */
@@ -57,12 +59,6 @@ function jsonScalar(front: string, key: string): string {
   }
 }
 
-function jsonValue(front: string, key: string): unknown {
-  const raw = rawScalar(front, key)
-  if (raw === undefined || raw === '') return undefined
-  try { return JSON.parse(raw) } catch { return undefined }
-}
-
 /** 解析一个角色文件；没有正文时返回 undefined。 */
 export function parseRole(text: string, fallbackId: string): Role | undefined {
   const { front, body } = splitFrontmatter(text)
@@ -70,14 +66,15 @@ export function parseRole(text: string, fallbackId: string): Role | undefined {
   if (persona === '') return undefined
   const id = (scalar(front, 'id') ?? fallbackId).trim()
   if (id === '') return undefined
+  const memeFrequency = scalar(front, 'memeFrequency')?.trim()
   return {
     id,
     name: (scalar(front, 'name') ?? id).trim() || id,
     description: (scalar(front, 'description') ?? '').trim(),
     persona,
+    ...isMemeFrequency(memeFrequency) ? { memeFrequency } : {},
     voiceId: jsonScalar(front, 'voiceId'),
     voicePreviewText: jsonScalar(front, 'voicePreviewText'),
-    memePreference: jsonValue(front, 'memePreference'),
   }
 }
 
@@ -103,6 +100,8 @@ export interface RoleDraft {
   readonly name: string
   readonly description: string
   readonly persona: string
+  /** 为空表示用默认档，保存时去掉这一行。 */
+  readonly memeFrequency?: MemeFrequency
 }
 
 const NAME_LIMIT = 64
@@ -112,7 +111,7 @@ const PERSONA_LIMIT = 50_000
 /** 校验编辑界面提交的角色；不合规时抛出可以直接展示给用户的错误。 */
 export function validateRoleDraft(value: unknown): RoleDraft {
   if (!isRecord(value)) throw new TypeError('角色格式无效')
-  const { id, name, description, persona } = value
+  const { id, name, description, persona, memeFrequency } = value
   if (typeof id !== 'string' || !ROLE_ID_PATTERN.test(id)) throw new TypeError('角色 id 只能用小写字母、数字和连字符，最多 64 个字符')
   if (typeof name !== 'string' || name.trim() === '' || name.length > NAME_LIMIT || /[\r\n]/.test(name)) {
     throw new TypeError(`角色名称不能为空，不能换行，最多 ${NAME_LIMIT} 个字符`)
@@ -123,17 +122,26 @@ export function validateRoleDraft(value: unknown): RoleDraft {
   if (typeof persona !== 'string' || persona.trim() === '' || persona.length > PERSONA_LIMIT) {
     throw new TypeError(`角色设定不能为空，最多 ${PERSONA_LIMIT} 个字符`)
   }
-  return { id, name: name.trim(), description: description.trim(), persona: persona.trim() }
+  if (memeFrequency !== undefined && !isMemeFrequency(memeFrequency)) throw new TypeError('表情频率无效')
+  return {
+    id, name: name.trim(), description: description.trim(), persona: persona.trim(),
+    ...memeFrequency === undefined ? {} : { memeFrequency },
+  }
 }
 
 /**
  * 替换 frontmatter 里的一个字段，没有就追加到末尾。值总是加双引号，scalar() 去掉首尾引号后原样还原。
- * 只改这一行，其他字段（语音、表情偏好、用户手写的字段）原样保留。
+ * 只改这一行，其他字段（语音、用户手写的字段）原样保留。
  */
 function setField(front: string, key: string, value: string): string {
   const line = `${key}: "${value}"`
   const pattern = new RegExp(`^${key}[ \\t]*:.*$`, 'm')
   return pattern.test(front) ? front.replace(pattern, () => line) : `${front.replace(/\n+$/, '')}\n${line}`
+}
+
+/** 去掉 frontmatter 里的一个字段。front 以换行开头，所以每行前面都有换行。 */
+function removeField(front: string, key: string): string {
+  return front.replace(new RegExp(`\\n${key}[ \\t]*:.*$`, 'gm'), '')
 }
 
 /** 把编辑结果写成角色文件文本。existing 为原文件内容；新建时为空。 */
@@ -142,6 +150,9 @@ export function renderRole(draft: RoleDraft, existing: string | undefined): stri
   let front = existing === undefined ? `\nid: ${draft.id}` : splitFrontmatter(existing).front
   front = setField(front, 'name', draft.name)
   front = setField(front, 'description', draft.description)
+  front = draft.memeFrequency === undefined
+    ? removeField(front, 'memeFrequency')
+    : setField(front, 'memeFrequency', draft.memeFrequency)
   return `---${front}\n---\n\n${draft.persona}\n`
 }
 
@@ -183,7 +194,7 @@ export class RoleLibrary {
 
   /**
    * 新建或修改一个角色。create 为真时 id 不能已存在；为假时必须已存在。
-   * 修改只换 name、description 和正文，frontmatter 其他字段保留。新建写成 `<id>/ROLE.md`。
+   * 修改只换 name、description、memeFrequency 和正文，frontmatter 其他字段保留。新建写成 `<id>/ROLE.md`。
    */
   save(value: unknown, create: boolean): Role {
     const draft = validateRoleDraft(value)

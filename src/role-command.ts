@@ -1,7 +1,6 @@
 /**
  * `/role` 命令。由 dsh-qqbot/prompt 在 qqbot 预设内加载，命令因此只在 qqbot 会话里出现。
  * 命令输入和输出都不进模型请求；切换后下一轮组装时角色正文和 `qqbot:runtime` 的 role 行随之更新。
- * 命令语法沿用 dsh-persona-switcher 的 `/role [<id>|list|none]`（MIT，yupaoa）。
  */
 
 import type { Context } from '@deepseek-ai/cordis'

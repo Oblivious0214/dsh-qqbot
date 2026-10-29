@@ -12,7 +12,7 @@
 
 ### 角色
 
-角色卡放在 `~/.dsh/qqbot/roles/`（设了 `DSH_HOME` 时在 `$DSH_HOME/qqbot/roles/`），每个角色一个目录 `<id>/ROLE.md`，或单个文件 `<id>.md`。格式和 dsh-persona-switcher 相同：
+角色卡放在 `~/.dsh/qqbot/roles/`（设了 `DSH_HOME` 时在 `$DSH_HOME/qqbot/roles/`），每个角色一个目录 `<id>/ROLE.md`，或单个文件 `<id>.md`：
 
 ```md
 ---
@@ -23,8 +23,6 @@ description: 同居室友
 
 角色设定、性格、说话方式、示例对话……
 ```
-
-首次启动时，插件把 `~/.dsh/roles/`（dsh-persona-switcher 的角色库）里的角色复制过来，旧文件不动。只导入一次，之后在 qqbot 里删掉的角色不会被带回来。
 
 在 QQ Bot 会话里用 `/role` 管理角色（只在 QQ Bot 会话里有这个命令）：
 

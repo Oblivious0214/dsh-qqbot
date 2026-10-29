@@ -6,7 +6,6 @@ import { describe, expect, it } from 'vitest'
 import { NO_ROLE, SessionBindings } from '../src/bindings.ts'
 import { QqbotData } from '../src/content.ts'
 import * as host from '../src/index.ts'
-import { importLegacy, IMPORT_MARKER } from '../src/legacy-import.ts'
 import { DEFAULT_JAILBREAK, JailbreakStore } from '../src/presets.ts'
 import { assembleParts, renderRuntime } from '../src/prompt.ts'
 import { runRole } from '../src/role-command.ts'
@@ -56,36 +55,6 @@ describe('role files', () => {
     const library = new RoleLibrary(dir, m => { warnings.push(m) })
     expect(library.list().map(r => r.id)).toEqual(['alice', 'bee'])
     expect(warnings).toHaveLength(2)
-  })
-})
-
-describe('legacy import', () => {
-  it('copies role entries once, keeps the old files and skips existing targets', () => {
-    const home = temp()
-    const dir = join(home, 'qqbot')
-    writeRole(join(home, 'roles'), 'alice', ROLE_A)
-    writeFileSync(join(home, 'roles', 'alice', 'avatar.png'), 'png')
-    writeRole(join(home, 'roles'), 'bee.md', ROLE_B)
-    writeRole(join(home, 'roles'), 'broken', '---\nid: broken\n---\n')
-    writeRole(join(dir, 'roles'), 'bee.md', '---\nid: bee\n---\n用户改过的 B')
-
-    expect(importLegacy(home, dir, () => {})).toEqual({ imported: ['alice'], skipped: ['bee.md'] })
-    expect(readFileSync(join(dir, 'roles', 'alice', 'avatar.png'), 'utf8')).toBe('png')
-    expect(readFileSync(join(dir, 'roles', 'bee.md'), 'utf8')).toContain('用户改过的 B')
-    expect(existsSync(join(dir, 'roles', 'broken'))).toBe(false)
-    expect(existsSync(join(home, 'roles', 'alice', 'ROLE.md'))).toBe(true)
-    expect(existsSync(join(dir, IMPORT_MARKER))).toBe(true)
-
-    // 导入过一次后，用户在 qqbot 里删掉的角色不会被带回来。
-    writeRole(join(home, 'roles'), 'carol', '---\nid: carol\n---\nC')
-    expect(importLegacy(home, dir, () => {})).toBeUndefined()
-    expect(existsSync(join(dir, 'roles', 'carol'))).toBe(false)
-  })
-
-  it('writes nothing when there is nothing to import', () => {
-    const home = temp()
-    expect(importLegacy(home, join(home, 'qqbot'), () => {})).toEqual({ imported: [], skipped: [] })
-    expect(existsSync(join(home, 'qqbot'))).toBe(false)
   })
 })
 
@@ -221,9 +190,9 @@ describe('/role', () => {
 })
 
 describe('host service with data', () => {
-  it('imports legacy roles on start and puts the role into persona and runtime', async () => {
+  it('reads roles from <DSH_HOME>/qqbot/roles and puts the role into persona and runtime', async () => {
     const home = temp()
-    writeRole(join(home, 'roles'), 'alice', ROLE_A)
+    writeRole(join(home, 'qqbot', 'roles'), 'alice', ROLE_A)
     const previous = process.env['DSH_HOME']
     process.env['DSH_HOME'] = home
     try {
@@ -238,7 +207,6 @@ describe('host service with data', () => {
       ])
       expect(renderRuntime(store, { id: 's1' })).toBe('role: alice')
       expect(renderRuntime(store, { id: 's2' })).toBe('')
-      expect(existsSync(join(home, 'qqbot', 'roles', 'alice', 'ROLE.md'))).toBe(true)
     } finally {
       process.env['DSH_HOME'] = previous
     }

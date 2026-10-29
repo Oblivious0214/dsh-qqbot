@@ -1,7 +1,6 @@
 /**
  * 角色库：`<数据目录>/roles/` 下每个角色一个目录 `<id>/ROLE.md`，或单个文件 `<id>.md`。
- * 文件格式沿用 dsh-persona-switcher（frontmatter + 正文），旧角色卡复制过来即可使用。
- * 解析规则迁移自 dsh-persona-switcher lib/index.js 的 parseRole / scanRoles（MIT，yupaoa）。
+ * 文件格式：frontmatter（id、name、description、voiceId 等）+ 正文。格式参考 dsh-persona-switcher（MIT，yupaoa）。
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
@@ -20,7 +19,7 @@ export interface Role {
   readonly memePreference: unknown
 }
 
-/** 新建或切换时用的 id 格式。扫描时更宽松，旧文件名不合规也能读到。 */
+/** 新建或切换时用的 id 格式。扫描时更宽松，手写的文件名不合规也能读到。 */
 export const ROLE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 
 function splitFrontmatter(text: string): { front: string; body: string } {
@@ -46,7 +45,7 @@ function scalar(front: string, key: string): string | undefined {
   return value
 }
 
-/** 语音字段旧插件写成 JSON 字符串，引号和换行才能往返。 */
+/** 语音字段写成 JSON 字符串，引号和换行才能往返。 */
 function jsonScalar(front: string, key: string): string {
   const raw = rawScalar(front, key)
   if (raw === undefined || raw === '') return ''

@@ -8,7 +8,6 @@ import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { SessionBindings } from './bindings.ts'
 import { QqbotData } from './content.ts'
-import { importLegacy } from './legacy-import.ts'
 import { JailbreakStore } from './presets.ts'
 import { QqbotRegistryStore, type QqbotExtensionEntry, type QqbotRegistry, type QqbotText } from './registry.ts'
 import { RoleLibrary } from './roles.ts'
@@ -40,16 +39,7 @@ export class QqbotService extends Service implements QqbotRegistry {
   constructor(ctx: Context) {
     super(ctx, 'qqbot')
     const warn = (message: string) => ctx.logger.warn(message)
-    const home = dshHome()
-    const dir = dataDir(home)
-    try {
-      const result = importLegacy(home, dir, warn)
-      if (result !== undefined && result.imported.length > 0) {
-        ctx.logger.info(`qqbot: 已从 ${join(home, 'roles')} 导入 ${result.imported.length} 个角色到 ${dir}，旧文件保留不动`)
-      }
-    } catch (error) {
-      warn(`qqbot: 导入旧角色库失败，下次启动再试：${String(error)}`)
-    }
+    const dir = dataDir(dshHome())
     this.content = new QqbotData(new RoleLibrary(join(dir, 'roles'), warn), SessionBindings.at(dir, warn), JailbreakStore.at(dir, warn), warn)
     // 当前角色 id 是会话中途会变的运行时状态，放 context 不放 section（CLAUDE.md 提示词规则）。
     // 换角色时这一行跟着变，DSH 会追加一条新的 context 快照，模型从中能看到换了人。

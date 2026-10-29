@@ -1,0 +1,4 @@
+# 独立仓库。DSH 类型经 package.json 的 link: 指向 ../../qqbot/src/deepseek-harness，
+# 只建符号链接，不改宿主源码树。
+allowBuilds:
+  esbuild: true

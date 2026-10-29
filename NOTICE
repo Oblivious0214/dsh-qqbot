@@ -1,0 +1,30 @@
+dsh-qqbot
+Copyright (c) 2026 dsh-qqbot contributors
+MIT License，见 LICENSE。
+
+本项目合并自以下 MIT 项目。迁移代码时，在对应条目下列出来源文件，并保留原版权声明。
+
+------------------------------------------------------------
+dsh-qq-skin
+https://github.com/lispking/dsh-qq-skin
+Copyright © 2026 lispking
+MIT License
+
+来源文件：尚未迁移。
+迁移时一并带上它的第三方声明（Cropper.js、对话分段 Worker 的依赖等），
+见原仓库 THIRD_PARTY_NOTICES.md 和 SEGMENTS-THIRD-PARTY-NOTICES.txt。
+
+------------------------------------------------------------
+dsh-persona-switcher
+https://github.com/yupaoa/dsh-persona-switcher
+Copyright (c) 2026 yupaoa
+MIT License
+
+来源文件：尚未迁移。
+
+------------------------------------------------------------
+设计参考（未复制代码）
+
+- dsh-tavern，https://github.com/flizzywine/dsh-tavern：Agent 预设声明和隔离组压缩的写法。
+- AstrBot，https://github.com/AstrBotDevs/AstrBot（AGPL-3.0）：对话分段的行为规则。
+  只参考行为，不纳入 AstrBot 源码；如将来引入其代码，需要另行处理许可。

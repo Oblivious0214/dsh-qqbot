@@ -1,5 +1,5 @@
 /**
- * dsh-qqbot host 层入口：提供 `ctx.qqbot` 登记服务和提示词查看器接口。
+ * dsh-qqbot host 层入口：提供 `ctx.qqbot` 登记服务、提示词查看器接口和角色/破限预设编辑接口。
  * 本插件不注册任何提示词，不写 agent-preset-registry 的设置；
  * 提示词由 qqbot 预设内的 dsh-qqbot/prompt 组装。
  */
@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { SessionBindings } from './bindings.ts'
 import { QqbotData } from './content.ts'
+import * as library from './library.ts'
 import { JailbreakStore } from './presets.ts'
 import { QqbotRegistryStore, type QqbotExtensionEntry, type QqbotRegistry, type QqbotText } from './registry.ts'
 import { RoleLibrary } from './roles.ts'
@@ -74,4 +75,5 @@ export const name = 'qqbot'
 export function apply(ctx: Context): void {
   ctx.plugin(QqbotService)
   ctx.plugin(viewer)
+  ctx.plugin(library)
 }

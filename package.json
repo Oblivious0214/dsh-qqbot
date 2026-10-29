@@ -57,6 +57,7 @@
       "inject": [
         "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-sidebar",
         "@deepseek-ai/dsh-client-ui-workspace"
       ]
@@ -73,7 +74,9 @@
     "@deepseek-ai/dsh-agent-preset-registry": "link:../../qqbot/src/deepseek-harness/packages/preset/agent-preset-registry",
     "@deepseek-ai/dsh-api-session-controller": "link:../../qqbot/src/deepseek-harness/packages/api/session-controller",
     "@deepseek-ai/dsh-client-connection": "link:../../qqbot/src/deepseek-harness/packages/client/connection",
+    "@deepseek-ai/dsh-client-store": "link:../../qqbot/src/deepseek-harness/packages/client/store",
     "@deepseek-ai/dsh-client-ui-conversation": "link:../../qqbot/src/deepseek-harness/packages/client/ui-conversation",
+    "@deepseek-ai/dsh-client-ui-layout": "link:../../qqbot/src/deepseek-harness/packages/client/ui-layout",
     "@deepseek-ai/dsh-client-ui-primitives": "link:../../qqbot/src/deepseek-harness/packages/client/ui-primitives",
     "@deepseek-ai/dsh-client-ui-renderer": "link:../../qqbot/src/deepseek-harness/packages/client/ui-renderer",
     "@deepseek-ai/dsh-client-ui-sidebar": "link:../../qqbot/src/deepseek-harness/packages/client/ui-sidebar",

@@ -23,9 +23,15 @@ importers:
       '@deepseek-ai/dsh-client-connection':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/connection
         version: link:../../qqbot/src/deepseek-harness/packages/client/connection
+      '@deepseek-ai/dsh-client-store':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/client/store
+        version: link:../../qqbot/src/deepseek-harness/packages/client/store
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-conversation
         version: link:../../qqbot/src/deepseek-harness/packages/client/ui-conversation
+      '@deepseek-ai/dsh-client-ui-layout':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-layout
+        version: link:../../qqbot/src/deepseek-harness/packages/client/ui-layout
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-primitives
         version: link:../../qqbot/src/deepseek-harness/packages/client/ui-primitives

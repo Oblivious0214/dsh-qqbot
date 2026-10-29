@@ -42,6 +42,10 @@ export interface PromptViewTool {
 
 export interface PromptView {
   readonly sessionId: string
+  /** 当前角色；没有角色时为空。查看器据此跳到角色编辑。 */
+  readonly roleId?: string
+  /** 当前使用的破限预设。查看器据此跳到预设编辑。 */
+  readonly presetId: string
   readonly system: {
     readonly length: number
     readonly parts: readonly PromptViewPart[]

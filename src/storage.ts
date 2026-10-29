@@ -42,12 +42,16 @@ export function readJson(file: string, warn: Warn): unknown {
   }
 }
 
-/** 写到同目录的临时文件再改名，读者不会看到写了一半的文件。 */
 export function writeJson(file: string, value: unknown): void {
+  writeText(file, `${JSON.stringify(value, undefined, 2)}\n`)
+}
+
+/** 写到同目录的临时文件再改名，读者不会看到写了一半的文件。 */
+export function writeText(file: string, text: string): void {
   mkdirSync(dirname(file), { recursive: true })
   const temporary = `${file}.${randomUUID()}.tmp`
   try {
-    writeFileSync(temporary, `${JSON.stringify(value, undefined, 2)}\n`, 'utf8')
+    writeFileSync(temporary, text, 'utf8')
     renameWithRetry(temporary, file)
   } catch (error) {
     rmSync(temporary, { force: true })
@@ -56,7 +60,7 @@ export function writeJson(file: string, value: unknown): void {
 }
 
 /** Windows 上目标文件被杀毒或编辑器短暂占用时 rename 会报 EPERM/EACCES/EBUSY，稍等重试几次。 */
-function renameWithRetry(from: string, to: string): void {
+export function renameWithRetry(from: string, to: string): void {
   for (let attempt = 0; ; attempt++) {
     try {
       renameSync(from, to)

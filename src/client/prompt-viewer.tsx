@@ -1,13 +1,16 @@
 /**
  * 提示词查看器：qqbot 会话标题栏右侧的按钮和弹窗，只读。
  * 数据来自 host 的 PROMPT_VIEW_PATH；改内容要去对应的编辑入口，这里不改文本（架构文档第 11 节）。
+ * 角色和破限预设的段落带"编辑"按钮，关掉查看器、打开编辑器并定位到对应条目。
  */
 
 import { useCallback, useEffect, useState } from 'react'
 import { Button, IconContextInjectionOutlineRegular, IconRefreshOutlineRegular, Modal, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { SECTION_NAME } from '../order.ts'
 import { PRESET_ID, PROMPT_VIEW_PATH, type PromptView, type PromptViewPart } from '../view-types.ts'
+import type { EditorTarget, OpenEditor } from './library-editor.tsx'
 
 /** 所有样式都在这个根 class 下（CLAUDE.md 隔离原则第 3 条）。 */
 export const ROOT_CLASS = 'dsh-qqbot-viewer'
@@ -25,6 +28,7 @@ export const VIEWER_CSS = `
 .${ROOT_CLASS} .qv-item > summary b { color: var(--dsw-alias-label-primary); font-weight: 600; }
 .${ROOT_CLASS} .qv-item.qv-stale { border-color: var(--dsw-alias-state-warn-label); }
 .${ROOT_CLASS} .qv-tag { color: var(--dsw-alias-state-warn-label); }
+.${ROOT_CLASS} .qv-edit { margin-left: auto; border: none; background: none; padding: 0; color: var(--dsw-alias-state-business-primary); font: inherit; cursor: pointer; }
 .${ROOT_CLASS} pre { margin: 0; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; font-family: var(--dsw-font-mono, monospace); font-size: 12px; line-height: 18px; background: var(--dsw-alias-bg-layer-1); border-top: 0.5px solid var(--dsw-alias-border-l2); }
 .${ROOT_CLASS} .qv-empty { color: var(--dsw-alias-label-tertiary); font-size: 12px; margin-left: 12px; }
 `
@@ -50,8 +54,20 @@ function isStale(view: PromptView, part: PromptViewPart): boolean {
   return view.lastSent.state === 'changed' && part.start + part.text.length >= view.lastSent.firstDiff
 }
 
-function PartItem({ view, part }: { readonly view: PromptView; readonly part: PromptViewPart }) {
+const JAILBREAK_PARTS: readonly string[] = [SECTION_NAME.JB_HEAD, SECTION_NAME.JB_MID, SECTION_NAME.JB_TAIL]
+
+/** 这段对应的编辑入口；外部插件和记忆说明没有。 */
+function editTarget(view: PromptView, part: PromptViewPart): { readonly label: string; readonly target: EditorTarget } | undefined {
+  if (part.name === SECTION_NAME.PERSONA && view.roleId !== undefined) return { label: '编辑角色', target: { tab: 'roles', id: view.roleId } }
+  if (JAILBREAK_PARTS.includes(part.name)) return { label: '编辑破限预设', target: { tab: 'presets', id: view.presetId } }
+  return undefined
+}
+
+type Edit = (target: EditorTarget) => void
+
+function PartItem({ view, part, onEdit }: { readonly view: PromptView; readonly part: PromptViewPart; readonly onEdit: Edit }) {
   const stale = isStale(view, part)
+  const edit = editTarget(view, part)
   return <details className={`qv-item${stale ? ' qv-stale' : ''}`}>
     <summary>
       <b>{part.name}</b>
@@ -60,21 +76,23 @@ function PartItem({ view, part }: { readonly view: PromptView; readonly part: Pr
       <span>{part.text.length} 字符</span>
       <span>位置 {part.start}–{part.start + part.text.length}</span>
       {stale && <span className="qv-tag">下一轮缓存从这里失效</span>}
+      {edit !== undefined && <button type="button" className="qv-edit"
+        onClick={(event) => { event.preventDefault(); onEdit(edit.target) }}>{edit.label}</button>}
     </summary>
     <pre>{part.text}</pre>
   </details>
 }
 
-function SystemParts({ view, bySource }: { readonly view: PromptView; readonly bySource: boolean }) {
+function SystemParts({ view, bySource, onEdit }: { readonly view: PromptView; readonly bySource: boolean; readonly onEdit: Edit }) {
   const parts = view.system.parts
   if (parts.length === 0) return <div className="qv-empty">没有内容</div>
-  if (!bySource) return <>{parts.map(part => <PartItem key={part.name} view={view} part={part} />)}</>
+  if (!bySource) return <>{parts.map(part => <PartItem key={part.name} view={view} part={part} onEdit={onEdit} />)}</>
   const groups = new Map<string, PromptViewPart[]>()
   for (const part of parts) groups.set(sourceOf(part), [...groups.get(sourceOf(part)) ?? [], part])
   return <>{[...groups].map(([source, list]) => (
     <details key={source} className="qv-group" open>
       <summary>{source} · {list.length} 段 · {list.reduce((sum, part) => sum + part.text.length, 0)} 字符</summary>
-      {list.map(part => <PartItem key={part.name} view={view} part={part} />)}
+      {list.map(part => <PartItem key={part.name} view={view} part={part} onEdit={onEdit} />)}
     </details>
   ))}</>
 }
@@ -89,7 +107,7 @@ function LastSentState({ view }: { readonly view: PromptView }) {
   </div>
 }
 
-function ViewerBody({ load, bySource }: { readonly load: Load; readonly bySource: boolean }) {
+function ViewerBody({ load, bySource, onEdit }: { readonly load: Load; readonly bySource: boolean; readonly onEdit: Edit }) {
   if (load.kind === 'loading') return <div className="qv-empty">加载中…</div>
   if (load.kind === 'error') return <div className="qv-state qv-warn">{load.message}</div>
   const { view } = load
@@ -97,7 +115,7 @@ function ViewerBody({ load, bySource }: { readonly load: Load; readonly bySource
     <LastSentState view={view} />
     <details className="qv-group" open>
       <summary>系统提示词 · {view.system.parts.length} 段 · {view.system.length} 字符</summary>
-      <SystemParts view={view} bySource={bySource} />
+      <SystemParts view={view} bySource={bySource} onEdit={onEdit} />
     </details>
     <details className="qv-group" open>
       <summary>runtime context · {view.contexts.length} 条（不影响系统提示词前缀）</summary>
@@ -120,7 +138,14 @@ function ViewerBody({ load, bySource }: { readonly load: Load; readonly bySource
   </>
 }
 
-function ViewerDialog({ sessionId, onClose }: { readonly sessionId: string; readonly onClose: () => void }) {
+/** 标题栏"角色与预设"按钮：有角色时定位到当前角色，否则到当前预设。 */
+function libraryTarget(load: Load): EditorTarget {
+  if (load.kind !== 'ready') return { tab: 'roles' }
+  const { roleId, presetId } = load.view
+  return roleId !== undefined ? { tab: 'roles', id: roleId } : { tab: 'presets', id: presetId }
+}
+
+function ViewerDialog({ sessionId, onClose, onEdit }: { readonly sessionId: string; readonly onClose: () => void; readonly onEdit: Edit }) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [bySource, setBySource] = useState(false)
   const [generation, setGeneration] = useState(0)
@@ -139,24 +164,29 @@ function ViewerDialog({ sessionId, onClose }: { readonly sessionId: string; read
   }, [load])
 
   return <Modal open onClose={onClose} title="提示词查看器" closeLabel="关闭" className={ROOT_CLASS}
-    description="当前 QQ 会话发给模型的内容，只读。要修改请到破限预设、角色卡或插件设置。">
+    description="当前 QQ 会话发给模型的内容，只读。角色和破限预设的段落可以跳到编辑器；外部插件的内容到插件设置里改。">
     <div className="qv-body">
       <div className="qv-bar">
         <Button size="sm" variant={bySource ? 'ghost' : 'outline'} onClick={() => { setBySource(false) }}>按段落</Button>
         <Button size="sm" variant={bySource ? 'outline' : 'ghost'} onClick={() => { setBySource(true) }}>按来源</Button>
         <span className="qv-grow" />
+        <Button size="sm" variant="ghost" onClick={() => { onEdit(libraryTarget(load)) }}>角色与预设</Button>
         <Button size="sm" variant="ghost" disabled={load.kind !== 'ready'} onClick={copy}>复制系统提示词</Button>
         <Button size="sm" variant="ghost" icon={<IconRefreshOutlineRegular size={14} />} onClick={() => { setGeneration(n => n + 1) }}>刷新</Button>
       </div>
-      <ViewerBody load={load} bySource={bySource} />
+      <ViewerBody load={load} bySource={bySource} onEdit={onEdit} />
     </div>
   </Modal>
 }
 
-export type PromptViewerButtonProps = PropsRuntime<'conversation.session.header.utilities'>
+export interface PromptViewerInjected {
+  readonly openEditor: OpenEditor
+}
+
+export type PromptViewerButtonProps = PropsRuntime<'conversation.session.header.utilities'> & InjectFace<PromptViewerInjected>
 
 /** 只在 qqbot 会话里出现；标准会话返回 null，不渲染任何东西。 */
-export function PromptViewerButton({ sessionId, useSessions }: PromptViewerButtonProps) {
+export function PromptViewerButton({ sessionId, useSessions, openEditor }: PromptViewerButtonProps) {
   const preset = useSessions((state) => {
     const value = state.byId[sessionId]?.projectionValues?.agentPreset
     return typeof value === 'string' ? value : undefined
@@ -168,6 +198,7 @@ export function PromptViewerButton({ sessionId, useSessions }: PromptViewerButto
       <Button size="sm" variant="toolbar" aria-label="提示词查看器" icon={<IconContextInjectionOutlineRegular size={16} />}
         onClick={() => { setOpen(true) }} />
     </Tooltip>
-    {open && <ViewerDialog sessionId={sessionId} onClose={() => { setOpen(false) }} />}
+    {open && <ViewerDialog sessionId={sessionId} onClose={() => { setOpen(false) }}
+      onEdit={(target) => { setOpen(false); openEditor(target) }} />}
   </>
 }

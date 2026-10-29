@@ -71,8 +71,11 @@ export function buildPromptView(input: PromptViewInput): PromptView {
       ...item.source === undefined ? {} : { source: item.source },
     })
   }
+  const roleId = content.roleIdFor(session)
   return {
     sessionId: session.id,
+    ...roleId === undefined ? {} : { roleId },
+    presetId: content.jailbreakFor(session).id,
     system: { length: system.length, parts },
     lastSent: compareLastSent(input.lastPrompt, system),
     contexts,

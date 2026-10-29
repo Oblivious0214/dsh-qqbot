@@ -29,25 +29,30 @@ export interface QqbotRegistry {
   runtime(name: string, text: QqbotText): () => void
 }
 
+/** 登记来源：登记它的插件名，供提示词查看器显示。取不到时为空。 */
+export interface QqbotSource {
+  readonly source?: string
+}
+
 export interface QqbotRegistrySnapshot {
-  readonly extensions: readonly QqbotExtensionEntry[]
-  readonly runtime: readonly { readonly name: string; readonly text: QqbotText }[]
+  readonly extensions: readonly (QqbotExtensionEntry & QqbotSource)[]
+  readonly runtime: readonly ({ readonly name: string; readonly text: QqbotText } & QqbotSource)[]
 }
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 
 export class QqbotRegistryStore implements QqbotRegistry {
-  private readonly extensions = new Map<string, QqbotExtensionEntry>()
+  private readonly extensions = new Map<string, QqbotExtensionEntry & QqbotSource>()
   // 值包一层对象，旧 disposer 才不会误删同名同文本的新登记。
-  private readonly runtimes = new Map<string, { readonly text: QqbotText }>()
+  private readonly runtimes = new Map<string, { readonly text: QqbotText } & QqbotSource>()
   private readonly listeners = new Set<() => void>()
 
-  extension(entry: QqbotExtensionEntry): () => void {
-    return this.add(this.extensions, entry.name, { name: entry.name, text: entry.text })
+  extension(entry: QqbotExtensionEntry, source?: string): () => void {
+    return this.add(this.extensions, entry.name, { name: entry.name, text: entry.text, ...withSource(source) })
   }
 
-  runtime(name: string, text: QqbotText): () => void {
-    return this.add(this.runtimes, name, { text })
+  runtime(name: string, text: QqbotText, source?: string): () => void {
+    return this.add(this.runtimes, name, { text, ...withSource(source) })
   }
 
   /** 名称排序后的条目，供 dsh-qqbot/prompt 和提示词查看器读取。 */
@@ -55,7 +60,7 @@ export class QqbotRegistryStore implements QqbotRegistry {
     const byName = <T>(map: Map<string, T>) => [...map].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
     return {
       extensions: byName(this.extensions).map(([, entry]) => entry),
-      runtime: byName(this.runtimes).map(([name, { text }]) => ({ name, text })),
+      runtime: byName(this.runtimes).map(([name, value]) => ({ name, ...value })),
     }
   }
 
@@ -80,6 +85,10 @@ export class QqbotRegistryStore implements QqbotRegistry {
   private notify(): void {
     for (const listener of [...this.listeners]) listener()
   }
+}
+
+function withSource(source: string | undefined): QqbotSource {
+  return source === undefined ? {} : { source }
 }
 
 /** 按会话求值条目文本。 */

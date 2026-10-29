@@ -1,6 +1,7 @@
 /**
  * dsh-qqbot 浏览器端：给 qqbot 会话根节点加 data-qqbot（QQ 样式只写在它下面），
- * 并在侧边栏"更多"菜单里提供"新建 QQ 会话"入口。不提供"设为默认"。
+ * 在侧边栏"更多"菜单里提供"新建 QQ 会话"入口（不提供"设为默认"），
+ * 并在 qqbot 会话标题栏放提示词查看器。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -10,8 +11,10 @@ import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import { PRESET_ID } from '../view-types.ts'
+import { PromptViewerButton, ROOT_CLASS, VIEWER_CSS } from './prompt-viewer.tsx'
 
-export const PRESET_ID = 'qqbot'
+export { PRESET_ID }
 export const MARK_ATTRIBUTE = 'data-qqbot'
 
 type SessionId = keyof SessionListState['byId']
@@ -64,4 +67,19 @@ export function apply(ctx: Context): void {
     id: 'qqbot-new-session',
     inject: injected,
   }, NewSessionItem))
+
+  // 查看器样式全部在 ROOT_CLASS 下；插件关闭时移除。
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.dataset['qqbot'] = ROOT_CLASS
+    style.textContent = VIEWER_CSS
+    document.head.append(style)
+    return () => { style.remove() }
+  }, 'qqbot: prompt viewer style')
+
+  // 组件自己判断预设，标准会话里渲染 null。
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+    name: 'conversation.session.header.utilities',
+    id: 'qqbot-prompt-viewer',
+  }, PromptViewerButton))
 }

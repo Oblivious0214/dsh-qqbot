@@ -14,9 +14,18 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: link:../../qqbot/src/deepseek-harness/packages/core/agent
         version: link:../../qqbot/src/deepseek-harness/packages/core/agent
+      '@deepseek-ai/dsh-agent-preset-registry':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/preset/agent-preset-registry
+        version: link:../../qqbot/src/deepseek-harness/packages/preset/agent-preset-registry
       '@deepseek-ai/dsh-api-session-controller':
         specifier: link:../../qqbot/src/deepseek-harness/packages/api/session-controller
         version: link:../../qqbot/src/deepseek-harness/packages/api/session-controller
+      '@deepseek-ai/dsh-client-connection':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/client/connection
+        version: link:../../qqbot/src/deepseek-harness/packages/client/connection
+      '@deepseek-ai/dsh-client-ui-conversation':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-conversation
+        version: link:../../qqbot/src/deepseek-harness/packages/client/ui-conversation
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-primitives
         version: link:../../qqbot/src/deepseek-harness/packages/client/ui-primitives
@@ -35,6 +44,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: link:../../qqbot/src/deepseek-harness/packages/core/system-prompt
         version: link:../../qqbot/src/deepseek-harness/packages/core/system-prompt
+      '@deepseek-ai/dsh-working-directory':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/session/working-directory
+        version: link:../../qqbot/src/deepseek-harness/packages/session/working-directory
       '@types/node':
         specifier: ^22.20.0
         version: 22.20.5

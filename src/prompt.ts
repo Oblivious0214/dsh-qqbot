@@ -18,8 +18,14 @@ export const inject = ['systemPrompt', 'qqbot']
 /** `qqbot:prompt` 里的一段。name 沿用分段时的 section 名，供提示词查看器标出来源。 */
 export interface PromptPart {
   readonly name: string
+  readonly order: number
   readonly text: string
+  /** 外部槽位的登记插件；dsh-qqbot 自己的段落为空。 */
+  readonly source?: string
 }
+
+/** 各段之间的分隔，和 DSH 拼接 section 时一致（system-prompt 的 renderPrompt）。 */
+export const PART_SEPARATOR = '\n\n'
 
 /** 诊断性组装没有 agent，此时所有按会话求值的内容都为空。 */
 function sessionOf(context: AssembleContext): QqbotSession | undefined {
@@ -34,7 +40,7 @@ function sessionOf(context: AssembleContext): QqbotSession | undefined {
 export function assembleParts(content: QqbotContent, store: QqbotRegistryStore, session: QqbotSession | undefined): PromptPart[] {
   const perSession = (read: (session: QqbotSession) => string) => session === undefined ? '' : read(session)
   const jailbreak = session === undefined ? undefined : content.jailbreakFor(session)
-  const parts: (PromptPart & { readonly order: number })[] = [
+  const parts: PromptPart[] = [
     { name: SECTION_NAME.JB_HEAD, order: SECTION_ORDER.JB_HEAD, text: jailbreak?.head ?? '' },
     { name: SECTION_NAME.PERSONA, order: SECTION_ORDER.PERSONA, text: perSession(s => content.personaFor(s)) },
     { name: SECTION_NAME.JB_MID, order: SECTION_ORDER.JB_MID, text: jailbreak?.mid ?? '' },
@@ -42,6 +48,7 @@ export function assembleParts(content: QqbotContent, store: QqbotRegistryStore, 
       name: `${SECTION_NAME.EXT_PREFIX}${entry.name}`,
       order: SECTION_ORDER.EXT,
       text: perSession(s => resolveText(entry.text, s)),
+      ...entry.source === undefined ? {} : { source: entry.source },
     })),
     { name: SECTION_NAME.MEMORY_HINT, order: SECTION_ORDER.MEMORY_HINT, text: MEMORY_HINT },
     { name: SECTION_NAME.JB_TAIL, order: SECTION_ORDER.JB_TAIL, text: jailbreak?.tail ?? '' },
@@ -49,11 +56,19 @@ export function assembleParts(content: QqbotContent, store: QqbotRegistryStore, 
   return parts
     .filter(part => part.text !== '')
     .sort((a, b) => a.order - b.order || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    .map(({ name, text }) => ({ name, text }))
+}
+
+/** `qqbot:runtime` context 的文本：每条一行 `名称: 内容`，空条目去掉。 */
+export function renderRuntime(store: QqbotRegistryStore, session: QqbotSession): string {
+  return store.snapshot().runtime
+    .map(item => ({ name: item.name, text: resolveText(item.text, session) }))
+    .filter(item => item.text !== '')
+    .map(item => `${item.name}: ${item.text}`)
+    .join('\n')
 }
 
 export function apply(ctx: Context): void {
-  const { content, store } = ctx.qqbot
+  const { content, store, lastPrompt } = ctx.qqbot
 
   // complete：本会话的系统提示词只有这一段。DSH 自带段落（身份行、present 说明、源码目录、
   // Web GUI）和其他插件的 section 都不会进入 qqbot 会话；工具 schema 不受影响。
@@ -63,7 +78,12 @@ export function apply(ctx: Context): void {
     order: PROMPT_ORDER,
     complete: true,
     interpolate: false,
-    text: context => assembleParts(content, store, sessionOf(context)).map(part => part.text).join('\n\n'),
+    text: (context) => {
+      const text = assembleParts(content, store, sessionOf(context)).map(part => part.text).join(PART_SEPARATOR)
+      // 只有 agent-loop 的真实组装带 agent（agent-loop/src/agent.ts），这份记录就是发给模型的系统提示词。
+      if (context.agent !== undefined) lastPrompt.set(context.agent, text)
+      return text
+    },
   })
 
   // required：persona 设了 includeRuntimeContext: false，可选 context 都被去掉，qqbot 自己的运行时状态要保留。
@@ -74,12 +94,7 @@ export function apply(ctx: Context): void {
     interpolate: false,
     text: (context) => {
       const session = sessionOf(context)
-      if (session === undefined) return ''
-      return store.snapshot().runtime
-        .map(item => ({ name: item.name, text: resolveText(item.text, session) }))
-        .filter(item => item.text !== '')
-        .map(item => `${item.name}: ${item.text}`)
-        .join('\n')
+      return session === undefined ? '' : renderRuntime(store, session)
     },
   })
 }

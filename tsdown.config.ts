@@ -20,6 +20,8 @@ export default [
     fixedExtension: false,
     dts: false,
     clean: false,
+    // 必须和宿主共用同一份 cordis（Service 基类、Context）；运行时按 peer 声明解析到宿主的包。
+    deps: { neverBundle: ['@deepseek-ai/cordis'] },
   }),
   defineConfig({
     name: `${PLUGIN_ID}/client`,

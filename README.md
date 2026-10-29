@@ -16,7 +16,7 @@ host 层服务 `ctx.qqbot` 只做登记，内容只出现在 qqbot 会话里。�
 
 ```js
 ctx.inject(['qqbot'], (child) => {
-  // 规则：section 名为 qqbot:ext:toy。文本应尽量稳定，每次变化都会让后面的前缀缓存失效。
+  // 规则：在提示词里的段名为 qqbot:ext:toy。文本应尽量稳定，每次变化都会让后面的前缀缓存失效。
   child.effect(() => child.qqbot.extension({ name: 'toy', text: session => '...' }))
   // 运行时状态：进入 qqbot:runtime context，不影响系统提示词前缀。
   child.effect(() => child.qqbot.runtime('toy', session => 'device=disconnected'))
@@ -26,6 +26,7 @@ ctx.inject(['qqbot'], (child) => {
 - `name` 只能用小写字母、数字和连字符。
 - `text` 可以是字符串，也可以是 `(session) => string`。返回空串表示该会话里不出现这一段。
 - 外部条目统一排在角色和格式规则之后、记忆说明之前，同位置按名称排序。顺序表在 `src/order.ts`，外部插件不指定数字。
+- qqbot 会话的系统提示词只由 dsh-qqbot 组装（一个 complete section）。直接调用 `ctx.systemPrompt.section` 注册的全局段落不会出现在 qqbot 会话里，DSH 自带段落也一样；工具不受影响。
 
 ## 开发
 

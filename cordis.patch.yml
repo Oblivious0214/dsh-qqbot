@@ -12,11 +12,14 @@
         order: 50
         # 不挂 bash、pwsh、文件读写等工具（docs/architecture.md 第 2 节）。
         plugins:
+          # 系统提示词由 dsh-qqbot/prompt 的 complete section 独占，这里只关掉可选 runtime context
+          # （沙箱、审批、DSH 源码目录、Web GUI 地址）。工作目录和 qqbot:runtime 是 required，仍保留。
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: ''
               suffix: ''
+              includeRuntimeContext: false
           - id: qqbot-prompt
             name: dsh-qqbot/prompt
           - id: compaction

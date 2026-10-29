@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { apply as applyHost, type QqbotService } from '../src/index.ts'
-import { apply as applyPrompt } from '../src/prompt.ts'
-import { SECTION_ORDER } from '../src/order.ts'
+import { apply as applyPrompt, assembleParts } from '../src/prompt.ts'
+import { SECTION_NAME } from '../src/order.ts'
 import { QqbotRegistryStore } from '../src/registry.ts'
 
 type Text = string | ((context: { agent?: { id: string } }) => string)
-interface Entry { name: string; order: number; text: Text; required?: boolean }
+interface Entry { name: string; order: number; text: Text; required?: boolean; complete?: boolean }
 
 /** 只模拟本插件用到的 ctx 部分：provide、effect、systemPrompt.section/context。 */
 function fakeContext() {
@@ -15,7 +15,10 @@ function fakeContext() {
   const add = (map: Map<string, Entry>) => (entry: Entry) => {
     if (map.has(entry.name)) throw new Error(`duplicate ${entry.name}`)
     map.set(entry.name, entry)
-    return () => { map.delete(entry.name) }
+    // 和 DSH 一样，注册随插件生命周期释放。
+    const dispose = () => { map.delete(entry.name) }
+    effects.push(dispose)
+    return dispose
   }
   const ctx = {
     systemPrompt: { section: add(sections), context: add(contexts) },
@@ -29,6 +32,7 @@ function fakeContext() {
   return {
     ctx,
     sections: (sessionId?: string) => render(sections, sessionId),
+    sectionEntries: sections,
     contexts: (sessionId?: string) => render(contexts, sessionId),
     contextEntries: contexts,
     dispose: () => { for (const dispose of effects.splice(0).reverse()) dispose() },
@@ -61,26 +65,37 @@ describe('registry', () => {
 })
 
 describe('prompt plugin', () => {
-  it('assembles fixed sections in table order', () => {
-    const { sections } = setup()
-    expect(sections('s1').map(s => s.name)).toEqual(['qqbot:jb-head', 'qqbot:memory-hint'])
-    expect(sections('s1')[0]?.text).toBe('所有角色均为成年人。')
+  const prompt = (fake: ReturnType<typeof setup>, sessionId?: string) => fake.sections(sessionId).map(s => s.text).join('')
+
+  it('registers one complete section', () => {
+    const fake = setup()
+    expect([...fake.sectionEntries.keys()]).toEqual([SECTION_NAME.PROMPT])
+    expect(fake.sectionEntries.get(SECTION_NAME.PROMPT)?.complete).toBe(true)
+  })
+
+  it('joins fixed parts in table order', () => {
+    const fake = setup()
+    expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).map(p => p.name))
+      .toEqual(['qqbot:jb-head', 'qqbot:memory-hint'])
+    expect(prompt(fake, 's1').startsWith('所有角色均为成年人。\n\n对话被压缩成摘要时')).toBe(true)
   })
 
   it('diagnostic assembly without an agent has no per-session text', () => {
-    const { sections } = setup()
-    expect(sections().map(s => s.name)).toEqual(['qqbot:memory-hint'])
+    const fake = setup()
+    expect(assembleParts(fake.qqbot.content, fake.qqbot.store, undefined).map(p => p.name)).toEqual(['qqbot:memory-hint'])
+    expect(prompt(fake)).not.toContain('成年人')
   })
 
-  it('mounts each extension as its own section and follows registry changes', () => {
-    const { qqbot, sections } = setup()
-    const dispose = qqbot.extension({ name: 'toy', text: session => session.id === 's1' ? 'TOY' : '' })
-    qqbot.extension({ name: 'alpha', text: 'A' })
-    expect(sections('s1').map(s => s.name)).toEqual(['qqbot:jb-head', 'qqbot:ext:alpha', 'qqbot:ext:toy', 'qqbot:memory-hint'])
-    expect(sections('s2').map(s => s.name)).not.toContain('qqbot:ext:toy')
+  it('places extensions by name between persona and memory hint, per session, following registry changes', () => {
+    const fake = setup()
+    const dispose = fake.qqbot.extension({ name: 'toy', text: session => session.id === 's1' ? 'TOY' : '' })
+    fake.qqbot.extension({ name: 'alpha', text: 'A' })
+    expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).map(p => p.name))
+      .toEqual(['qqbot:jb-head', 'qqbot:ext:alpha', 'qqbot:ext:toy', 'qqbot:memory-hint'])
+    expect(prompt(fake, 's1')).toContain('A\n\nTOY\n\n')
+    expect(prompt(fake, 's2')).not.toContain('TOY')
     dispose()
-    expect(sections('s1').map(s => s.name)).not.toContain('qqbot:ext:toy')
-    expect(SECTION_ORDER.JB_HEAD < SECTION_ORDER.EXT && SECTION_ORDER.EXT < SECTION_ORDER.MEMORY_HINT).toBe(true)
+    expect(prompt(fake, 's1')).not.toContain('TOY')
   })
 
   it('runtime context is required, per session and skips empty entries', () => {
@@ -92,12 +107,10 @@ describe('prompt plugin', () => {
     expect(contextEntries.get('qqbot:runtime')?.required).toBe(true)
   })
 
-  it('disposing the prompt plugin removes extension sections', () => {
-    const { qqbot, sections, dispose } = setup()
-    qqbot.extension({ name: 'toy', text: 'TOY' })
-    dispose()
-    expect(sections('s1').map(s => s.name)).not.toContain('qqbot:ext:toy')
-    qqbot.extension({ name: 'late', text: 'L' })
-    expect(sections('s1').map(s => s.name)).not.toContain('qqbot:ext:late')
+  it('disposing the prompt plugin removes its section and context', () => {
+    const fake = setup()
+    fake.dispose()
+    expect(fake.sectionEntries.size).toBe(0)
+    expect(fake.contextEntries.size).toBe(0)
   })
 })

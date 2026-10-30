@@ -8,7 +8,8 @@ import {
   BACKGROUND_FIT_LABELS, BACKGROUND_FITS, INTERVAL_METHODS, PALETTE_LABELS, PALETTES, UI_LIMITS,
   type UiAction, type UiSettings,
 } from '../ui-types.ts'
-import { avatarFromFile, backgroundFromFile } from './images.ts'
+import { ImageCropper } from './image-cropper.tsx'
+import type { ImageKind } from './images.ts'
 import { imageUrl } from './qq-style.ts'
 import { requestUi, type UiState } from './ui-state.ts'
 
@@ -44,6 +45,26 @@ function FilePicker({ label, disabled, onFile }: { readonly label: string; reado
   </>
 }
 
+/** 选图按钮：选好后打开裁剪弹窗，裁好再提交；保存成功才关弹窗。 */
+function CroppedImagePicker({ kind, label, busy, error, onSave }: {
+  readonly kind: ImageKind
+  readonly label: string
+  readonly busy: boolean
+  readonly error: string | undefined
+  readonly onSave: (data: string) => Promise<boolean>
+}) {
+  const [file, setFile] = useState<File | undefined>()
+  // 弹窗里只显示这次保存的错误，不显示打开前表单上的旧错误。
+  const [tried, setTried] = useState(false)
+  const choose = (next: File | undefined) => { setFile(next); setTried(false) }
+  return <>
+    <FilePicker label={label} disabled={busy} onFile={choose} />
+    {file !== undefined && <ImageCropper kind={kind} file={file} busy={busy} error={tried ? error : undefined}
+      onChangeFile={choose} onCancel={() => { choose(undefined) }}
+      onSave={(data) => { setTried(true); void onSave(data).then((ok) => { if (ok) choose(undefined) }) }} />}
+  </>
+}
+
 /** 角色表单里的头像栏。只对已保存的角色可用：头像按角色 id 存。 */
 export function RoleAvatarField({ ui, role }: { readonly ui: UiState; readonly role: { readonly id: string; readonly name: string } | undefined }) {
   useSyncExternalStore(ui.subscribe, ui.getVersion)
@@ -57,12 +78,12 @@ export function RoleAvatarField({ ui, role }: { readonly ui: UiState; readonly r
         {version === undefined
           ? <span className="ql-avatar ql-avatar-initial">{Array.from(role.name.trim())[0] ?? ''}</span>
           : <img className="ql-avatar" alt="" src={imageUrl('avatar', version, role.id)} />}
-        <FilePicker label={version === undefined ? '上传头像' : '更换头像'} disabled={busy}
-          onFile={(file) => { void run(async () => ({ action: 'avatar.set', role: role.id, data: await avatarFromFile(file) })) }} />
+        <CroppedImagePicker kind="avatar" label={version === undefined ? '上传头像' : '更换头像'} busy={busy} error={error}
+          onSave={data => run(() => Promise.resolve({ action: 'avatar.set', role: role.id, data }))} />
         {version !== undefined && <Button size="sm" variant="ghost" disabled={busy}
           onClick={() => { void run(() => Promise.resolve({ action: 'avatar.remove', role: role.id })) }}>改回首字</Button>}
       </div>}
-    {role !== undefined && <small>居中裁成正方形，存在 qqbot/images/avatars/。改了立即生效，只影响界面显示。
+    {role !== undefined && <small>选图后拖动取景，裁成正方形，存在 qqbot/images/avatars/。改了立即生效，只影响界面显示。
       会话要用 /role 选了这个角色，或把它设为新会话默认，消息旁才会显示头像。</small>}
     {error !== undefined && <div className="ql-state ql-warn">{error}</div>}
   </div>
@@ -133,8 +154,8 @@ export function UiForm({ ui }: { readonly ui: UiState }) {
       <span>聊天背景</span>
       <div className="ql-actions">
         {background !== undefined && <img className="ql-background" alt="" src={imageUrl('background', background)} />}
-        <FilePicker label={background === undefined ? '选择图片' : '更换'} disabled={busy}
-          onFile={(file) => { void run(async () => ({ action: 'background.set', data: await backgroundFromFile(file) })) }} />
+        <CroppedImagePicker kind="background" label={background === undefined ? '选择图片' : '更换'} busy={busy} error={error}
+          onSave={data => run(() => Promise.resolve({ action: 'background.set', data }))} />
         {background !== undefined && <Button size="sm" variant="ghost" disabled={busy}
           onClick={() => { void run(() => Promise.resolve({ action: 'background.remove' })) }}>去掉背景</Button>}
         <select value={settings.backgroundFit} disabled={busy} aria-label="背景显示方式"
@@ -142,7 +163,7 @@ export function UiForm({ ui }: { readonly ui: UiState }) {
           {BACKGROUND_FITS.map(f => <option key={f} value={f}>{BACKGROUND_FIT_LABELS[f]}</option>)}
         </select>
       </div>
-      <small>所有 QQ Bot 会话共用一张。最长边缩到 1920px，存在 qqbot/images/。</small>
+      <small>所有 QQ Bot 会话共用一张。选图后拖动取景，比例可选，最长边缩到 1920px，存在 qqbot/images/。</small>
     </div>
 
     <Row label="分段间隔" hint="AI 没给某一段写停顿时间时用这个设置。AI 写了的段落按 AI 写的显示。">

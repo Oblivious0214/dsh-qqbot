@@ -19,6 +19,7 @@ import {
   EDITOR_CLASS, EDITOR_CSS, LibraryEditorHost, LibrarySettingsSection,
   type EditorTarget, type LibraryEditorInjected, type LibrarySettingsInjected,
 } from './library-editor.tsx'
+import { CROPPER_CLASS, CROPPER_CSS } from './image-cropper.tsx'
 import { PromptViewerButton, ROOT_CLASS, VIEWER_CSS, type PromptViewerInjected } from './prompt-viewer.tsx'
 import { buildQqCss, MARK_ATTRIBUTE } from './qq-style.ts'
 import { installSegments } from './segments.tsx'
@@ -135,11 +136,11 @@ export function apply(ctx: Context): void {
     inject: (): LibraryEditorInjected => ({ hooks: { editorTarget }, closeEditor, ui }),
   }, LibraryEditorHost))
 
-  // 查看器、编辑器和底部按钮的样式分别在 ROOT_CLASS、EDITOR_CLASS、FOOTER_CLASS 下；插件关闭时移除。
+  // 查看器、编辑器、裁剪弹窗和底部按钮的样式分别在 ROOT_CLASS、EDITOR_CLASS、CROPPER_CLASS、FOOTER_CLASS 下；插件关闭时移除。
   ctx.effect(() => {
     const style = document.createElement('style')
-    style.dataset['qqbotStyle'] = `${ROOT_CLASS} ${EDITOR_CLASS} ${FOOTER_CLASS}`
-    style.textContent = VIEWER_CSS + EDITOR_CSS + FOOTER_CSS
+    style.dataset['qqbotStyle'] = `${ROOT_CLASS} ${EDITOR_CLASS} ${CROPPER_CLASS} ${FOOTER_CLASS}`
+    style.textContent = VIEWER_CSS + EDITOR_CSS + CROPPER_CSS + FOOTER_CSS
     document.head.append(style)
     return () => { style.remove() }
   }, 'qqbot: viewer and editor style')

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionBindings } from '../src/bindings.ts'
+import { checkImageFile, outputSize } from '../src/client/images.ts'
 import { buildQqCss } from '../src/client/qq-style.ts'
 import { UiState } from '../src/client/ui-state.ts'
 import { QqbotData } from '../src/content.ts'
@@ -149,6 +150,22 @@ describe('images', () => {
   })
 })
 
+describe('cropped image output', () => {
+  it('makes avatars a fixed square and only shrinks backgrounds', () => {
+    expect(outputSize('avatar', 900, 900)).toEqual({ width: 256, height: 256 })
+    expect(outputSize('background', 3840, 2160)).toEqual({ width: 1920, height: 1080 })
+    expect(outputSize('background', 1000, 3000)).toEqual({ width: 640, height: 1920 })
+    expect(outputSize('background', 800, 450)).toEqual({ width: 800, height: 450 })
+  })
+
+  it('checks the picked file before cropping', () => {
+    const file = (type: string, size: number) => ({ type, size }) as File
+    expect(() => { checkImageFile(file('image/png', 1000)) }).not.toThrow()
+    expect(() => { checkImageFile(file('image/svg+xml', 1000)) }).toThrow('只支持')
+    expect(() => { checkImageFile(file('image/jpeg', 41 * 1024 * 1024)) }).toThrow('太大')
+  })
+})
+
 describe('segment delay', () => {
   it('picks between min and max for random', () => {
     const settings = { ...DEFAULT_UI_SETTINGS, intervalMin: 2, intervalMax: 1 }
@@ -172,6 +189,13 @@ describe('qq style', () => {
       .map(selector => selector.replace(/\/\*[\s\S]*?\*\//g, '').trim()).filter(Boolean)
     expect(selectors.length).toBeGreaterThan(20)
     for (const selector of selectors) expect(selector).toMatch(/^(?:body\[data-ds-dark-theme\] )?\[data-qqbot\]/)
+  })
+
+  it('draws the avatar only on replies that have a role', () => {
+    const css = buildQqCss({ ...DEFAULT_UI_SETTINGS, avatars: true }, undefined)
+    const before = [...css.matchAll(/([^{}]+)\{[^{}]*--qqbot-initial/g)].map(match => match[1]!.trim())
+    expect(before).toHaveLength(1)
+    expect(before[0]).toContain('[data-qqbot-reply][data-qqbot-role]')
   })
 
   it('follows the switches', () => {

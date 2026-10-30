@@ -1,9 +1,11 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BadRequest } from '../src/ui.ts'
-import { normalizeBaseUrl, sniffAudio, synthesize, SynthError, type Fetch } from '../src/voice-engines.ts'
+import { normalizeBaseUrl, normalizeProxyUrl, sniffAudio, synthesize, SynthError, type Fetch } from '../src/voice-engines.ts'
 import { applyVoiceAction, AudioCache, credentialKeyStore, Speaker, VoiceStore, voiceView, type KeyStore } from '../src/voice.ts'
 import { DEFAULT_VOICE_SETTINGS, speechText, type VoiceEngine } from '../src/voice-types.ts'
 
@@ -113,6 +115,58 @@ describe('engine requests', () => {
   })
 })
 
+describe('fish proxy', () => {
+  /** 假代理：记下 CONNECT 的目标，按 reply 回应；不转发，所以不会连到真的 Fish Audio。 */
+  async function fakeProxy(reply: string): Promise<{ server: Server; url: string; seen: string[] }> {
+    const seen: string[] = []
+    const server = createServer((_, response) => { response.writeHead(502); response.end() })
+    server.on('connect', (request, socket) => { seen.push(request.url ?? ''); socket.end(reply) })
+    const address = await new Promise<AddressInfo>((resolve) => { server.listen(0, '127.0.0.1', () => { resolve(server.address() as AddressInfo) }) })
+    return { server, url: `127.0.0.1:${address.port}`, seen }
+  }
+  const close = (server: Server) => new Promise<void>((resolve) => { server.close(() => { resolve() }) })
+  const via = (url: string, enabled = true): VoiceEngine => ({ ...fish, config: { ...fish.config, proxy: { enabled, url } } })
+
+  it('tunnels through the proxy when enabled and skips it when off', async () => {
+    const proxy = await fakeProxy('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+    try {
+      const { calls, impl } = fakeFetch()
+      await expect(synthesize({ engine: via(proxy.url), apiKey: 'sk-1', params, text: '你好' }, impl)).rejects.toThrow('通过代理连不上 Fish Audio')
+      expect(proxy.seen).toEqual(['api.fish.audio:443'])
+      expect(calls).toEqual([])
+      await synthesize({ engine: via(proxy.url, false), apiKey: 'sk-1', params, text: '你好' }, impl)
+      expect(calls).toHaveLength(1)
+      expect(proxy.seen).toHaveLength(1)
+    } finally {
+      await close(proxy.server)
+    }
+  })
+
+  it('says so when the proxy itself is not running', async () => {
+    const proxy = await fakeProxy('')
+    const url = proxy.url
+    await close(proxy.server)
+    await expect(synthesize({ engine: via(url), apiKey: 'sk-1', params, text: '你好' })).rejects.toThrow(`连不上代理 ${url}`)
+  })
+
+  it('checks proxy addresses and only when the proxy is on', async () => {
+    expect(normalizeProxyUrl(' 127.0.0.1:7897 ')).toBe('http://127.0.0.1:7897')
+    expect(normalizeProxyUrl('http://localhost:7890/')).toBe('http://localhost:7890')
+    expect(() => normalizeProxyUrl('socks5://127.0.0.1:7897')).toThrow('只支持 HTTP 代理')
+    expect(() => normalizeProxyUrl('127.0.0.1')).toThrow('要带端口')
+    expect(() => normalizeProxyUrl('http://u:p@127.0.0.1:7897')).toThrow('账号密码')
+    const { store } = setup()
+    expect(() => store.saveEngine({ name: 'Fish', kind: 'fish', config: { baseUrl: '', model: '', proxy: { enabled: true, url: '127.0.0.1' } } })).toThrow(BadRequest)
+    const off = store.saveEngine({ name: 'Fish', kind: 'fish', config: { baseUrl: '', model: '', proxy: { enabled: false, url: '' } } })
+    expect(off.config.proxy).toEqual({ enabled: false, url: 'http://127.0.0.1:7897' })
+    const on = store.saveEngine({ id: off.id, name: 'Fish', kind: 'fish', config: { baseUrl: '', model: '', proxy: { enabled: true, url: '127.0.0.1:7890' } } })
+    expect(on.config.proxy).toEqual({ enabled: true, url: 'http://127.0.0.1:7890' })
+    const local = store.saveEngine({ name: '本地', kind: 'openai', config: { baseUrl: 'http://127.0.0.1:8880/v1', model: '', proxy: { enabled: true, url: '127.0.0.1:7890' } } })
+    expect(local.config.proxy).toBeUndefined()
+    expect(AudioCache.key(on, params, '你好')).toBe(AudioCache.key(off, params, '你好'))
+  })
+})
+
 describe('voice store', () => {
   it('saves engines and voices with generated ids and keeps keys out of voice.json', async () => {
     const { dir, store, keys } = setup()
@@ -124,7 +178,7 @@ describe('voice store', () => {
     const file = readFileSync(join(dir, 'voice.json'), 'utf8')
     expect(file).not.toContain('sk-secret')
     const view = await voiceView(new VoiceStore(dir, () => {}), keys)
-    expect(view.engines).toEqual([{ id: engine, name: 'Fish', kind: 'fish', config: { baseUrl: '', model: 's2.1-pro-free' }, hasKey: true }])
+    expect(view.engines).toEqual([{ id: engine, name: 'Fish', kind: 'fish', config: { baseUrl: '', model: 's2.1-pro-free', proxy: { enabled: false, url: 'http://127.0.0.1:7897' } }, hasKey: true }])
     expect(view.voices).toEqual([{ id: voice, name: '小雅', engine, params: { reference: 'ref-1', promptText: '', promptLang: 'zh', textLang: 'zh' } }])
     expect(JSON.stringify(view)).not.toContain('sk-secret')
   })

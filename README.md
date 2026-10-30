@@ -95,7 +95,7 @@ QQ Bot 会话用 DSH 原生的 compaction-basic 压缩：阈值、保留最近�
 在编辑器的"语音"页设置：
 
 1. 添加连接，三种：
-   - **Fish Audio**：填 API key，模型默认 `s2.1-pro-free`。
+   - **Fish Audio**：填 API key，模型默认 `s2.1-pro-free`。直连不稳时勾选"使用代理"，填代理软件的 HTTP 或混合端口（默认 `127.0.0.1:7897`）。只支持 HTTP 代理，不支持 SOCKS。不勾选时按 DSH 自己的网络设置（`$DSH_HOME/.env` 里的 `HTTPS_PROXY` 等）。
    - **OpenAI 兼容接口**：OpenAI 的 `/audio/speech` 格式，SiliconFlow、Kokoro-FastAPI 等云端或本地服务。地址填到 `/v1`，本地服务一般不用 key。
    - **GPT-SoVITS**：自带的 `api_v2.py`，地址默认 `http://127.0.0.1:9880`。
 2. 添加音色：Fish 填音色 ID（可以直接粘贴音色页地址）；OpenAI 兼容接口填 voice 名称；GPT-SoVITS 填参考音频在那台电脑上的路径、参考音频的文字和语言。可以先试听再保存。

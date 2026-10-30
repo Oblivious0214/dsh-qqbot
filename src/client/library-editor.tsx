@@ -25,8 +25,7 @@ export const EDITOR_CLASS = 'dsh-qqbot-library'
 export const EDITOR_CSS = `
 [role="dialog"].${EDITOR_CLASS} { width: min(960px, 100%); max-height: 100%; }
 .${EDITOR_CLASS}.ql-section { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
-.${EDITOR_CLASS} .ql-section-head { display: flex; align-items: center; gap: 12px; }
-.${EDITOR_CLASS} .ql-section-head .ql-note { flex: 1; margin: 0; }
+.${EDITOR_CLASS} .ql-section-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .${EDITOR_CLASS}.ql-section .ql-main { height: auto; min-height: 480px; }
 .${EDITOR_CLASS}.ql-section .ql-list { flex-basis: 150px; }
 .${EDITOR_CLASS} .ql-body { display: flex; flex-direction: column; gap: 10px; }
@@ -39,6 +38,7 @@ export const EDITOR_CSS = `
 .${EDITOR_CLASS} .ql-row .ql-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .${EDITOR_CLASS} .ql-form { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; overflow: auto; padding-right: 4px; }
 .${EDITOR_CLASS} .ql-field { display: flex; flex-direction: column; gap: 4px; }
+.${EDITOR_CLASS} .ql-field > span[title] { cursor: help; }
 .${EDITOR_CLASS} .ql-field > span { font-size: 13px; font-weight: 500; color: var(--dsw-alias-label-primary); }
 .${EDITOR_CLASS} .ql-field > small, .${EDITOR_CLASS} .ql-note { font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .${EDITOR_CLASS} .ql-field input, .${EDITOR_CLASS} .ql-field select, .${EDITOR_CLASS} .ql-field textarea {
@@ -55,6 +55,21 @@ export const EDITOR_CSS = `
 .${EDITOR_CLASS} .ql-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dsw-alias-label-primary); }
 .${EDITOR_CLASS} .ql-avatar { width: 40px; height: 40px; border-radius: 50%; corner-shape: round; object-fit: cover; flex: none; }
 .${EDITOR_CLASS} .ql-avatar-initial { display: flex; align-items: center; justify-content: center; background: var(--dsw-alias-brand-primary); color: #fff; font-weight: 600; }
+.${EDITOR_CLASS} .ql-dual { display: grid; grid-template-columns: minmax(160px, 320px) auto; align-items: center; gap: 12px; justify-content: start; }
+.${EDITOR_CLASS} .ql-dual-rail { position: relative; height: 22px; margin: 0 9px; }
+.${EDITOR_CLASS} .ql-dual-track { position: absolute; top: 9px; left: 0; right: 0; height: 4px; border-radius: 4px; pointer-events: none;
+  background: linear-gradient(to right, var(--dsw-alias-border-l4) var(--ql-a), var(--dsw-alias-brand-primary) var(--ql-a),
+    var(--dsw-alias-brand-primary) var(--ql-b), var(--dsw-alias-border-l4) var(--ql-b)); }
+.${EDITOR_CLASS} .ql-dual input[type="range"] { position: absolute; top: 0; left: -9px; width: calc(100% + 18px); height: 22px; margin: 0; padding: 0;
+  border: 0; background: none; appearance: none; -webkit-appearance: none; pointer-events: none; }
+.${EDITOR_CLASS} .ql-dual input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-3, #fff); cursor: pointer; pointer-events: auto; }
+.${EDITOR_CLASS} .ql-dual input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-3, #fff); cursor: pointer; pointer-events: auto; }
+.${EDITOR_CLASS} .ql-dual input[type="range"]:focus-visible { outline: none; }
+.${EDITOR_CLASS} .ql-dual input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+.${EDITOR_CLASS} .ql-dual input[type="range"]:disabled::-webkit-slider-thumb { cursor: default; opacity: 0.5; }
+.${EDITOR_CLASS} .ql-dual output { font-size: 12px; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .${EDITOR_CLASS} .ql-background { height: 56px; max-width: 120px; border-radius: var(--dsw-radius-sm); object-fit: cover; }
 `
 
@@ -90,22 +105,22 @@ function uniqueName(base: string, taken: readonly { readonly name: string }[]): 
   for (let n = 2; ; n++) if (!names.has(`${stem} ${n}`)) return `${stem} ${n}`
 }
 
+/** hint 是悬停在标签上时的提示，不铺在页面上。 */
 function Field({ label, hint, children }: { readonly label: string; readonly hint?: string; readonly children: ReactNode }) {
   return <label className="ql-field">
-    <span>{label}</span>
+    <span title={hint}>{label}</span>
     {children}
-    {hint !== undefined && <small>{hint}</small>}
   </label>
 }
 
 /** 多选一组复选框。value 按 choices 的顺序；一个都不选时传 undefined。 */
 function ChoiceField<T extends string>({ label, hint, choices, labels, value, onChange }: {
-  readonly label: string; readonly hint: string; readonly choices: readonly T[]; readonly labels: Record<T, string>
+  readonly label: string; readonly hint?: string; readonly choices: readonly T[]; readonly labels: Record<T, string>
   readonly value: readonly T[] | undefined; readonly onChange: (value: readonly T[] | undefined) => void
 }) {
   const selected = new Set(value)
   return <div className="ql-field">
-    <span>{label}</span>
+    <span title={hint}>{label}</span>
     <div className="ql-actions">
       {choices.map(choice => <label key={choice} className="ql-toggle">
         <input type="checkbox" checked={selected.has(choice)} onChange={(event) => {
@@ -115,7 +130,6 @@ function ChoiceField<T extends string>({ label, hint, choices, labels, value, on
         <span>{labels[choice]}</span>
       </label>)}
     </div>
-    <small>{hint}</small>
   </div>
 }
 
@@ -152,17 +166,17 @@ function RoleForm({ view, ui, voice, busy, onDirty, run, role, template, onSaved
   const isDefault = !create && view.defaultRole === role.id
 
   return <div className="ql-form">
-    <Field label="名称" hint="不能和别的角色重名。">
+    <Field label="名称">
       <input value={draft.name} data-modal-autofocus={create ? '' : undefined} onChange={(event) => { edit({ name: event.target.value }) }} />
     </Field>
     <RoleAvatarField ui={ui} role={role} />
-    <Field label="简介" hint="只在角色列表和 /role 里显示，不进提示词。">
+    <Field label="简介" hint="只在角色列表和 /role 里显示，AI 看不到">
       <input value={draft.description} onChange={(event) => { edit({ description: event.target.value }) }} />
     </Field>
-    <Field label="角色设定" hint="设定、性格、说话方式、示例对话。通用规则（例如成年人声明）写在破限预设里，不用在这里重复。">
+    <Field label="角色设定" hint="设定、性格、说话方式、示例对话。成年人声明等通用规则写在破限预设里">
       <textarea rows={14} value={draft.persona} onChange={(event) => { edit({ persona: event.target.value }) }} />
     </Field>
-    <Field label="表情频率" hint="装了 dsh-meme 时生效。随角色保存，改动让这个角色的会话下一轮从表情规则开始缓存失效。">
+    <Field label="表情频率" hint="装了 dsh-meme 时生效">
       <select value={draft.memeFrequency ?? ''} onChange={(event) => {
         const value = MEME_FREQUENCIES.find(f => f === event.target.value)
         setDraft(({ memeFrequency: _, ...rest }) => value === undefined ? rest : { ...rest, memeFrequency: value })
@@ -172,7 +186,7 @@ function RoleForm({ view, ui, voice, busy, onDirty, run, role, template, onSaved
         {MEME_FREQUENCIES.map(f => <option key={f} value={f}>{MEME_FREQUENCY_LABELS[f]}</option>)}
       </select>
     </Field>
-    <Field label="联动主动性上限" hint="装了设备插件时生效。实际档位取这里和联动设置里较低的一个。">
+    <Field label="联动主动性上限" hint="装了设备插件时生效，实际档位取这里和联动设置里较低的一个">
       <select value={draft.proactivity ?? 'high'} onChange={(event) => {
         // 高主动等于不限，不写进角色卡。
         const value = ROLE_PROACTIVITIES.find(p => p === event.target.value && p !== 'high')
@@ -182,15 +196,15 @@ function RoleForm({ view, ui, voice, busy, onDirty, run, role, template, onSaved
         {ROLE_PROACTIVITIES.map(p => <option key={p} value={p}>{ROLE_PROACTIVITY_LABELS[p]}</option>)}
       </select>
     </Field>
-    <ChoiceField label="偏好动作" hint="装了设备插件时生效。只是倾向，用户的要求优先；不选表示没有偏好。"
+    <ChoiceField label="偏好动作" hint="只是倾向，用户的要求优先；不选表示没有偏好"
       choices={MOTION_ACTIONS} labels={MOTION_ACTION_LABELS} value={draft.motionActions}
       onChange={(value) => { setDraft(({ motionActions: _, ...rest }) => value === undefined ? rest : { ...rest, motionActions: value }); onDirty(true) }} />
-    <ChoiceField label="偏好范围" hint="同上。滑动只在全行程、下半程、上半程里生效。"
+    <ChoiceField label="偏好范围" hint="只是倾向，用户的要求优先；滑动只在全行程、下半程、上半程里生效"
       choices={MOTION_RANGES} labels={MOTION_RANGE_LABELS} value={draft.motionRanges}
       onChange={(value) => { setDraft(({ motionRanges: _, ...rest }) => value === undefined ? rest : { ...rest, motionRanges: value }); onDirty(true) }} />
     <RoleVoiceField voice={voice} value={draft.voice} onManage={onManageVoices}
       onChange={(value) => { setDraft(({ voice: _, ...rest }) => value === undefined ? rest : { ...rest, voice: value }); onDirty(true) }} />
-    {!create && <Field label="破限预设" hint="改了立即保存。">
+    {!create && <Field label="破限预设" hint="改了立即保存">
       <select value={role.preset ?? ''} disabled={busy}
         onChange={(event) => { void run({ action: 'role.preset', id: role.id, ...event.target.value === '' ? {} : { preset: event.target.value } }) }}>
         <option value="">跟随默认（{view.presets.find(p => p.id === view.defaultPreset)?.name ?? view.defaultPreset}）</option>
@@ -206,17 +220,11 @@ function RoleForm({ view, ui, voice, busy, onDirty, run, role, template, onSaved
       {!create && !confirming && <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setConfirming(true) }}>删除</Button>}
     </div>
     {!create && confirming && <div className="ql-state ql-warn">
-      <span>角色文件会移到 qqbot/roles-trash/，可以手动放回。正在用这个角色的会话之后按无角色运行，放回后恢复。</span>
+      <span title="角色文件移到 qqbot/roles-trash/，放回后恢复">正在用这个角色的会话之后按无角色运行。</span>
       <Button size="sm" variant="outline" disabled={busy}
         onClick={() => { void run({ action: 'role.remove', id: role.id }).then((ok) => { if (ok) onRemoved() }) }}>确认删除</Button>
       <Button size="sm" variant="ghost" onClick={() => { setConfirming(false) }}>取消</Button>
     </div>}
-    <div className="ql-note">
-      {create
-        ? `保存到 ${view.rolesDir}。`
-        : '角色文件里手写的其他字段原样保留。删除角色时头像一起移到回收站。'}
-      {' '}保存后下一条消息起生效。正在用这个角色的会话，下一轮前缀缓存从角色设定开始失效。
-    </div>
   </div>
 }
 
@@ -241,22 +249,18 @@ function PresetForm({ view, busy, onDirty, run, preset, template, onSaved, onRem
   const users = create ? [] : view.roles.filter(role => (role.preset ?? view.defaultPreset) === preset.id)
 
   return <div className="ql-form">
-    <Field label="名称" hint="不能和别的预设重名。">
+    <Field label="名称">
       <input value={draft.name} data-modal-autofocus={create ? '' : undefined} onChange={(event) => { edit({ name: event.target.value }) }} />
     </Field>
-    <Field label="开头" hint="放在系统提示词最前面，角色设定之前。">
+    <Field label="开头" hint="放在系统提示词最前面，角色设定之前">
       <textarea rows={6} value={draft.head} onChange={(event) => { edit({ head: event.target.value }) }} />
     </Field>
-    <Field label="中间" hint="紧跟在角色设定之后。">
+    <Field label="中间" hint="紧跟在角色设定之后">
       <textarea rows={4} value={draft.mid} onChange={(event) => { edit({ mid: event.target.value }) }} />
     </Field>
-    <Field label="结尾" hint="放在系统提示词最后。">
+    <Field label="结尾" hint="放在系统提示词最后">
       <textarea rows={4} value={draft.tail} onChange={(event) => { edit({ tail: event.target.value }) }} />
     </Field>
-    {!create && <div className="ql-note">
-      {isDefault ? '这是默认预设，没有单独选择的角色和无角色会话都用它。' : '不是默认预设。'}
-      {' '}使用它的角色：{users.length === 0 ? '无' : users.map(role => role.name).join('、')}
-    </div>}
     <div className="ql-actions">
       <Button size="sm" variant="primary" disabled={busy} onClick={() => { void save() }}>{create ? '创建预设' : '保存'}</Button>
       <Button size="sm" variant="outline" disabled={busy}
@@ -269,14 +273,11 @@ function PresetForm({ view, busy, onDirty, run, preset, template, onSaved, onRem
         title={view.presets.length <= 1 ? '至少要保留一份预设' : undefined} onClick={() => { setConfirming(true) }}>删除</Button>}
     </div>
     {!create && confirming && <div className="ql-state ql-warn">
-      <span>删除后不能恢复。选了它的角色改回跟随默认{isDefault ? '；它是默认预设，默认会改为剩下的第一份' : ''}。</span>
+      <span>删除后不能恢复。{users.length > 0 && `${users.map(role => role.name).join('、')}改回跟随默认`}{isDefault ? `${users.length > 0 ? '；' : ''}默认改为剩下的第一份` : ''}。</span>
       <Button size="sm" variant="outline" disabled={busy}
         onClick={() => { void run({ action: 'preset.remove', id: preset.id }).then((ok) => { if (ok) onRemoved() }) }}>确认删除</Button>
       <Button size="sm" variant="ghost" onClick={() => { setConfirming(false) }}>取消</Button>
     </div>}
-    <div className="ql-note">
-      保存后下一条消息起生效。改开头段，用这份预设的会话下一轮整个系统提示词的缓存失效；改中间或结尾，从改动处开始失效。
-    </div>
   </div>
 }
 
@@ -403,13 +404,11 @@ function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState):
   return { guard, content }
 }
 
-const DESCRIPTION = '只用于 QQ Bot 会话。也可以直接编辑文件，打开这里或执行 /role 时重新读取。'
-
 function LibraryDialog({ target, ui, voice, onClose }: {
   readonly target: EditorTarget; readonly ui: UiState; readonly voice: VoiceState; readonly onClose: () => void
 }) {
   const { guard, content } = useLibraryEditor(target, ui, voice)
-  return <Modal open onClose={() => { guard(onClose) }} title="QQ Bot 设置" closeLabel="关闭" className={EDITOR_CLASS} description={DESCRIPTION}>
+  return <Modal open onClose={() => { guard(onClose) }} title="QQ Bot 设置" closeLabel="关闭" className={EDITOR_CLASS}>
     {content}
   </Modal>
 }
@@ -428,7 +427,6 @@ export function LibrarySettingsSection({ close, ui, voice, startQqSession }: Pro
   const { content } = useLibraryEditor(ROLES, ui, voice)
   return <div className={`${EDITOR_CLASS} ql-section`}>
     <div className="ql-section-head">
-      <p className="ql-note">{DESCRIPTION}</p>
       <Button size="sm" variant="outline" onClick={() => { close(); startQqSession() }}>新建 QQ 会话</Button>
     </div>
     {content}

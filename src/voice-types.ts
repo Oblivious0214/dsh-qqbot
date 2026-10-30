@@ -34,14 +34,27 @@ export const SOVITS_LANG_LABELS: Record<SovitsLang, string> = {
   zh: '中文', ja: '日语', en: '英语', ko: '韩语', yue: '粤语', auto: '自动',
 }
 
+/**
+ * 走哪个 HTTP 代理，只有 fish 有。默认关闭，关闭时按 DSH 自己的网络设置（`HTTPS_PROXY` 等）。
+ * 关掉时地址照样保留，下次打开不用重填。
+ */
+export interface ProxyConfig {
+  readonly enabled: boolean
+  readonly url: string
+}
+
+/** Clash Verge 等代理软件常用的本机端口。 */
+export const DEFAULT_PROXY_URL = 'http://127.0.0.1:7897'
+
 /** 引擎的连接设置。fish 不用填地址；model 留空时用各引擎的默认值。 */
 export interface EngineConfig {
   readonly baseUrl: string
   readonly model: string
+  readonly proxy?: ProxyConfig
 }
 
 export const ENGINE_DEFAULTS: Record<EngineKind, EngineConfig> = {
-  fish: { baseUrl: '', model: 's2.1-pro-free' },
+  fish: { baseUrl: '', model: 's2.1-pro-free', proxy: { enabled: false, url: DEFAULT_PROXY_URL } },
   openai: { baseUrl: 'http://127.0.0.1:8880/v1', model: 'tts-1' },
   'gpt-sovits': { baseUrl: 'http://127.0.0.1:9880', model: '' },
 }

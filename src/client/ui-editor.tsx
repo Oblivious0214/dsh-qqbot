@@ -2,7 +2,7 @@
  * 编辑器里的"界面"页和角色头像栏。改动只影响 qqbot 会话的显示，不进提示词，不影响前缀缓存。
  */
 
-import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   BACKGROUND_FIT_LABELS, BACKGROUND_FITS, INTERVAL_METHODS, PALETTE_LABELS, PALETTES, UI_LIMITS,
@@ -71,7 +71,7 @@ export function RoleAvatarField({ ui, role }: { readonly ui: UiState; readonly r
   const { busy, error, run } = useUiAction(ui)
   const version = role === undefined ? undefined : ui.avatarVersion(role.id)
   return <div className="ql-field">
-    <span>头像</span>
+    <span title={role === undefined ? undefined : '会话用 /role 选了这个角色，或它是新会话默认时，消息旁显示头像'}>头像</span>
     {role === undefined
       ? <small>创建角色后可以上传头像。</small>
       : <div className="ql-actions">
@@ -83,24 +83,22 @@ export function RoleAvatarField({ ui, role }: { readonly ui: UiState; readonly r
         {version !== undefined && <Button size="sm" variant="ghost" disabled={busy}
           onClick={() => { void run(() => Promise.resolve({ action: 'avatar.remove', role: role.id })) }}>改回首字</Button>}
       </div>}
-    {role !== undefined && <small>选图后拖动取景，裁成正方形，存在 qqbot/images/avatars/。改了立即生效，只影响界面显示。
-      会话要用 /role 选了这个角色，或把它设为新会话默认，消息旁才会显示头像。</small>}
     {error !== undefined && <div className="ql-state ql-warn">{error}</div>}
   </div>
 }
 
+/** hint 是悬停在标签上时的提示。 */
 function Row({ label, hint, children }: { readonly label: string; readonly hint?: string; readonly children: ReactNode }) {
   return <label className="ql-field">
-    <span>{label}</span>
+    <span title={hint}>{label}</span>
     {children}
-    {hint !== undefined && <small>{hint}</small>}
   </label>
 }
 
-function Toggle({ label, checked, disabled, onChange }: {
-  readonly label: string; readonly checked: boolean; readonly disabled: boolean; readonly onChange: (value: boolean) => void
+function Toggle({ label, title, checked, disabled, onChange }: {
+  readonly label: string; readonly title?: string; readonly checked: boolean; readonly disabled: boolean; readonly onChange: (value: boolean) => void
 }) {
-  return <label className="ql-toggle">
+  return <label className="ql-toggle" title={title}>
     <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => { onChange(event.target.checked) }} />
     <span>{label}</span>
   </label>
@@ -122,6 +120,45 @@ function NumberInput({ value, min, max, step, onCommit }: {
     onKeyDown={(event) => { if (event.key === 'Enter') commit() }} />
 }
 
+/**
+ * 双句柄滑条，用于成对的上下限（迁移自 dsh-serveu 的 DualRange）。拖动时只改本地值，松手才提交，
+ * 避免每一格都保存一次。两个句柄至少隔 gap。
+ */
+export function DualRange({ labels, value, min, max, step, gap = step, format, disabled, onCommit }: {
+  readonly labels: readonly [string, string]; readonly value: readonly [number, number]
+  readonly min: number; readonly max: number; readonly step: number; readonly gap?: number
+  readonly format: (value: number) => string; readonly disabled?: boolean
+  readonly onCommit: (value: readonly [number, number]) => void
+}) {
+  const [draft, setDraft] = useState<readonly [number, number] | undefined>()
+  const shown = draft ?? value
+  const at = (n: number) => `${(n - min) / (max - min) * 100}%`
+  const move = (index: 0 | 1, raw: number) => {
+    const next: [number, number] = [shown[0], shown[1]]
+    next[index] = index === 0 ? Math.min(raw, shown[1] - gap) : Math.max(raw, shown[0] + gap)
+    // 除以 1/step 而不是乘 step：0.1 步进时 3 * 0.1 是 0.30000000000000004，3 / 10 是 0.3。
+    next[index] = Math.round(next[index] / step) / (1 / step)
+    setDraft(next)
+  }
+  const commit = () => {
+    if (draft === undefined) return
+    setDraft(undefined)
+    if (draft[0] !== value[0] || draft[1] !== value[1]) onCommit(draft)
+  }
+  return <div className="ql-dual">
+    <div className="ql-dual-rail" style={{ '--ql-a': at(shown[0]), '--ql-b': at(shown[1]) } as CSSProperties}>
+      <div className="ql-dual-track" />
+      {([0, 1] as const).map(index => <input key={index} type="range" min={min} max={max} step={step} value={shown[index]}
+      disabled={disabled} aria-label={labels[index]} aria-valuetext={format(shown[index])}
+      // 两个句柄重合在最右边时，下限要在上面，才拖得回来。
+      style={{ zIndex: index === 0 && shown[0] > (min + max) / 2 ? 3 : index + 1 }}
+      onChange={(event) => { move(index, Number(event.target.value)) }}
+      onPointerUp={commit} onKeyUp={commit} onBlur={commit} />)}
+    </div>
+    <output>{format(shown[0])} – {format(shown[1])}</output>
+  </div>
+}
+
 /** "界面"页：每改一项立即保存。 */
 export function UiForm({ ui }: { readonly ui: UiState }) {
   useSyncExternalStore(ui.subscribe, ui.getVersion)
@@ -134,7 +171,7 @@ export function UiForm({ ui }: { readonly ui: UiState }) {
 
   return <div className="ql-form">
     {error !== undefined && <div className="ql-state ql-warn">{error}</div>}
-    <Row label="色板" hint="只用于 QQ Bot 会话的聊天区，标准会话和侧边栏不变。跟随 DSH 的浅色或深色主题。">
+    <Row label="色板" hint="跟随 DSH 的浅色或深色主题">
       <select value={settings.palette} disabled={busy}
         onChange={(event) => { const palette = PALETTES.find(p => p === event.target.value); if (palette !== undefined) save({ palette }) }}>
         {PALETTES.map(p => <option key={p} value={p}>{PALETTE_LABELS[p]}</option>)}
@@ -143,7 +180,7 @@ export function UiForm({ ui }: { readonly ui: UiState }) {
     <div className="ql-grid">
       <Toggle label="角色头像" checked={settings.avatars} disabled={busy} onChange={(avatars) => { save({ avatars }) }} />
       <Toggle label="用户气泡尾巴" checked={settings.bubbleTail} disabled={busy} onChange={(bubbleTail) => { save({ bubbleTail }) }} />
-      <Toggle label="沉浸模式（隐藏工具过程和回合统计）" checked={settings.immersive} disabled={busy} onChange={(immersive) => { save({ immersive }) }} />
+      <Toggle label="沉浸模式" title="隐藏工具过程和回合统计" checked={settings.immersive} disabled={busy} onChange={(immersive) => { save({ immersive }) }} />
     </div>
     <Row label="聊天区宽度（px）">
       <NumberInput value={settings.chatMaxWidth} min={UI_LIMITS.chatMaxWidth.min} max={UI_LIMITS.chatMaxWidth.max} step={10}
@@ -151,7 +188,7 @@ export function UiForm({ ui }: { readonly ui: UiState }) {
     </Row>
 
     <div className="ql-field">
-      <span>聊天背景</span>
+      <span title="所有 QQ Bot 会话共用一张">聊天背景</span>
       <div className="ql-actions">
         {background !== undefined && <img className="ql-background" alt="" src={imageUrl('background', background)} />}
         <CroppedImagePicker kind="background" label={background === undefined ? '选择图片' : '更换'} busy={busy} error={error}
@@ -163,10 +200,9 @@ export function UiForm({ ui }: { readonly ui: UiState }) {
           {BACKGROUND_FITS.map(f => <option key={f} value={f}>{BACKGROUND_FIT_LABELS[f]}</option>)}
         </select>
       </div>
-      <small>所有 QQ Bot 会话共用一张。选图后拖动取景，比例可选，最长边缩到 1920px，存在 qqbot/images/。</small>
     </div>
 
-    <Row label="分段间隔" hint="AI 没给某一段写停顿时间时用这个设置。AI 写了的段落按 AI 写的显示。">
+    <Row label="分段间隔">
       <select value={settings.intervalMethod} disabled={busy}
         onChange={(event) => { const method = INTERVAL_METHODS.find(m => m === event.target.value); if (method !== undefined) save({ intervalMethod: method }) }}>
         <option value="random">随机间隔</option>
@@ -174,20 +210,16 @@ export function UiForm({ ui }: { readonly ui: UiState }) {
       </select>
     </Row>
     {settings.intervalMethod === 'random'
-      ? <div className="ql-grid">
-        <Row label="最短（秒）">
-          <NumberInput value={settings.intervalMin} min={UI_LIMITS.interval.min} max={UI_LIMITS.interval.max} step={0.1}
-            onCommit={(intervalMin) => { save({ intervalMin }) }} />
-        </Row>
-        <Row label="最长（秒）">
-          <NumberInput value={settings.intervalMax} min={UI_LIMITS.interval.min} max={UI_LIMITS.interval.max} step={0.1}
-            onCommit={(intervalMax) => { save({ intervalMax }) }} />
-        </Row>
+      ? <div className="ql-field">
+        <span>间隔范围</span>
+        <DualRange labels={['最短间隔', '最长间隔']} value={[settings.intervalMin, settings.intervalMax]}
+          min={UI_LIMITS.interval.min} max={UI_LIMITS.interval.max} step={0.1} gap={0} disabled={busy}
+          format={(seconds) => `${seconds.toFixed(1)} 秒`}
+          onCommit={([intervalMin, intervalMax]) => { save({ intervalMin, intervalMax }) }} />
       </div>
-      : <Row label="对数底数" hint="越小，长段落停得越久。默认 2.6。">
+      : <Row label="对数底数" hint="越小，长段落停得越久。默认 2.6">
         <NumberInput value={settings.logBase} min={UI_LIMITS.logBase.min} max={UI_LIMITS.logBase.max} step={0.1}
           onCommit={(logBase) => { save({ logBase }) }} />
       </Row>}
-    <div className="ql-note">改了立即生效，存在 qqbot/ui.json。只影响显示，不进提示词，不影响前缀缓存。</div>
   </div>
 }

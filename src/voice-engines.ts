@@ -4,6 +4,7 @@
  * - fish：POST https://api.fish.audio/v1/tts，`model` 放在请求头（参考 dsh-fish-tts，MIT，MaRi23333 的 synthesize()）。
  * - openai：POST `<baseUrl>/audio/speech`，`{ model, input, voice, response_format }`。
  * - gpt-sovits：POST `<baseUrl>/tts`，api_v2.py 的请求体。
+ * fish 可以单独指定 HTTP 代理（`config.proxy`）；没开时用 Node 的全局 fetch，DSH 的全局代理设置照常生效。
  */
 
 import type { EngineKind, VoiceEngine, VoiceParams } from './voice-types.ts'
@@ -49,6 +50,41 @@ export function normalizeBaseUrl(raw: string): string {
   if (url.username !== '' || url.password !== '') throw new SynthError('地址里不要带账号密码，key 填在下面')
   if (url.search !== '' || url.hash !== '') throw new SynthError('地址里不要带 ? 或 # 后面的部分')
   return url.href.replace(/\/+$/, '')
+}
+
+/** 代理地址：只认 HTTP 代理，可以省掉 http://，必须带端口。不合规时抛出可以展示的错误。 */
+export function normalizeProxyUrl(raw: string): string {
+  const text = raw.trim()
+  let url: URL
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`)
+  } catch {
+    throw new SynthError('代理地址格式不对，例如 127.0.0.1:7897')
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new SynthError('只支持 HTTP 代理，填代理软件的 HTTP 或混合端口')
+  if (url.username !== '' || url.password !== '') throw new SynthError('代理地址里不要带账号密码')
+  if (url.port === '') throw new SynthError('代理地址要带端口，例如 127.0.0.1:7897')
+  if (url.pathname !== '/' || url.search !== '' || url.hash !== '') throw new SynthError('代理地址只填主机和端口')
+  return `${url.protocol}//${url.host}`
+}
+
+/** 这次请求要走的代理；关闭或不是 fish 时为 undefined。 */
+function proxyOf(engine: VoiceEngine): string | undefined {
+  return engine.kind === 'fish' && engine.config.proxy?.enabled === true ? normalizeProxyUrl(engine.config.proxy.url) : undefined
+}
+
+/**
+ * 经代理发请求：用 undici 的 fetch 和 ProxyAgent（Node 内置 fetch 不能换代理）。每次合成新建一个，用完关掉；
+ * undici 只在开了代理时才加载。
+ */
+async function proxiedFetch(proxy: string): Promise<{ fetch: Fetch; close: () => Promise<void> }> {
+  const { fetch: undiciFetch, ProxyAgent } = await import('undici')
+  // proxy-exempt: 用户在这个连接上单独指定的代理，不走 DSH 的全局代理设置。
+  const dispatcher = new ProxyAgent(proxy)
+  return {
+    fetch: (url, init) => undiciFetch(url, { ...init as object, dispatcher }) as unknown as Promise<Response>,
+    close: () => dispatcher.destroy().catch(() => {}),
+  }
 }
 
 function buildRequest(request: SynthRequest): { url: string; init: RequestInit } {
@@ -153,17 +189,33 @@ async function readLimited(response: Response): Promise<Uint8Array> {
   return bytes
 }
 
-function networkMessage(kind: EngineKind, error: unknown, timedOut: boolean): string {
+function networkMessage(kind: EngineKind, error: unknown, timedOut: boolean, proxy: string | undefined): string {
   if (timedOut) return `${KIND_NAMES[kind]}超过 ${SYNTH_TIMEOUT_MS / 1000} 秒没有返回`
   const code = (error as { cause?: { code?: unknown } } | undefined)?.cause?.code
+  if (proxy !== undefined) {
+    // 开了代理时连接只到代理为止，连不上就是代理软件没开或端口不对。
+    if (code === 'ECONNREFUSED') return `连不上代理 ${proxy.replace(/^https?:\/\//, '')}，确认代理软件已经打开，端口没填错`
+    return `通过代理连不上 ${KIND_NAMES[kind]}，检查代理是否可用`
+  }
   if (code === 'ECONNREFUSED') return kind === 'fish' ? '连不上 Fish Audio' : `连不上${KIND_NAMES[kind]}，确认它已经启动，地址和端口没填错`
   if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return '找不到这个地址，检查网络或地址'
   return `连不上${KIND_NAMES[kind]}，检查网络或地址`
 }
 
-/** 合成一句。失败时抛 SynthError；调用方取消时抛 AbortError。 */
+/** 合成一句。失败时抛 SynthError；调用方取消时抛 AbortError。开了代理时不用 fetchImpl。 */
 export async function synthesize(request: SynthRequest, fetchImpl: Fetch = fetch): Promise<Audio> {
   const { url, init } = buildRequest(request)
+  const proxy = proxyOf(request.engine)
+  const via = proxy === undefined ? { fetch: fetchImpl, close: () => Promise.resolve() } : await proxiedFetch(proxy)
+  try {
+    return await send(request, url, init, via.fetch, proxy)
+  } finally {
+    await via.close()
+  }
+}
+
+async function send(request: SynthRequest, url: string, init: RequestInit, fetchImpl: Fetch, proxy: string | undefined): Promise<Audio> {
+  const kind = request.engine.kind
   const timeout = AbortSignal.timeout(SYNTH_TIMEOUT_MS)
   const signal = request.signal === undefined ? timeout : AbortSignal.any([request.signal, timeout])
   let response: Response
@@ -172,19 +224,19 @@ export async function synthesize(request: SynthRequest, fetchImpl: Fetch = fetch
     response = await fetchImpl(url, { ...init, signal, redirect: 'manual' })
   } catch (error) {
     if (request.signal?.aborted === true) throw error
-    throw new SynthError(networkMessage(request.engine.kind, error, timeout.aborted))
+    throw new SynthError(networkMessage(kind, error, timeout.aborted, proxy))
   }
   if (response.status >= 300 && response.status < 400) throw new SynthError('语音服务要求跳转到别的地址，请直接填最终地址')
   if (!response.ok) {
     const more = await detail(response)
-    throw new SynthError(`${statusMessage(request.engine.kind, response.status)}${more === '' ? '' : `：${more}`}`)
+    throw new SynthError(`${statusMessage(kind, response.status)}${more === '' ? '' : `：${more}`}`)
   }
   let bytes: Uint8Array
   try {
     bytes = await readLimited(response)
   } catch (error) {
     if (error instanceof SynthError || request.signal?.aborted === true) throw error
-    throw new SynthError(networkMessage(request.engine.kind, error, timeout.aborted))
+    throw new SynthError(networkMessage(kind, error, timeout.aborted, proxy))
   }
   const type = sniffAudio(bytes)
   if (type === undefined) {

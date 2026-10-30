@@ -12,10 +12,10 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from './index.ts'
 import { isRecord, readJson, writeJson, type Warn } from './storage.ts'
 import { BadRequest } from './ui.ts'
-import { AUDIO_CONTENT_TYPES, normalizeBaseUrl, synthesize, SynthError, type Audio, type Fetch } from './voice-engines.ts'
+import { AUDIO_CONTENT_TYPES, normalizeBaseUrl, normalizeProxyUrl, synthesize, SynthError, type Audio, type Fetch } from './voice-engines.ts'
 import {
-  DEFAULT_VOICE_SETTINGS, ENGINE_DEFAULTS, ENGINE_KEY, ENGINE_KINDS, SOVITS_LANGS, ENGINE_ID_PATTERN, SPEAK_PATH, SPEAK_TEXT_LIMIT, VOICE_DISPLAYS, VOICE_ID_PATTERN, VOICE_PATH,
-  type EngineConfig, type VoiceEngine, type VoiceEntry, type VoiceError, type VoiceParams, type VoiceSettings, type VoiceView,
+  DEFAULT_PROXY_URL, DEFAULT_VOICE_SETTINGS, ENGINE_DEFAULTS, ENGINE_KEY, ENGINE_KINDS, SOVITS_LANGS, ENGINE_ID_PATTERN, SPEAK_PATH, SPEAK_TEXT_LIMIT, VOICE_DISPLAYS, VOICE_ID_PATTERN, VOICE_PATH,
+  type EngineConfig, type ProxyConfig, type VoiceEngine, type VoiceEntry, type VoiceError, type VoiceParams, type VoiceSettings, type VoiceView,
 } from './voice-types.ts'
 
 export const name = 'qqbot-voice'
@@ -88,7 +88,7 @@ export function validateVoiceSettings(value: unknown): VoiceSettings {
 function validateConfig(kind: VoiceEngine['kind'], value: unknown): EngineConfig {
   if (!isRecord(value)) throw new BadRequest('连接设置格式无效')
   const model = field(value['model'], '模型', false) || ENGINE_DEFAULTS[kind].model
-  if (kind === 'fish') return { baseUrl: '', model }
+  if (kind === 'fish') return { baseUrl: '', model, proxy: validateProxy(value['proxy']) }
   let baseUrl: string
   try {
     baseUrl = normalizeBaseUrl(field(value['baseUrl'], '地址', true))
@@ -96,6 +96,19 @@ function validateConfig(kind: VoiceEngine['kind'], value: unknown): EngineConfig
     throw new BadRequest(error instanceof Error ? error.message : String(error))
   }
   return { baseUrl, model: kind === 'gpt-sovits' ? '' : model }
+}
+
+/** 没写时是关闭。只在打开时检查地址，关着的时候填了一半也能保存。 */
+function validateProxy(value: unknown): ProxyConfig {
+  if (value === undefined) return { enabled: false, url: DEFAULT_PROXY_URL }
+  if (!isRecord(value) || typeof value['enabled'] !== 'boolean') throw new BadRequest('代理设置格式无效')
+  const url = field(value['url'], '代理地址', value['enabled'])
+  if (!value['enabled']) return { enabled: false, url: url || DEFAULT_PROXY_URL }
+  try {
+    return { enabled: true, url: normalizeProxyUrl(url) }
+  } catch (error) {
+    throw new BadRequest(error instanceof Error ? error.message : String(error))
+  }
 }
 
 function validateParams(kind: VoiceEngine['kind'], value: unknown): VoiceParams {
@@ -304,7 +317,9 @@ export class AudioCache {
   constructor(private readonly maxEntries = 64, private readonly maxBytes = 32 * 1024 * 1024) {}
 
   static key(engine: VoiceEngine, params: VoiceParams, text: string): string {
-    return createHash('sha256').update(JSON.stringify([engine.kind, engine.config, params, text])).digest('hex')
+    // 代理只改路线，不改声音，不算进键里。
+    const { proxy: _, ...config } = engine.config
+    return createHash('sha256').update(JSON.stringify([engine.kind, config, params, text])).digest('hex')
   }
 
   get(key: string): Audio | undefined {

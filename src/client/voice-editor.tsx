@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  ENGINE_DEFAULTS, ENGINE_KEY, ENGINE_KIND_LABELS, ENGINE_KINDS, PREVIEW_TEXT, SOVITS_LANG_LABELS, SOVITS_LANGS, VOICE_DISPLAY_LABELS, VOICE_DISPLAYS,
+  DEFAULT_PROXY_URL, ENGINE_DEFAULTS, ENGINE_KEY, ENGINE_KIND_LABELS, ENGINE_KINDS, PREVIEW_TEXT, SOVITS_LANG_LABELS, SOVITS_LANGS, VOICE_DISPLAY_LABELS, VOICE_DISPLAYS,
   type EngineDraft, type EngineKind, type VoiceAction, type VoiceDraft, type VoiceEngineView, type VoiceEntry, type VoiceParams, type VoiceSettings,
 } from '../voice-types.ts'
 import { requestSpeech, requestVoice, type VoiceState } from './voice-state.ts'
@@ -118,6 +118,8 @@ function EngineForm({ voice, engine, busy, run, onDirty, onSaved, onRemoved }: {
   const [apiKey, setApiKey] = useState('')
   const [confirming, setConfirming] = useState(false)
   const dirty = () => { onDirty(true) }
+  const proxy = config.proxy ?? ENGINE_DEFAULTS.fish.proxy!
+  const editProxy = (patch: Partial<typeof proxy>) => { setConfig(c => ({ ...c, proxy: { ...c.proxy ?? proxy, ...patch } })); dirty() }
   const keyMode = ENGINE_KEY[kind]
   const save = async (key?: string | null) => {
     const draft: EngineDraft = {
@@ -151,6 +153,18 @@ function EngineForm({ voice, engine, busy, run, onDirty, onSaved, onRemoved }: {
       <input value={config.baseUrl} placeholder={ENGINE_DEFAULTS[kind].baseUrl}
         onChange={(event) => { setConfig(c => ({ ...c, baseUrl: event.target.value })); dirty() }} />
     </Field>}
+    {kind === 'fish' && <div className="ql-field">
+      <span>代理</span>
+      <div className="ql-actions">
+        <label className="ql-toggle" title="直连 api.fish.audio 不稳时打开，填代理软件的 HTTP 或混合端口">
+          <input type="checkbox" checked={proxy.enabled}
+            onChange={(event) => { editProxy({ enabled: event.target.checked }) }} />
+          <span>使用代理</span>
+        </label>
+        <input style={{ flex: 1, minWidth: 160 }} value={proxy.url} disabled={!proxy.enabled} placeholder={DEFAULT_PROXY_URL} aria-label="代理地址"
+          onChange={(event) => { editProxy({ url: event.target.value }) }} />
+      </div>
+    </div>}
     {kind !== 'gpt-sovits' && <Field label="模型">
       <input value={config.model} placeholder={ENGINE_DEFAULTS[kind].model}
         onChange={(event) => { setConfig(c => ({ ...c, model: event.target.value })); dirty() }} />

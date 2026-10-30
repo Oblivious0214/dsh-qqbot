@@ -26,6 +26,7 @@ describe('buildPromptView', () => {
     expect(view.system.parts.map(p => [p.name, p.owner, p.source])).toEqual([
       ['qqbot:jb-head', 'qqbot', undefined],
       ['qqbot:format-segment', 'qqbot', undefined],
+      ['qqbot:format-voice', 'qqbot', undefined],
       ['qqbot:ext:toy', 'extension', 'dsh-toy-buttplug'],
     ])
   })
@@ -33,7 +34,7 @@ describe('buildPromptView', () => {
   it('shows the meme rule only when send_meme is registered for the session', () => {
     const names = (meme: boolean) => buildPromptView(input(undefined, { features: { meme } })).system.parts.map(p => p.name)
     expect(names(false)).not.toContain('qqbot:format-meme')
-    expect(names(true)).toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:format-meme'])
+    expect(names(true)).toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:format-meme', 'qqbot:format-voice'])
   })
 
   it('compares with the last real assembly', () => {

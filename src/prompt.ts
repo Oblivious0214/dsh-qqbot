@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { QqbotContent } from './content.ts'
-import { MEME_TOOL, memeRule, SEGMENT_RULE } from './format.ts'
+import { MEME_TOOL, memeRule, SEGMENT_RULE, VOICE_RULE } from './format.ts'
 import type {} from './index.ts'
 import { CONTEXT_NAME, CONTEXT_ORDER, PROMPT_ORDER, SECTION_NAME, SECTION_ORDER } from './order.ts'
 import { resolveText, type QqbotRegistryStore, type QqbotSession } from './registry.ts'
@@ -70,6 +70,7 @@ export function assembleParts(
       order: SECTION_ORDER.FORMAT_MEME,
       text: features.meme ? perSession(s => memeRule(content.memeFrequencyFor(s), content.memePreferencesFor(s))) : '',
     },
+    { name: SECTION_NAME.FORMAT_VOICE, order: SECTION_ORDER.FORMAT_VOICE, text: VOICE_RULE },
     ...store.snapshot().extensions.map(entry => ({
       name: `${SECTION_NAME.EXT_PREFIX}${entry.name}`,
       order: SECTION_ORDER.EXT,

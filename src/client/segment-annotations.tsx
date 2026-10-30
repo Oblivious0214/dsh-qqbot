@@ -24,10 +24,11 @@ export class SegmentAnnotations {
   private notify() { for (const listener of this.listeners) listener() }
 }
 
-export function useSegmentAnnotations({ root, registry, visible, ...props }: Omit<SegmentAnnotationProps, 'index'> & {
+export function useSegmentAnnotations({ root, registry, visible, stageIndices, ...props }: Omit<SegmentAnnotationProps, 'index'> & {
   readonly root: RefObject<HTMLElement | null>
   readonly registry: SegmentAnnotations
   readonly visible: number
+  readonly stageIndices: readonly (number | undefined)[]
 }) {
   const entries = useSyncExternalStore(registry.subscribe, registry.getSnapshot)
   const inserted = useRef(new Map<number, HTMLElement>())
@@ -54,5 +55,8 @@ export function useSegmentAnnotations({ root, registry, visible, ...props }: Omi
     setHosts(previous => previous.length === next.length && previous.every((host, i) => host === next[i]) ? previous : next)
   })
   useEffect(() => () => { for (const host of inserted.current.values()) host.remove(); inserted.current.clear() }, [])
-  return hosts.map((host, index) => createPortal(<>{entries.map((Component, entry) => <Component key={entry} {...props} index={index} />)}</>, host, `${props.reply}:${index}`))
+  return hosts.map((host, bubble) => {
+    const index = stageIndices[bubble]
+    return index === undefined ? null : createPortal(<>{entries.map((Component, entry) => <Component key={entry} {...props} index={index} />)}</>, host, `${props.reply}:${bubble}`)
+  })
 }

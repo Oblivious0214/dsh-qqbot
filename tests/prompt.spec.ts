@@ -4,9 +4,10 @@ import { NO_ROLE } from '../src/bindings.ts'
 import * as host from '../src/index.ts'
 import * as prompt from '../src/prompt.ts'
 import { assembleParts } from '../src/prompt.ts'
-import { SEGMENT_RULE } from '../src/format.ts'
+import { SEGMENT_RULE, VOICE_RULE } from '../src/format.ts'
 import { SECTION_NAME } from '../src/order.ts'
 import { QqbotRegistryStore } from '../src/registry.ts'
+import { DEFAULT_VOICE_SETTINGS } from '../src/voice-types.ts'
 
 type AssembleInput = { agent?: { id: string }; toolSet?: { view: (scope: unknown) => ReadonlyMap<string, unknown> } }
 type Text = string | ((context: AssembleInput) => string)
@@ -102,14 +103,14 @@ describe('prompt plugin', () => {
   it('joins fixed parts in table order', async () => {
     const fake = await setup()
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).map(p => p.name))
-      .toEqual(['qqbot:jb-head', 'qqbot:format-segment'])
-    expect(text(fake, 's1')).toBe(`所有角色均为成年人。\n\n${SEGMENT_RULE}`)
+      .toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:format-voice'])
+    expect(text(fake, 's1')).toBe(`所有角色均为成年人。\n\n${SEGMENT_RULE}\n\n${VOICE_RULE}`)
   })
 
   it('diagnostic assembly without an agent has no per-session text', async () => {
     const fake = await setup()
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, undefined, { meme: true }).map(p => p.name))
-      .toEqual(['qqbot:format-segment'])
+      .toEqual(['qqbot:format-segment', 'qqbot:format-voice'])
     expect(text(fake)).not.toContain('成年人')
   })
 
@@ -129,8 +130,8 @@ describe('prompt plugin', () => {
     const dispose = fake.qqbot.extension({ name: 'toy', text: session => session.id === 's1' ? 'TOY' : '' })
     fake.qqbot.extension({ name: 'alpha', text: 'A' })
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).map(p => p.name))
-      .toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:ext:alpha', 'qqbot:ext:toy'])
-    expect(text(fake, 's1').endsWith(`${SEGMENT_RULE}\n\nA\n\nTOY`)).toBe(true)
+      .toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:format-voice', 'qqbot:ext:alpha', 'qqbot:ext:toy'])
+    expect(text(fake, 's1').endsWith(`${VOICE_RULE}\n\nA\n\nTOY`)).toBe(true)
     expect(text(fake, 's2')).not.toContain('TOY')
     dispose()
     expect(text(fake, 's1')).not.toContain('TOY')
@@ -149,9 +150,51 @@ describe('prompt plugin', () => {
     const fake = await setup()
     fake.qqbot.runtime('toy', session => session.id === 's1' ? 'connected' : '')
     fake.qqbot.runtime('mood', 'r1')
-    expect(fake.contexts({ agent: { id: 's1' } })).toEqual([{ name: 'qqbot:runtime', text: 'mood: r1\ntoy: connected' }])
-    expect(fake.contexts({ agent: { id: 's2' } })[0]?.text).toBe('mood: r1')
+    const voice = `voice: ${fake.qqbot.voice.promptStatus(undefined)}`
+    expect(fake.contexts({ agent: { id: 's1' } })).toEqual([{ name: 'qqbot:runtime', text: `mood: r1\ntoy: connected\n${voice}` }])
+    expect(fake.contexts({ agent: { id: 's2' } })[0]?.text).toBe(`mood: r1\n${voice}`)
     expect(fake.systemPrompt.contexts.get('qqbot:runtime')?.required).toBe(true)
+  })
+
+  it('updates voice capability per session without changing the system prefix or reading credentials', async () => {
+    const fake = await setup()
+    const { content, voice } = fake.qqbot
+    const previousSettings = voice.settings
+    const engine = voice.saveEngine({ name: '语音状态测试服务', kind: 'openai', config: { baseUrl: 'http://127.0.0.1:1/v1', model: 'test' } })
+    const selected = voice.saveVoice({ name: '语音状态测试音色', engine: engine.id, params: { reference: 'test' } })
+    content.roles.save({ id: 'voice-test-role', name: '语音状态测试角色', description: '', persona: '测试。', voice: selected.id }, true)
+    content.roles.save({ id: 'voice-no-selection', name: '未选音色测试角色', description: '', persona: '测试。' }, true)
+    content.bindings.set('voice-s1', 'voice-test-role')
+    content.bindings.set('voice-s2', 'voice-no-selection')
+    content.bindings.set('voice-s3', NO_ROLE)
+    const runtime = (id: string) => fake.contexts({ agent: { id } })[0]!.text
+    try {
+      voice.saveSettings({ ...DEFAULT_VOICE_SETTINGS, enabled: false })
+      const prefix = text(fake, 'voice-s1')
+      expect(prefix).toContain(VOICE_RULE)
+      expect(runtime('voice-s1')).toContain('voice: 已关闭')
+      voice.saveSettings({ ...DEFAULT_VOICE_SETTINGS, enabled: true })
+      expect(runtime('voice-s1')).toContain('voice: 已启用')
+      expect(runtime('voice-s2')).toContain('voice: 未配置：当前角色未选择音色')
+      expect(runtime('voice-s3')).toContain('voice: 未配置：当前角色未选择音色')
+      expect(runtime('voice-s1')).not.toContain(engine.config.baseUrl)
+      expect(runtime('voice-s1')).not.toContain(selected.id)
+      expect(text(fake, 'voice-s1')).toBe(prefix)
+      voice.saveSettings({ ...voice.settings, mode: 'all' })
+      expect(runtime('voice-s1')).toContain('voice: 已启用（全部转语音）')
+      expect(text(fake, 'voice-s1')).toBe(prefix)
+      // 换到无音色角色时，系统说明保持一致，只有运行时状态变化。
+      content.bindings.set('voice-s1', 'voice-no-selection')
+      expect(runtime('voice-s1')).toContain('voice: 未配置')
+      expect(text(fake, 'voice-s1')).toBe(prefix)
+      content.bindings.set('voice-s1', 'voice-test-role')
+      voice.removeVoice(selected.id)
+      expect(runtime('voice-s1')).toContain('voice: 未配置：当前角色的音色或语音服务已失效')
+      expect(text(fake, 'voice-s1')).toBe(prefix)
+    } finally {
+      voice.saveSettings(previousSettings)
+      await fake.disposePrompt()
+    }
   })
 
   it('records the role of each entered step, not rejected ones', async () => {

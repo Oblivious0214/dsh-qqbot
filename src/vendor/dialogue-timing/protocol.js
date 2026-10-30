@@ -10,7 +10,7 @@ export function proseOnly(text) {
   return text.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`/g, '')
     .split('\n').filter(line => !/^\s*>/.test(line)).join('\n');
 }
-// Stages keep only text, cycles and motion. Other fields a model adds (durationMs, emotion…)
+// Stages keep only text, an explicit voice=true, cycles and motion. Other fields a model adds (durationMs, emotion…)
 // and an invalid cycles are dropped instead of failing the reply; motion stays for the device plugin to check.
 export function parseTimedReply(text) {
   const matches = [...proseOnly(text).matchAll(/\[qq\]([\s\S]*?)\[\/qq\]/g)];
@@ -26,6 +26,7 @@ export function parseTimedReply(text) {
       || /\[\/?(?:qq|dsh)\]/.test(stage.text))
       throw Error('段落格式无效。');
     const kept = { text: stage.text };
+    if (stage.voice === true) kept.voice = true;
     if (Number.isInteger(stage.cycles) && stage.cycles >= 1 && stage.cycles <= 100) kept.cycles = stage.cycles;
     if (Object.hasOwn(stage, 'motion')) kept.motion = stage.motion;
     return kept;

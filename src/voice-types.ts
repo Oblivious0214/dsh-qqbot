@@ -1,7 +1,7 @@
 /**
  * 语音接口的约定，host 和浏览器端共用。不 import 任何东西，两端都能直接打包。
  * 设置、引擎和音色存 `<DSH_HOME>/qqbot/voice.json`；API key 存 DSH 的凭据库（ctx.credentials），不进这个文件。
- * 语音只在浏览器端朗读气泡，不进提示词，不影响前缀缓存。
+ * 语音由浏览器端朗读气泡；模型只接收固定用法说明和运行时可用状态。
  */
 
 /** GET 读设置、引擎和音色（不含 key），POST 提交一个操作。 */
@@ -106,9 +106,18 @@ export const VOICE_DISPLAY_LABELS: Record<VoiceDisplay, string> = {
   both: '语音条和文字',
 }
 
+export const VOICE_MODES = ['selective', 'all'] as const
+export type VoiceMode = typeof VOICE_MODES[number]
+export const VOICE_MODE_LABELS: Record<VoiceMode, string> = {
+  selective: '由 AI 决定',
+  all: '全部转语音',
+}
+
 export interface VoiceSettings {
   /** 关掉时所有角色都显示文字，不生成语音。 */
   readonly enabled: boolean
+  /** 默认由 AI 用段落 voice:true 选择；all 沿用所有回复转语音的行为。 */
+  readonly mode: VoiceMode
   readonly display: VoiceDisplay
   /** 新回复出现时就在后台生成；关掉时点了才生成（按字数计费的服务可以省钱）。 */
   readonly pregenerate: boolean
@@ -118,6 +127,7 @@ export interface VoiceSettings {
 
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   enabled: true,
+  mode: 'selective',
   display: 'voice',
   pregenerate: true,
   volume: 0.8,
@@ -167,11 +177,12 @@ export const SPEAK_TEXT_LIMIT = 500
 export const PREVIEW_TEXT = '你好，很高兴见到你。这是我的声音。'
 
 /**
- * 气泡文字转成朗读文字：去掉代码、链接、Markdown 记号，以及括号和星号里的动作描写（语音里念出来不像在说话）。
+ * 气泡文字转成朗读文字：去掉表情标记、代码、链接、Markdown 记号，以及括号和星号里的动作描写。
  * 剩下的为空时，这个气泡不做成语音条。
  */
 export function speechText(markdown: string): string {
   return markdown
+    .replace(/\[表情:\s*[^\]]+\](?:\(https?:\/\/[^\s)]+\))?/g, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]*`/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')

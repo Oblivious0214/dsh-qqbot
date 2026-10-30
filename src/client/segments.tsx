@@ -3,34 +3,34 @@
  * 标准会话原样交给 DSH 自带的渲染器。
  *
  * 计时和打断的行为迁移自 dsh-qq-skin（MIT，lispking）的 src/client/segments/，按本插件重写：
- * - 只处理 [qq] 块；没有 [qq] 块的回复整条作为一个气泡显示，不按标点自动拆分。
- *   提示词让模型"无需分段时直接正常回复"，这时就是一条消息。
+ * - [qq] 块沿用原段落时钟；显示时再按换行、表情标记拆气泡，普通回复也做同样清理。
+ *   普通空格和标点不拆分；同一协议段拆出的气泡一起显示，不新增动作或计时。
  * - 段落间隔优先由外部插件提供，兜底按字数计算（ui-types.ts 的 segmentDelay）。
  * - 外面包一层 REPLY_ATTRIBUTE 节点，带上这一轮回复时角色的头像或首字（`/role` 换人后旧消息不变），样式见 qq-style.ts。
  *   没有角色的回复不加 ROLE_ATTRIBUTE，不画头像。
  * - 历史消息直接全部显示；只有本页打开后生成的回复才按间隔逐段出现。计时在 reply-clock.ts，流式时第一段一闭合就显示。
  * - 其他插件通过 ctx.qqbotSegments（segments-service.ts）改写停留时间、收到段落显示的通知、暂停显示。
  * - 用户在逐段显示途中发了新消息，没显示的段落不再出现（和 QQ 里打断对方一样）。只在内存里记，刷新后完整显示。
- * - 这一轮的角色选了音色、语音开着时，已经出现的段落显示成语音条（voice-cards.tsx）。
+ * - 语音开着且这一轮角色选了音色时，默认只把显式 voice:true 的段落显示成语音条；也可选择全部转语音。
  */
 
 import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ComponentType, type CSSProperties } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import type { AssistantBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatNodeViewProps, PresentationInjected } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { FactoryComponentPropsOf, InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Interruptions, chatActivity, submissionActivity } from '../vendor/dialogue-timing/interruptions.js'
 import { stripTimedReply, type TimedStream } from '../vendor/dialogue-timing/protocol.js'
 import { segmentDelay } from '../ui-types.ts'
-import { speechText } from '../voice-types.ts'
 import { decodeReply } from './decode.ts'
+import { bubbleStageIndices, splitTextBlocks } from './text-bubbles.ts'
 import { imageUrl, REPLY_ATTRIBUTE, ROLE_ATTRIBUTE } from './qq-style.ts'
 import { ReplyClock } from './reply-clock.ts'
 import { SegmentsService } from './segments-service.ts'
 import { SegmentAnnotations, useSegmentAnnotations } from './segment-annotations.tsx'
 import type { SessionRole, UiState } from './ui-state.ts'
 import { useVoiceCards, type VoiceBubble } from './voice-cards.tsx'
+import { stageBlock, voiceBubbles, type DisplayBlock } from './voice-bubbles.ts'
 import type { VoicePlayer } from './voice-player.ts'
 import type { VoiceState } from './voice-state.ts'
 
@@ -55,7 +55,7 @@ class SegmentModel {
   readonly openedAt = Date.now()
   readonly clock: ReplyClock
   private interruptions = new Interruptions()
-  private displays = new Map<string, { session: string; blocks: readonly AssistantBlock[]; frozen: boolean }>()
+  private displays = new Map<string, { session: string; blocks: readonly DisplayBlock[]; frozen: boolean }>()
   private version = 0
   private readonly listeners = new Set<() => void>()
 
@@ -80,12 +80,12 @@ class SegmentModel {
   }
 
   /** 被打断的回复只显示打断时已经出现的段落；打断后才到的旧回复不显示。 */
-  frozen(key: string, session: string, reply: { turn?: number; step?: number }): readonly AssistantBlock[] | undefined {
+  frozen(key: string, session: string, reply: { turn?: number; step?: number }): readonly DisplayBlock[] | undefined {
     const row = this.displays.get(key)
     return row?.frozen === true || this.interruptions.blocked(session, reply) ? row?.blocks ?? [] : undefined
   }
 
-  remember(key: string, session: string, blocks: readonly AssistantBlock[]): void {
+  remember(key: string, session: string, blocks: readonly DisplayBlock[]): void {
     if (this.displays.get(key)?.frozen === true) return
     this.displays.set(key, { session, blocks, frozen: false })
     if (this.displays.size > 500) this.displays.delete(this.displays.keys().next().value!)
@@ -163,34 +163,30 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
 
     // 流式输出时 [qq] 块还没闭合，先不显示 JSON；块外的文字照常显示。
     const wrapped = /\[(?:qq\]|q?$)/.test(source)
-    const blocks = useMemo((): readonly AssistantBlock[] => {
+    const blocks = useMemo((): readonly DisplayBlock[] => {
       const others = data.blocks.filter(block => block.kind !== 'text')
       if (stream !== null) {
-        return [...others, ...stream.stages.slice(0, count ?? stream.stages.length).map(stage => ({ kind: 'text' as const, text: stage.text }))]
+        return [...others, ...splitTextBlocks(stream.stages.slice(0, count ?? stream.stages.length).map(stageBlock))]
       }
-      if (!wrapped) return data.blocks
+      if (!wrapped) return splitTextBlocks(data.blocks)
       const text = stripTimedReply(source)
-      return [...others, { kind: 'text' as const, text: text !== '' || running ? text : decoded.error || '分段回复没有完整生成，请重试。' }]
+      return [...others, ...splitTextBlocks([{ kind: 'text' as const, text: text !== '' || running ? text : decoded.error || '分段回复没有完整生成，请重试。' }])]
     }, [data.blocks, stream, running, count, wrapped, source, decoded.error])
 
     const projected = frozen ?? blocks
     if (frozen === undefined) model.remember(displayKey, props.sessionId, projected)
     const node = projected === data.blocks ? props.node : { ...props.node, data: { ...data, blocks: projected } }
 
-    // 语音条：只给已经定下来的文字（闭合的段落，或生成结束的整条回复）。流式中没闭合的文字照常显示。
+    // 默认只合成闭合段落上显式 voice:true 的内容；all 模式沿用全部可朗读文字合成。
     const playable = role === undefined || role === null ? undefined : voice.state.playable(role.voice)
+    // 切换发送方式、关语音或换音色时停止旧播放队列，避免文字已经恢复却仍接着朗读。
+    useEffect(() => () => { voice.player.leave(displayKey) },
+      [voice.player, displayKey, voice.state.settings.mode, playable?.voice, playable?.revision])
     const settled = stream !== null || !running
     const items = useMemo((): readonly VoiceBubble[] => {
       if (playable === undefined || !settled) return []
-      return projected.flatMap((block, index) => block.kind !== 'text' ? [] : [{
-        bubble: `${displayKey}:${index}`,
-        clip: (() => {
-          const text = speechText(block.text)
-          return text === '' ? undefined : { key: `${playable.revision}
-${text}`, voice: playable.voice, text }
-        })(),
-      }])
-    }, [playable?.voice, playable?.revision, settled, projected, displayKey])
+      return voiceBubbles(projected, playable, displayKey, voice.state.settings.mode)
+    }, [playable?.voice, playable?.revision, settled, projected, displayKey, voice.state.settings.mode])
     const cards = useVoiceCards({
       root, owner: displayKey, items, player: voice.player, display: voice.state.settings.display,
       live: live.current || (final?.time ?? 0) > model.openedAt, pregenerate: voice.state.settings.pregenerate,
@@ -199,6 +195,7 @@ ${text}`, voice: playable.voice, text }
     const hasRole = role !== undefined && role !== null
     const annotations = useSegmentAnnotations({ root, registry: model.annotations, session: props.sessionId, reply: replyId,
       stages: stream?.stages ?? [], visible: stream === null ? 0 : projected.filter(block => block.kind === 'text').length,
+      stageIndices: bubbleStageIndices(stream?.stages ?? []),
       playback: () => model.clock.playback(props.sessionId, replyId),
     })
     const salvaged = stream?.stages.some(stage => stage.salvaged === true) === true

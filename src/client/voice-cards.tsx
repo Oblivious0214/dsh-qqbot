@@ -53,7 +53,7 @@ function VoiceCard({ owner, item, items, player }: {
   }
   return <>
     <button type="button" data-state={state} style={{ width: `${voiceWidth(duration ?? 0)}px` }}
-      aria-label={active ? '停止播放' : '播放语音，接着播完这条回复'} onClick={onClick}>
+      aria-label={active ? '停止播放' : '播放语音，接着播放本条回复的其他语音'} onClick={onClick}>
       <span aria-hidden="true">{state === 'playing' ? 'Ⅱ' : state === 'pending' ? '…' : '▶'}</span>
       <span data-wave aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <i key={index} />)}</span>
       <span data-duration>{label(status.state, duration)}</span>

@@ -1,6 +1,5 @@
 /**
- * 格式规则：分段（`qqbot:format-segment`）和表情（`qqbot:format-meme`）。
- * 文本都是固定的，只随角色的表情频率和 dsh-meme 是否在场变化，平时不影响前缀缓存。
+ * 格式规则：分段、表情和语音。语音说明固定，可用状态通过 runtime 提供。
  */
 
 import { MEME_FREQUENCIES, type MemeFrequency } from './library-types.ts'
@@ -9,6 +8,11 @@ import { SEGMENT_PROMPT } from './vendor/dialogue-timing/protocol.js'
 
 /** 分段规则：[qq] 块的格式由 dialogue-timing 协议定义，解析和显示在 dsh-qqbot 的浏览器端。 */
 export const SEGMENT_RULE: string = SEGMENT_PROMPT
+
+/** 合成和播放仍由界面负责；让模型知道如何回应用户的语音请求。 */
+export const VOICE_RULE = `语音：以运行时 voice 状态为准。默认用文字，大部分消息保持文字；已启用语音也不代表每条都发语音。仅在用户要求语音，或按人设和语境偶尔适合用声音表达时，在对应 [qq] 段落加 "voice":true，text 写要说的话；未标记的段落和块外普通回复都是文字。一条回复可混合文字与语音，只有一句语音也用 [qq] 块。例如：
+[qq]{"version":1,"stages":[{"text":"我在呢。"},{"text":"晚安，做个好梦。","voice":true}]}[/qq]
+界面负责把标记的段落生成语音条，点击播放，无需工具。语音已启用时，用户要求发语音就把要说的那句标记为语音，不要声称无法发语音。若运行时为“全部转语音”，界面会自动转换所有可朗读回复，无需逐段标记。未启用或未配置时保持文字，按状态提示开启语音或为当前角色选择音色；生成或播放出错会在语音条上提示。`
 
 /** dsh-meme 注册的发图工具。它的提示词段在 qqbot 会话里被 complete section 去掉，用法由这里补上。 */
 export const MEME_TOOL = 'send_meme'

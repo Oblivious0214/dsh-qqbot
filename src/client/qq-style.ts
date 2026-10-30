@@ -147,6 +147,7 @@ ${BUBBLE} {
   background: var(--dsw-alias-bg-layer-1);
   overflow-wrap: anywhere;
 }
+${BUBBLE} > :first-child { margin-top: 0; }
 ${BUBBLE} > :last-child { margin-bottom: 0; }
 ${REPLY} [data-qqbot-annotation]:empty { display: none; }
 @media (prefers-reduced-motion: no-preference) {

@@ -4,7 +4,7 @@ import { Button, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LibraryRole } from '../library-types.ts'
 import {
   DEFAULT_PROXY_URL, ENGINE_DEFAULTS, ENGINE_KEY, ENGINE_KIND_LABELS, ENGINE_KINDS, PREVIEW_TEXT,
-  SOVITS_LANG_LABELS, SOVITS_LANGS, VOICE_DISPLAY_LABELS, VOICE_DISPLAYS,
+  SOVITS_LANG_LABELS, SOVITS_LANGS, VOICE_DISPLAY_LABELS, VOICE_DISPLAYS, VOICE_MODES, VOICE_MODE_LABELS,
   type EngineDraft, type EngineKind, type VoiceAction, type VoiceDraft, type VoiceEngineView,
   type VoiceEntry, type VoiceParams, type VoiceSettings,
 } from '../voice-types.ts'
@@ -230,6 +230,9 @@ function VoiceSettingsForm({ voice, action }: { readonly voice: VoiceState; read
   }
   const commitVolume = () => { if (volume !== voice.settings.volume && !action.busy) void save({ volume }) }
   return <fieldset className="qv-fields" disabled={action.busy || !settings.enabled}>
+    <label className="qv-setting"><span>发送方式</span><select aria-label="发送方式" value={settings.mode} onChange={event => {
+      const mode = VOICE_MODES.find(m => m === event.target.value); if (mode !== undefined) void save({ mode })
+    }}>{VOICE_MODES.map(m => <option key={m} value={m}>{VOICE_MODE_LABELS[m]}</option>)}</select></label>
     <label className="qv-setting"><span>显示方式</span><select value={settings.display} onChange={event => {
       const display = VOICE_DISPLAYS.find(d => d === event.target.value); if (display !== undefined) void save({ display })
     }}>{VOICE_DISPLAYS.map(d => <option key={d} value={d}>{VOICE_DISPLAY_LABELS[d]}</option>)}</select></label>

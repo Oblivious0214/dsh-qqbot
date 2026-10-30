@@ -1,5 +1,5 @@
-/** salvaged: recovered from a block whose JSON did not parse; never has cycles or motion. */
-export interface TimedStage { text: string; cycles?: number; motion?: unknown; salvaged?: true }
+/** voice: explicit speech choice; absent means text. salvaged: recovered text, never has voice, cycles or motion. */
+export interface TimedStage { text: string; voice?: true; cycles?: number; motion?: unknown; salvaged?: true }
 export interface TimedReply { version: 1; stages: TimedStage[] }
 /** complete: [/qq] has arrived. Otherwise only the closed stages so far. */
 export interface TimedStream { stages: TimedStage[]; complete: boolean }

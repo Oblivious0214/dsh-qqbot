@@ -51,6 +51,22 @@ describe('speech text', () => {
   })
 })
 
+describe('voice mode settings', () => {
+  it('defaults existing settings to AI choice, preserves preferences and persists an explicit all choice', () => {
+    const { dir } = setup()
+    const { mode: _, ...oldSettings } = { ...DEFAULT_VOICE_SETTINGS, enabled: false, display: 'both' as const, pregenerate: false, volume: 0.3 }
+    writeFileSync(join(dir, 'voice.json'), JSON.stringify({ version: 1, settings: oldSettings, voices: [], engines: [] }))
+    const store = new VoiceStore(dir, () => {})
+    expect(store.settings).toEqual({ ...oldSettings, mode: 'selective' })
+    store.saveSettings({ ...store.settings, mode: 'all' })
+    expect(new VoiceStore(dir, () => {}).settings).toEqual({ ...oldSettings, mode: 'all' })
+    expect(() => store.saveSettings({ ...store.settings, mode: 'invalid' })).toThrow(BadRequest)
+    expect(store.settings.mode).toBe('all')
+    store.saveSettings(oldSettings)
+    expect(store.settings.mode).toBe('selective')
+  })
+})
+
 describe('engine requests', () => {
   it('builds the Fish Audio request with the model header and bearer key', async () => {
     const { calls, impl } = fakeFetch()

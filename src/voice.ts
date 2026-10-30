@@ -2,7 +2,7 @@
  * 语音：引擎（连接哪家服务）、音色（角色卡选的就是它）和朗读设置存 `<数据目录>/voice.json`。
  * API key 存 DSH 的凭据库（`ctx.credentials`，记录键 `dsh-qqbot/tts-<引擎 id>`），不进 voice.json，GET 也不返回。
  * 接口：VOICE_PATH 读写设置，SPEAK_PATH 合成一句返回音频。都走 DSH 的认证，只有 owner 能访问。
- * 语音只在浏览器端朗读气泡，不进提示词，不影响前缀缓存。
+ * 语音由浏览器端朗读气泡；仅可用状态进入 qqbot 的 runtime，不改稳定提示词。
  */
 
 import { createHash, randomBytes } from 'node:crypto'
@@ -14,7 +14,7 @@ import { isRecord, readJson, writeJson, type Warn } from './storage.ts'
 import { BadRequest } from './ui.ts'
 import { AUDIO_CONTENT_TYPES, normalizeBaseUrl, normalizeProxyUrl, synthesize, SynthError, type Audio, type Fetch } from './voice-engines.ts'
 import {
-  DEFAULT_PROXY_URL, DEFAULT_VOICE_SETTINGS, ENGINE_DEFAULTS, ENGINE_KEY, ENGINE_KINDS, SOVITS_LANGS, ENGINE_ID_PATTERN, SPEAK_PATH, SPEAK_TEXT_LIMIT, VOICE_DISPLAYS, VOICE_ID_PATTERN, VOICE_PATH,
+  DEFAULT_PROXY_URL, DEFAULT_VOICE_SETTINGS, ENGINE_DEFAULTS, ENGINE_KEY, ENGINE_KINDS, SOVITS_LANGS, ENGINE_ID_PATTERN, SPEAK_PATH, SPEAK_TEXT_LIMIT, VOICE_DISPLAYS, VOICE_MODES, VOICE_ID_PATTERN, VOICE_PATH,
   type EngineConfig, type ProxyConfig, type VoiceEngine, type VoiceEntry, type VoiceError, type VoiceParams, type VoiceSettings, type VoiceView,
 } from './voice-types.ts'
 
@@ -82,7 +82,8 @@ export function validateVoiceSettings(value: unknown): VoiceSettings {
   const { enabled, display, pregenerate, volume } = value
   if (typeof enabled !== 'boolean' || typeof pregenerate !== 'boolean') throw new BadRequest('开关必须是开或关')
   if (typeof volume !== 'number' || !Number.isFinite(volume) || volume < 0 || volume > 1) throw new BadRequest('音量必须在 0–1 之间')
-  return { enabled, display: oneOf(display, '显示方式', VOICE_DISPLAYS), pregenerate, volume }
+  const mode = value['mode'] === undefined ? DEFAULT_VOICE_SETTINGS.mode : oneOf(value['mode'], '发送方式', VOICE_MODES)
+  return { enabled, mode, display: oneOf(display, '显示方式', VOICE_DISPLAYS), pregenerate, volume }
 }
 
 function validateConfig(kind: VoiceEngine['kind'], value: unknown): EngineConfig {
@@ -188,6 +189,17 @@ export class VoiceStore {
 
   engine(id: string): VoiceEngine | undefined { return this.data.engines.find(item => item.id === id) }
   voice(id: string): VoiceEntry | undefined { return this.data.voices.find(item => item.id === id) }
+
+  /** 和浏览器 playable() 使用相同条件，不请求上游服务，也不读取或暴露密钥、地址和音色内部键。 */
+  promptStatus(id: string | undefined): string {
+    if (!this.settings.enabled) return '已关闭；需在 QQ Bot 的语音设置中启用语音。'
+    if (id === undefined) return '未配置：当前角色未选择音色；需在角色设置中选择音色。'
+    const voice = this.voice(id)
+    if (voice === undefined || this.engine(voice.engine) === undefined) return '未配置：当前角色的音色或语音服务已失效；需在角色设置中重新选择音色。'
+    return this.settings.mode === 'all'
+      ? '已启用（全部转语音）：当前角色已配置音色，所有可朗读回复均由界面转成语音条。'
+      : '已启用（由 AI 决定）：当前角色已配置音色，仅 voice:true 的段落生成语音条，其余保持文字。'
+  }
 
   saveSettings(value: unknown): void {
     this.write({ ...this.data, settings: validateVoiceSettings(value) })

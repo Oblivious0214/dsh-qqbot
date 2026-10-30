@@ -54,6 +54,7 @@ export class QqbotService extends Service implements QqbotRegistry {
     // 写名称不写 id：id 是自动生成的内部键，对模型没有意义。改名也会让这一行变。
     // 换角色时这一行跟着变，DSH 会追加一条新的 context 快照，模型从中能看到换了人。
     this.store.runtime('role', session => this.content.roleFor(session)?.name ?? '', 'dsh-qqbot')
+    this.store.runtime('voice', session => this.voice.promptStatus(this.content.roleFor(session)?.voice), 'dsh-qqbot')
   }
 
   extension(entry: QqbotExtensionEntry): () => void {

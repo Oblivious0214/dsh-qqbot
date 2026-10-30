@@ -34,6 +34,7 @@ export const SECTION_NAME = {
   JB_MID: 'qqbot:jb-mid',
   FORMAT_SEGMENT: 'qqbot:format-segment',
   FORMAT_MEME: 'qqbot:format-meme',
+  FORMAT_VOICE: 'qqbot:format-voice',
   JB_TAIL: 'qqbot:jb-tail',
   EXT_PREFIX: 'qqbot:ext:',
 } as const

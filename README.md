@@ -40,7 +40,9 @@ description: 同居室友
 QQ Bot 会话里，模型用一个 `[qq]` 块把回复分成几段，界面按每段的 `durationMs` 依次显示，像对方一条条发消息。格式见 `src/vendor/dialogue-timing/protocol.js` 的 `SEGMENT_PROMPT`。
 
 - 只有本页打开后生成的回复才逐段出现；历史消息直接全部显示。系统设置了"减少动态效果"时也直接全部显示。
+- 生成过程中第一段一写完就出现，之后每段按间隔出现；到点了下一段还没生成出来，就等它生成出来再显示。切到别的会话时计时照常走。
 - 逐段显示途中你发了新消息，没出现的段落就不再出现。这只记在页面内存里，刷新后完整显示。
+- 中途停止生成时，已经写完的段落照常显示。
 - `[qq]` 块格式不对时显示"分段回复格式无效，请让 AI 重试"。没有 `[qq]` 块的回复原样显示。
 - 标准会话不处理 `[qq]` 块。
 
@@ -113,6 +115,29 @@ ctx.inject(['qqbot'], (child) => {
 - `text` 可以是字符串，也可以是 `(session) => string`。返回空串表示该会话里不出现这一段。
 - 外部条目统一排在角色和格式规则之后、破限预设结尾之前，同位置按名称排序。顺序表在 `src/order.ts`，外部插件不指定数字。
 - qqbot 会话的系统提示词只由 dsh-qqbot 组装（一个 complete section）。直接调用 `ctx.systemPrompt.section` 注册的全局段落不会出现在 qqbot 会话里，DSH 自带段落也一样；工具不受影响。
+
+### 浏览器端：分段显示时钟
+
+浏览器端服务 `ctx.qqbotSegments` 让其他插件跟着 `[qq]` 分段的显示走，例如设备在每段出现时动作。只有 qqbot 会话里本页实时生成的回复会触发；历史消息和标准会话不触发。
+
+```js
+ctx.inject(['qqbotSegments'], (child) => {
+  child.qqbotSegments.register({
+    // 第 index 段显示后停多久（毫秒）；返回 undefined 时用 qqbot 自己的间隔。结果限制在 0–120000。
+    durations: (session, reply, stages, index) => undefined,
+    // 第 index 段刚显示。holdMs 是到下一段的预定间隔，回复已完整且这是最后一段时为 undefined。
+    revealed: (session, reply, index, stage, holdMs) => {},
+    // 这条回复不会再有新段落：complete / interrupted（用户发了新消息）/ failed / closed。
+    ended: (session, reply, reason) => {},
+  })
+  const resume = child.qqbotSegments.pause(sessionId) // 文字停在当前段，resume() 后接着走剩余时间
+})
+```
+
+- `reply` 是 `"<turn>:<step>"`，同一条回复在流式和完成后不变。`stage` 原样来自 `[qq]` 块，含 `motion`、`cycles` 等扩展字段。
+- 每条实时回复：若干次 `revealed`，最后恰好一次 `ended`。流式时下一段可能晚于 `holdMs` 才出现；回复变完整时如果最后一段早已显示，会补一次 `holdMs` 为 `undefined` 的 `revealed`。
+- 登记和暂停都随调用方插件停用自动撤销。回调抛出的错误只记日志，不影响文字显示。
+- 类型见 `src/client/reply-clock.ts` 和 `src/client/segments-service.ts`；请按结构自己声明，不要运行时引用本插件的代码。
 
 ## 开发
 

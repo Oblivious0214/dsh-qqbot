@@ -7,20 +7,23 @@
  *   提示词让模型"无需分段时直接正常回复"，这时就是一条消息。
  * - 没写 durationMs 的段落按界面设置的间隔（ui-types.ts 的 segmentDelay）。
  * - 外面包一层 REPLY_ATTRIBUTE 节点，带上这一轮回复时角色的头像或首字（`/role` 换人后旧消息不变），样式见 qq-style.ts。
- * - 历史消息直接全部显示；只有本页打开后生成的回复才按间隔逐段出现。
+ * - 历史消息直接全部显示；只有本页打开后生成的回复才按间隔逐段出现。计时在 reply-clock.ts，流式时第一段一闭合就显示。
+ * - 其他插件通过 ctx.qqbotSegments（segments-service.ts）改写停留时间、收到段落显示的通知、暂停显示。
  * - 用户在逐段显示途中发了新消息，没显示的段落不再出现（和 QQ 里打断对方一样）。只在内存里记，刷新后完整显示。
  */
 
-import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties } from 'react'
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ComponentType, type CSSProperties } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatNodeViewProps, PresentationInjected } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { FactoryComponentPropsOf, InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Interruptions, chatActivity, submissionActivity } from '../vendor/dialogue-timing/interruptions.js'
-import { parseTimedReply, stripTimedReply, type TimedReply } from '../vendor/dialogue-timing/protocol.js'
+import { parseTimedStream, stripTimedReply } from '../vendor/dialogue-timing/protocol.js'
 import { segmentDelay } from '../ui-types.ts'
 import { imageUrl, REPLY_ATTRIBUTE } from './qq-style.ts'
+import { ReplyClock } from './reply-clock.ts'
+import { SegmentsService } from './segments-service.ts'
 import type { SessionRole, UiState } from './ui-state.ts'
 
 type ViewProps = ChatNodeViewProps<'assistant-step'> & InjectFace<PresentationInjected>
@@ -32,39 +35,10 @@ export interface QqbotSessionFilter {
   readonly isQqbot: (sessionId: string) => boolean
 }
 
-/** 每条回复的计时。存在组件外，React 重新挂载（滚动、切换会话）后接着走，不从头开始。 */
-class ReplyClocks {
-  readonly openedAt = Date.now()
-  private rows = new Map<string, { source: string; start: number; deadlines: number[]; done: boolean }>()
-
-  /** 返回现在该显示几段，以及多久后显示下一段（全部显示完为 null）。 */
-  project(key: string, source: string, reply: TimedReply, live: boolean, delay: (text: string) => number): { count: number; next: number | null } {
-    let row = this.rows.get(key)
-    if (row === undefined || row.source !== source) {
-      let elapsed = 0
-      const deadlines = reply.stages.map((stage) => {
-        const at = elapsed
-        elapsed += stage.durationMs ?? delay(stage.text)
-        return at
-      })
-      row = { source, start: Date.now(), deadlines, done: !live }
-      this.rows.set(key, row)
-      if (this.rows.size > 500) this.rows.delete(this.rows.keys().next().value!)
-    }
-    if (row.done) return { count: reply.stages.length, next: null }
-    const elapsed = Date.now() - row.start
-    const count = row.deadlines.filter(at => at <= elapsed).length
-    const next = row.deadlines[count]
-    if (next === undefined) row.done = true
-    return { count, next: next === undefined ? null : Math.max(1, next - elapsed) }
-  }
-
-  clear(): void { this.rows.clear() }
-}
-
 /** 插件自己的显示状态：计时、打断、已显示的段落。不写会话，不改消息。 */
 class SegmentModel {
-  readonly clocks = new ReplyClocks()
+  readonly openedAt = Date.now()
+  readonly clock: ReplyClock
   private interruptions = new Interruptions()
   private displays = new Map<string, { session: string; blocks: readonly AssistantBlock[]; frozen: boolean }>()
   private version = 0
@@ -73,12 +47,21 @@ class SegmentModel {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   getVersion = () => this.version
 
+  constructor(delay: (text: string) => number, onError: (error: unknown) => void) {
+    this.clock = new ReplyClock({ delay, onError, onChange: () => { this.notify() } })
+  }
+
+  private notify(): void {
+    this.version++
+    for (const listener of this.listeners) listener()
+  }
+
   /** 用户发了新消息：这个会话里正在逐段显示的回复停在当前进度。 */
   observeInput(session: string, chat: string, submissions: string): void {
     if (!this.interruptions.observe(session, chat, submissions)) return
     for (const row of this.displays.values()) if (row.session === session) row.frozen = true
-    this.version++
-    for (const listener of this.listeners) listener()
+    this.clock.interrupt(session)
+    this.notify()
   }
 
   /** 被打断的回复只显示打断时已经出现的段落；打断后才到的旧回复不显示。 */
@@ -96,7 +79,7 @@ class SegmentModel {
   dispose(): void {
     this.listeners.clear()
     this.displays.clear()
-    this.clocks.clear()
+    this.clock.dispose()
     this.interruptions = new Interruptions()
   }
 }
@@ -138,36 +121,36 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     // 本页打开期间生成（见过它在流式输出，或完成时间晚于打开时间）的回复才逐段出现。
     const live = useRef(running)
     if (running) live.current = true
-    const isLive = !reducedMotion() && (live.current || (final?.time ?? 0) > model.clocks.openedAt)
+    const isLive = !reducedMotion() && (live.current || (final?.time ?? 0) > model.openedAt)
+    const replyId = `${data.turn}:${data.step}`
 
+    // 流式时只取已经闭合的段落。生成结束时没写完的（用户停止生成）按已闭合的段落算作完整。
     const decoded = useMemo(() => {
-      try { return { reply: parseTimedReply(source), error: '' } }
-      catch { return { reply: null, error: '分段回复格式无效，请让 AI 重试。' } }
+      try { return { stream: parseTimedStream(source), error: '' } }
+      catch { return { stream: null, error: '分段回复格式无效，请让 AI 重试。' } }
     }, [source])
-    const reply = decoded.reply
-    const progress = reply !== null && !running
-      ? model.clocks.project(`${props.sessionId}:${final?.messageId ?? displayKey}`, source, reply, isLive, text => segmentDelay(text, ui.settings))
-      : null
+    const stream = decoded.stream
+    const complete = stream !== null && (stream.complete || !running)
 
-    const [, tick] = useState(0)
+    // 段落交给时钟；时钟自己按计时器推进并通知其他插件，组件只读显示几段。被打断的回复不再喂。
     useEffect(() => {
-      if (frozen !== undefined || progress?.next == null) return
-      const timer = setTimeout(() => { tick(n => n + 1) }, progress.next)
-      return () => { clearTimeout(timer) }
-    }, [frozen, source, progress?.count, progress?.next])
+      if (frozen !== undefined) return
+      if (stream !== null) model.clock.feed(props.sessionId, replyId, stream.stages, complete, isLive)
+      else if (decoded.error !== '' || !running) model.clock.fail(props.sessionId, replyId)
+    }, [frozen !== undefined, stream, complete, running, decoded.error, props.sessionId, replyId])
+    const count = model.clock.count(props.sessionId, replyId) ?? (isLive ? 0 : undefined)
 
     // 流式输出时 [qq] 块还没闭合，先不显示 JSON；块外的文字照常显示。
     const wrapped = /\[(?:qq\]|q?$)/.test(source)
     const blocks = useMemo((): readonly AssistantBlock[] => {
       const others = data.blocks.filter(block => block.kind !== 'text')
-      if (reply !== null) {
-        const shown = running ? 0 : progress?.count ?? reply.stages.length
-        return [...others, ...reply.stages.slice(0, shown).map(stage => ({ kind: 'text' as const, text: stage.text }))]
+      if (stream !== null) {
+        return [...others, ...stream.stages.slice(0, count ?? stream.stages.length).map(stage => ({ kind: 'text' as const, text: stage.text }))]
       }
       if (!wrapped) return data.blocks
       const text = stripTimedReply(source)
       return [...others, { kind: 'text' as const, text: text !== '' || running ? text : decoded.error || '分段回复没有完整生成，请重试。' }]
-    }, [data.blocks, reply, running, progress?.count, wrapped, source, decoded.error])
+    }, [data.blocks, stream, running, count, wrapped, source, decoded.error])
 
     const projected = frozen ?? blocks
     if (frozen === undefined) model.remember(displayKey, props.sessionId, projected)
@@ -203,8 +186,9 @@ function createInputObserver(model: SegmentModel, filter: QqbotSessionFilter) {
  * 只认自带的那一个，不去包装别的插件的包装，避免两个插件互相重包。
  */
 export function installSegments(ctx: Context, filter: QqbotSessionFilter, ui: UiState): void {
-  const model = new SegmentModel()
+  const model = new SegmentModel(text => segmentDelay(text, ui.settings), (error) => { ctx.logger.warn('qqbot segments: %s', error) })
   ctx.effect(() => () => { model.dispose() }, 'qqbot: segment model')
+  ctx.plugin(SegmentsService, { clock: model.clock })
 
   ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
     name: 'conversation.input.left', id: 'qqbot-segments-input', order: 100,

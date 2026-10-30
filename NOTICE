@@ -37,7 +37,8 @@ MIT License
 dialogue-timing（[qq] 分段协议）
 ServeU DSH 工作区 shared/dialogue-timing/，MIT
 
-来源文件：src/vendor/dialogue-timing/ 原样复制，SHA-256 见该目录 README.md
+来源文件：src/vendor/dialogue-timing/ 原样复制，SHA-256 见该目录 README.md。
+parseTimedStream 的流式读取改写自 dsh-serveu 的 src/live-stream.js（parseLiveStream），同一作者，以 MIT 发布。
 
 ------------------------------------------------------------
 DeepSeek Harness（@deepseek-ai/dsh-compaction-basic）

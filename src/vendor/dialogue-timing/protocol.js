@@ -34,6 +34,50 @@ export function parseTimedReply(text) {
   return value;
 }
 
+// Streaming read: the closed stages of a reply that may still be arriving.
+// The prompt writes "version" before "stages", so stages can be read as they close.
+// Returns null until one stage has closed; throws on invalid stages or a malformed complete block.
+// A reply that ended without [/qq] is the caller's decision.
+export function parseTimedStream(text) {
+  const source = proseOnly(text);
+  if (source.includes('[/qq]')) {
+    const reply = parseTimedReply(source);
+    return reply && { stages: reply.stages, complete: true };
+  }
+  const match = /\[qq\]\s*\{\s*"version"\s*:\s*1\s*,\s*"stages"\s*:\s*\[/.exec(source);
+  if (!match) return null;
+  if (source.length > 100000) throw Error('分段回复过长。');
+  const stages = [];
+  let i = match.index + match[0].length;
+  while (i < source.length) {
+    while (/\s/.test(source[i] ?? '')) i++;
+    if (source[i] !== '{') break;
+    const start = i;
+    let depth = 0, quoted = false, escaped = false, closed = false;
+    for (; i < source.length; i++) {
+      const ch = source[i];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') quoted = false;
+      } else if (ch === '"') quoted = true;
+      else if (ch === '{' || ch === '[') depth++;
+      else if (ch === '}' || ch === ']') {
+        depth--;
+        if (depth === 0) { i++; closed = true; break; }
+      }
+    }
+    if (!closed) break;
+    try { stages.push(JSON.parse(source.slice(start, i))); } catch { throw Error('分段回复格式无效。'); }
+    while (/\s/.test(source[i] ?? '')) i++;
+    if (source[i] !== ',') break;
+    i++;
+  }
+  if (!stages.length) return null;
+  // Closed stages pass the same checks as a complete reply.
+  return { stages: parseTimedReply(`[qq]${JSON.stringify({ version: 1, stages })}[/qq]`).stages, complete: false };
+}
+
 export function stripTimedReply(text) {
   return text.replace(/\[qq\][\s\S]*?(?:\[\/qq\]|$)/g, '')
     .replace(/\[(?:q(?:q(?:\])?)?)?$/g, '');

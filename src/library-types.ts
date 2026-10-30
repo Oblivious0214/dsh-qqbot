@@ -83,6 +83,8 @@ export interface LibraryRole extends MemePreferences {
   readonly voice?: string
   /** 单独选的破限预设；跟随默认时为空。 */
   readonly preset?: string
+  /** 跨会话的角色记忆（固定栏目的文本）；没有时为空串。 */
+  readonly memory: string
 }
 
 export interface LibraryPreset {
@@ -122,12 +124,16 @@ export interface LibraryRoleDraft extends MemePreferences {
   readonly voice?: string
   /** 角色编辑器选择的具体预设，随角色保存。旧调用未传时保留原选择。 */
   readonly preset?: string
+  /** 角色记忆，随角色保存。未传时不改。 */
+  readonly memory?: string
 }
 
 /** 角色和预设：新建不带 id（服务端生成），修改时带原 id；名称不能重复。 */
 export type LibraryAction =
   | { readonly action: 'role.save'; readonly create: boolean; readonly role: LibraryRoleDraft }
   | { readonly action: 'role.remove'; readonly id: string }
+  /** 用这个角色最近的会话整理一次记忆。 */
+  | { readonly action: 'role.memory.consolidate'; readonly id: string }
   /** id 为空表示新会话不带角色。 */
   | { readonly action: 'role.default'; readonly id?: string }
   /** preset 为空表示跟随默认预设。 */

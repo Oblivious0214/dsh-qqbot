@@ -9,6 +9,8 @@ import type { QqbotData } from './content.ts'
 import type {} from './index.ts'
 import { MEME_TOOL } from './format.ts'
 import { LIBRARY_PATH, type LibraryError, type LibraryView } from './library-types.ts'
+import { outcomeMessage } from './memory-coordinator.ts'
+import { normalizeMemory } from './memory-format.ts'
 import { isRecord } from './storage.ts'
 import type { UiStore } from './ui.ts'
 import { CONFIG_MAX_BYTES, CONFIG_PATH } from './config-types.ts'
@@ -37,6 +39,7 @@ export function libraryView(data: QqbotData, saved?: string, features: LibraryVi
         ...role.motionRanges === undefined ? {} : { motionRanges: role.motionRanges },
         ...role.voice === undefined ? {} : { voice: role.voice },
         ...preset === undefined ? {} : { preset },
+        memory: data.memories.text(role.id),
       }
     }),
     ...defaultRole === undefined ? {} : { defaultRole },
@@ -83,18 +86,26 @@ export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore)
     case 'role.save': {
       const draft = body['role']
       const preset = isRecord(draft) ? draft['preset'] : undefined
-      // 写角色前先校验预设，失败不能创建半个角色；旧调用未传时保留原绑定。
+      const memory = isRecord(draft) ? draft['memory'] : undefined
+      // 写角色前先校验预设和记忆，失败不能创建半个角色；旧调用未传时保留原绑定和原记忆。
       if (preset !== undefined && (typeof preset !== 'string' || data.presets.get(preset) === undefined)) {
         throw new Error('所选破限预设已不存在，请重新选择')
       }
+      if (memory !== undefined && typeof memory !== 'string') throw new BadRequest('memory 必须是文本')
+      if (typeof memory === 'string') normalizeMemory(memory)
       const saved = data.roles.save(draft, flag(body, 'create')).id
       if (typeof preset === 'string') data.presets.assign(saved, preset)
+      if (typeof memory === 'string') data.memories.save(saved, memory)
       return saved
     }
     case 'role.remove':
       // 会话绑定、默认角色和预设选择都留着：角色卡放回来就恢复。没有角色的会话按无角色运行。
       // 头像跟着移到回收站：之后新建同 id 的角色不会继承旧头像。
-      data.roles.remove(text(body, 'id'), (trash, stamp) => { ui?.trashAvatar(text(body, 'id'), trash, stamp) })
+      // 记忆也一起移走，否则同 id 的新角色会继承它。
+      data.roles.remove(text(body, 'id'), (trash, stamp) => {
+        ui?.trashAvatar(text(body, 'id'), trash, stamp)
+        data.memories.trash(text(body, 'id'), trash, stamp)
+      })
       return
     case 'role.default': {
       const id = optionalText(body, 'id')
@@ -173,7 +184,15 @@ export function apply(ctx: Context): void {
           return fail(400, 'bad-request', '请求不是有效的 JSON')
         }
         try {
-          saved = applyLibraryAction(data, body, ctx.qqbot.ui)
+          // 整理要等模型回复，单独异步处理；其他操作都是同步写盘。
+          if (isRecord(body) && body['action'] === 'role.memory.consolidate') {
+            const id = text(body, 'id')
+            requireRole(data, id)
+            const problem = outcomeMessage(await ctx.qqbot.memory.consolidateRole(id))
+            if (problem !== undefined) throw new Error(problem)
+          } else {
+            saved = applyLibraryAction(data, body, ctx.qqbot.ui)
+          }
         } catch (error) {
           if (error instanceof BadRequest) return fail(400, 'bad-request', error.message)
           return fail(409, 'failed', error instanceof Error ? error.message : String(error))

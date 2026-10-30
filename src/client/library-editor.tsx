@@ -24,6 +24,7 @@ import { ActionDialog } from './action-dialog.tsx'
 import { RoleToyPrompts } from './role-toy-prompts.tsx'
 import type { UiExtensions } from './ui-extensions.tsx'
 import { ConfigImport } from './config-import.tsx'
+import { MEMORY_LIMIT, MEMORY_SECTIONS } from '../memory-format.ts'
 
 /** 所有样式都在这个根 class 下（CLAUDE.md 隔离原则第 3 条）。 */
 export const EDITOR_CLASS = 'dsh-qqbot-library'
@@ -253,6 +254,17 @@ function RoleForm({ view, ui, voice, busy, saveStatus, removeError, clearError, 
     const saved = (await run({ action: 'role.save', create, role: draft }))?.saved
     if (saved !== undefined) onSaved(saved)
   }
+  // 整理要等模型回复，结果只替换记忆栏，表单其他未保存的修改不动。记忆栏本身有未保存的修改时不能整理。
+  const [consolidating, setConsolidating] = useState(false)
+  const memoryEdited = (draft.memory ?? '') !== (role?.memory ?? '')
+  const consolidate = async () => {
+    if (role === undefined) return
+    setConsolidating(true)
+    const next = await run({ action: 'role.memory.consolidate', id: role.id })
+    setConsolidating(false)
+    const memory = next?.roles.find(r => r.id === role.id)?.memory
+    if (memory !== undefined) setDraft(d => ({ ...d, memory }))
+  }
   const isDefault = !create && view.defaultRole === role.id
 
   return <fieldset className="ql-form ql-editor" disabled={busy}>
@@ -277,6 +289,19 @@ function RoleForm({ view, ui, voice, busy, saveStatus, removeError, clearError, 
         <div className="ql-group-body"><MemeFields draft={draft} active={memeOpen} available={view.features.meme}
           onChange={next => { setDraft(next); onDirty(true) }} /></div>
       </details>}
+    <details className="ql-group"><summary><strong>记忆</strong></summary>
+      <div className="ql-group-body">
+        <Field label="跨会话记忆" hint={`新会话开始时读取，聊天中途不变。按栏目写，最多 ${MEMORY_LIMIT} 字`}>
+          <textarea rows={10} value={draft.memory ?? ''} placeholder={MEMORY_SECTIONS.map(s => `## ${s.title}`).join('\n')}
+            onChange={(event) => { edit({ memory: event.target.value }) }} />
+        </Field>
+        {!create && <div className="ql-actions">
+          <Button size="sm" variant="outline" disabled={busy || memoryEdited}
+            title={memoryEdited ? '先保存对记忆的修改' : '用最近和这个角色的聊天整理一次'}
+            onClick={() => { void consolidate() }}>{consolidating ? '整理中…' : '整理记忆'}</Button>
+        </div>}
+      </div>
+    </details>
     <details className="ql-group"><summary><strong>音色</strong></summary>
       <div className="ql-group-body"><RoleVoiceField voice={voice} value={draft.voice} onManage={onManageVoices}
         onChange={(value) => { setDraft(({ voice: _, ...rest }) => value === undefined ? rest : { ...rest, voice: value }); onDirty(true) }} /></div>

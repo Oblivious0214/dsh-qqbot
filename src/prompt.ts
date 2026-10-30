@@ -12,6 +12,8 @@ import { MEME_TOOL, memeRule, SEGMENT_RULE, VOICE_RULE } from './format.ts'
 import type {} from './index.ts'
 import { CONTEXT_NAME, CONTEXT_ORDER, PROMPT_ORDER, SECTION_NAME, SECTION_ORDER } from './order.ts'
 import { resolveText, type QqbotRegistryStore, type QqbotSession } from './registry.ts'
+import { memoryRule } from './memory-format.ts'
+import * as memoryAgent from './memory-agent.ts'
 import * as roleCommand from './role-command.ts'
 
 export const name = 'qqbot-prompt'
@@ -77,6 +79,8 @@ export function assembleParts(
       text: perSession(s => resolveText(entry.text, s)),
       ...entry.source === undefined ? {} : { source: entry.source },
     })),
+    // 会话快照，会话内不变（docs/architecture.md 第 6 节）。
+    { name: SECTION_NAME.ROLE_MEMORY, order: SECTION_ORDER.ROLE_MEMORY, text: perSession(s => memoryRule(content.roleMemoryFor(s))) },
     { name: SECTION_NAME.JB_TAIL, order: SECTION_ORDER.JB_TAIL, text: jailbreak?.tail ?? '' },
   ]
   return parts
@@ -137,4 +141,7 @@ export function apply(ctx: Context): void {
 
   // `/role` 挂在预设内，所以只出现在 qqbot 会话里。缺 commands 服务（无 UI 的场景）时不加载。
   ctx.plugin(roleCommand)
+
+  // 角色记忆的空闲和开新会话触发，只在 qqbot 会话里。
+  ctx.plugin(memoryAgent)
 }

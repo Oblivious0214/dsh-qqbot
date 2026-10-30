@@ -195,7 +195,7 @@ describe('library actions', () => {
     applyLibraryAction(d, { action: 'role.preset', id: 'alice', preset: 'soft' })
     applyLibraryAction(d, { action: 'role.default', id: 'alice' })
     const view = libraryView(d)
-    expect(view.roles).toEqual([{ ...draft, preset: 'soft' }])
+    expect(view.roles).toEqual([{ ...draft, preset: 'soft', memory: '' }])
     expect(view.defaultRole).toBe('alice')
     expect(view.presets.map(p => p.id)).toEqual(['default', 'soft'])
     // 新会话用默认角色和它选的预设。

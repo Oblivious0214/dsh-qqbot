@@ -9,8 +9,10 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { SessionBindings } from './bindings.ts'
 import { QqbotData } from './content.ts'
 import * as library from './library.ts'
+import { MemoryCoordinator } from './memory-coordinator.ts'
 import { JailbreakStore } from './presets.ts'
 import { QqbotRegistryStore, type QqbotExtensionEntry, type QqbotRegistry, type QqbotRoleInfo, type QqbotSession, type QqbotText } from './registry.ts'
+import { MemoryStore } from './role-memory.ts'
 import { RoleLibrary } from './roles.ts'
 import { dataDir, dshHome } from './storage.ts'
 import * as ui from './ui.ts'
@@ -37,6 +39,8 @@ export class QqbotService extends Service implements QqbotRegistry {
   readonly ui: ui.UiStore
   /** 语音引擎、音色和朗读设置。API key 不在这里，在 DSH 凭据库。 */
   readonly voice: voice.VoiceStore
+  /** 角色记忆整理的调度。会话由预设内的 memory-agent 登记。 */
+  readonly memory: MemoryCoordinator
   /**
    * 每个 agent 上一次真实组装出的系统提示词，供查看器对比"上一轮发出的"和"下一轮要发的"。
    * 以 agent 对象为键，agent 释放后自动回收；重启后为空。
@@ -49,7 +53,10 @@ export class QqbotService extends Service implements QqbotRegistry {
     const dir = dataDir(dshHome())
     this.ui = new ui.UiStore(dir, warn)
     this.voice = new voice.VoiceStore(dir, warn)
-    this.content = new QqbotData(new RoleLibrary(join(dir, 'roles'), warn), SessionBindings.at(dir, warn), JailbreakStore.at(dir, warn), warn)
+    this.content = new QqbotData(
+      new RoleLibrary(join(dir, 'roles'), warn), SessionBindings.at(dir, warn), JailbreakStore.at(dir, warn), warn, MemoryStore.at(dir, warn),
+    )
+    this.memory = new MemoryCoordinator(this.content, warn)
     // 当前角色是会话中途会变的运行时状态，放 context 不放 section（CLAUDE.md 提示词规则）。
     // 写名称不写 id：id 是自动生成的内部键，对模型没有意义。改名也会让这一行变。
     // 换角色时这一行跟着变，DSH 会追加一条新的 context 快照，模型从中能看到换了人。

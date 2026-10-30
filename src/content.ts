@@ -8,6 +8,7 @@ import { DEFAULT_MEME_FREQUENCY, type MemeFrequency } from './library-types.ts'
 import type { MemePreferences } from './library-types.ts'
 import { DEFAULT_JAILBREAK, JailbreakStore, type JailbreakPreset } from './presets.ts'
 import type { QqbotSession } from './registry.ts'
+import { MemoryStore } from './role-memory.ts'
 import { RoleLibrary, type Role } from './roles.ts'
 import type { Warn } from './storage.ts'
 
@@ -22,6 +23,8 @@ export interface QqbotContent {
   /** 当前角色的表情频率；没有角色或角色卡没写时用默认档。 */
   memeFrequencyFor(session: QqbotSession): MemeFrequency
   memePreferencesFor(session: QqbotSession): MemePreferences | undefined
+  /** 当前角色在本会话的记忆快照；还没取快照时（只读路径）是记忆的当前版本。没有角色或没有记忆时为空串。 */
+  roleMemoryFor(session: QqbotSession): string
   /**
    * 真实组装前调用：没有记录的会话把当前默认角色写下来，之后改默认角色不会让进行中的会话换人。
    * 只读路径（提示词查看器）不调用它。
@@ -38,18 +41,20 @@ export function createDefaultContent(): QqbotContent {
     roleIdFor: () => undefined,
     memeFrequencyFor: () => DEFAULT_MEME_FREQUENCY,
     memePreferencesFor: () => undefined,
+    roleMemoryFor: () => '',
     settle: () => {},
     recordTurn: () => {},
   }
 }
 
-/** 角色库、会话绑定、破限预设三者合起来的内容来源。 */
+/** 角色库、会话绑定、破限预设、角色记忆合起来的内容来源。 */
 export class QqbotData implements QqbotContent {
   constructor(
     readonly roles: RoleLibrary,
     readonly bindings: SessionBindings,
     readonly presets: JailbreakStore,
     private readonly warn: Warn,
+    readonly memories: MemoryStore = new MemoryStore(undefined, warn),
   ) {}
 
   /** 会话的选择：有记录用记录，没有记录时用新会话默认角色（不写盘）。 */
@@ -85,13 +90,30 @@ export class QqbotData implements QqbotContent {
     return this.roleFor(session)
   }
 
+  roleMemoryFor(session: QqbotSession): string {
+    const role = this.roleFor(session)
+    if (role === undefined) return ''
+    return this.bindings.memorySnapshot(session.id, role.id) ?? this.memories.text(role.id)
+  }
+
   settle(session: QqbotSession): void {
-    if (this.bindings.get(session.id) !== undefined) return
+    if (this.bindings.get(session.id) === undefined) {
+      try {
+        this.bindings.set(session.id, this.choiceFor(session))
+      } catch (error) {
+        // 写不了盘时本轮照常组装（用的就是默认角色），下一轮再试。
+        this.warn(`qqbot: 记不下会话 ${session.id} 的角色：${String(error)}`)
+        return
+      }
+    }
+    // 角色在本会话第一次出场时取记忆快照，之后整个会话都用它（换过角色时每个角色各取一次）。
+    const role = this.roleFor(session)
+    if (role === undefined || this.bindings.memorySnapshot(session.id, role.id) !== undefined) return
     try {
-      this.bindings.set(session.id, this.choiceFor(session))
+      this.bindings.setMemorySnapshot(session.id, role.id, this.memories.text(role.id))
     } catch (error) {
-      // 写不了盘时本轮照常组装（用的就是默认角色），下一轮再试。
-      this.warn(`qqbot: 记不下会话 ${session.id} 的角色：${String(error)}`)
+      // 写不了盘时本轮用记忆的当前版本，下一轮再试。
+      this.warn(`qqbot: 记不下会话 ${session.id} 的记忆快照：${String(error)}`)
     }
   }
 

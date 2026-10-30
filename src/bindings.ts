@@ -6,6 +6,7 @@
  * 不按时间清理记录：长期使用的会话不能丢角色，每条记录只有几十字节。
  *
  * 每个会话还记着各轮用的角色（`turns`），只在换人时追加一条，供界面按消息显示头像。不进提示词。
+ * `memory` 是各角色在本会话第一次出场时的记忆快照，整个会话都用它，重新打开旧会话也不变（docs/architecture.md 第 6 节）。
  */
 
 import { join } from 'node:path'
@@ -29,6 +30,8 @@ interface SessionEntry {
   readonly role: RoleChoice
   readonly at: string
   readonly turns?: readonly TurnRole[]
+  /** 角色 id → 记忆快照。空串也记：表示出场时没有记忆，之后整理出的记忆不进本会话。 */
+  readonly memory?: Readonly<Record<string, string>>
 }
 
 interface BindingFile {
@@ -81,6 +84,18 @@ export class SessionBindings {
     this.commitSession(sessionId, { ...entry, turns })
   }
 
+  /** 会话里这个角色的记忆快照；还没取过时为 undefined。 */
+  memorySnapshot(sessionId: string, roleId: string): string | undefined {
+    return this.state.sessions[sessionId]?.memory?.[roleId]
+  }
+
+  /** 记下快照。已经有了不覆盖；会话还没有选择记录时不记。 */
+  setMemorySnapshot(sessionId: string, roleId: string, text: string): void {
+    const entry = this.state.sessions[sessionId]
+    if (entry === undefined || entry.memory?.[roleId] !== undefined) return
+    this.commitSession(sessionId, { ...entry, memory: { ...entry.memory, [roleId]: text } })
+  }
+
   get defaultRole(): string | undefined {
     return this.state.defaultRole
   }
@@ -113,7 +128,12 @@ export class SessionBindings {
         const role = entry['role']
         if (role !== NO_ROLE && (typeof role !== 'string' || role === '')) continue
         const turns = loadTurns(entry['turns'])
-        sessions[id] = { role, at: typeof entry['at'] === 'string' ? entry['at'] : '', ...turns.length === 0 ? {} : { turns } }
+        const memory = loadMemory(entry['memory'])
+        sessions[id] = {
+          role, at: typeof entry['at'] === 'string' ? entry['at'] : '',
+          ...turns.length === 0 ? {} : { turns },
+          ...memory === undefined ? {} : { memory },
+        }
       }
     }
     const defaultRole = raw['defaultRole']
@@ -135,4 +155,11 @@ function loadTurns(value: unknown): TurnRole[] {
     byTurn.set(turn, role)
   }
   return [...byTurn].sort((a, b) => a[0] - b[0]).map(([turn, role]) => ({ turn, role })).slice(-TURN_HISTORY_LIMIT)
+}
+
+/** 读记忆快照：只留字符串值。 */
+function loadMemory(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined
+  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  return entries.length === 0 ? undefined : Object.fromEntries(entries)
 }

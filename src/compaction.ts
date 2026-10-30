@@ -9,6 +9,7 @@
  * 那个函数没有导出。和原版只差指令文本；DSH 升级时对照原版检查。
  */
 
+import type {} from './index.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
 import type { ResolvedConfig } from '@deepseek-ai/dsh-compaction-basic'
@@ -198,6 +199,11 @@ export class QqbotCompactionEngine extends BasicCompactionEngine {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<SummaryResult> {
+    // 旧历史即将被摘要换掉，先单独整理一次角色记忆。整理在触发时就取下了完整历史，
+    // 不等它完成，失败也不影响压缩（docs/architecture.md 第 6 节）。没有 dsh-qqbot 服务时跳过。
+    void this.ctx.get('qqbot')?.memory.consolidate(agent.id).then((outcome) => {
+      if (outcome.kind === 'failed') this.ctx.logger.warn(`qqbot: 记忆整理失败：${outcome.error}`)
+    })
     return summarizeChat(this.ctx.llm, this.config, input, agent, signal)
   }
 }

@@ -59,6 +59,21 @@ export class UiState {
     return role
   }
 
+  /** 会话的当前角色和可选角色；还没读到时为 undefined，并在后台读取。 */
+  session(session: string): UiSessionView | undefined {
+    const known = this.roles.get(session)
+    if (known === undefined) this.refreshRole(session)
+    return known
+  }
+
+  /** 设置会话的角色，下一轮组装时生效。失败时抛出，界面自己提示。 */
+  async setRole(session: string, role: string | null): Promise<void> {
+    const view = await requestUi({ action: 'session.role', session, role }, session)
+    if (this.disposed) return
+    this.roles.set(session, view.session ?? { role: null, roster: [], turns: [] })
+    this.adopt(view)
+  }
+
   /** 渲染到某一轮的回复时调用；比之前见过的都新时重读角色。 */
   noteTurn(session: string, turn: number): void {
     const seen = this.turns.get(session)
@@ -79,7 +94,7 @@ export class UiState {
     this.loading.add(session)
     requestUi(undefined, session).then((view) => {
       if (this.disposed) return
-      this.roles.set(session, view.session ?? { role: null, turns: [] })
+      this.roles.set(session, view.session ?? { role: null, roster: [], turns: [] })
       this.adopt(view)
     }, () => { /* 读不到时先不显示头像，下一轮再试 */ }).finally(() => {
       this.loading.delete(session)

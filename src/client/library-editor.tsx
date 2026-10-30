@@ -270,8 +270,8 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
     setActionError(undefined)
     try {
       setView(await request(action))
-      // 名称变了头像首字跟着变，删了角色要去掉头像：让各会话重读当前角色。
-      if (action.action === 'role.save' || action.action === 'role.remove') ui.forgetRoles()
+      // 名称变了头像首字跟着变，删了角色要去掉头像，改了默认角色时还没开始的会话跟着变：让各会话重读当前角色。
+      if (action.action === 'role.save' || action.action === 'role.remove' || action.action === 'role.default') ui.forgetRoles()
       return true
     } catch (error) {
       setActionError(messageOf(error))

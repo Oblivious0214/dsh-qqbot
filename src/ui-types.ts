@@ -89,6 +89,8 @@ export type UiRole = { readonly id: string; readonly name: string } | null
 export interface UiSessionView {
   /** 这个会话当前的角色，没有角色时为 null。 */
   readonly role: UiRole
+  /** 角色库里可以选的角色，供会话里的角色切换菜单。 */
+  readonly roster: readonly { readonly id: string; readonly name: string; readonly description: string }[]
   /**
    * 各轮用的角色：从 turn 这一轮起用 role，直到下一条，按轮次升序。角色已删除时为 null。
    * 最早一条之前的轮次按最早一条显示；为空表示还没记录，按当前角色显示。
@@ -103,6 +105,8 @@ export type UiAction =
   | { readonly action: 'avatar.remove'; readonly role: string }
   | { readonly action: 'background.set'; readonly data: string }
   | { readonly action: 'background.remove' }
+  /** 设置一个会话的角色，role 为 null 表示不用角色。会话还没开始时也可以设，第一轮就用它。 */
+  | { readonly action: 'session.role'; readonly session: string; readonly role: string | null }
 
 export interface UiError {
   readonly error: 'bad-request' | 'failed' | 'not-found'

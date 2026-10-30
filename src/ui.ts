@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import { NO_ROLE } from './bindings.ts'
 import type { QqbotData } from './content.ts'
 import type {} from './index.ts'
 import { ROLE_ID_PATTERN } from './roles.ts'
@@ -191,6 +192,7 @@ export function uiView(data: QqbotData, ui: UiStore, sessionId: string | undefin
     }
     session = {
       role: show(data.roleIdFor({ id: sessionId })),
+      roster: data.roles.list().map(role => ({ id: role.id, name: role.name, description: role.description })),
       turns: data.bindings.turnsOf(sessionId).map(item => ({ turn: item.turn, role: show(item.role) })),
     }
   }
@@ -201,6 +203,9 @@ export function uiView(data: QqbotData, ui: UiStore, sessionId: string | undefin
     ...session === undefined ? {} : { session },
   }
 }
+
+/** DSH 的会话 id 形如 `session-<uuid>`。只放行这类字符，id 要当对象键写进 sessions.json。 */
+const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/
 
 /** 执行一个操作。格式错误抛 BadRequest，操作失败（找不到、写不了盘）抛 Error。 */
 export function applyUiAction(data: QqbotData, ui: UiStore, body: unknown): void {
@@ -233,6 +238,12 @@ export function applyUiAction(data: QqbotData, ui: UiStore, body: unknown): void
     case 'background.remove':
       ui.background().remove()
       return
+    case 'session.role': {
+      const session = body['session']
+      if (typeof session !== 'string' || !SESSION_ID_PATTERN.test(session)) throw new BadRequest('会话 id 无效')
+      data.bindings.set(session, body['role'] === null ? NO_ROLE : role())
+      return
+    }
     default:
       throw new BadRequest('不认识的操作')
   }

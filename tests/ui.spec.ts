@@ -49,9 +49,26 @@ describe('ui settings', () => {
   it('reports the session role only when asked', () => {
     const { data, ui } = setup()
     expect(uiView(data, ui, undefined).session).toBeUndefined()
-    expect(uiView(data, ui, 's1').session).toEqual({ role: null, turns: [] })
+    const roster = [{ id: 'alice', name: '爱丽丝', description: '' }]
+    expect(uiView(data, ui, 's1').session).toEqual({ role: null, roster, turns: [] })
     data.bindings.set('s1', 'alice')
-    expect(uiView(data, ui, 's1').session).toEqual({ role: { id: 'alice', name: '爱丽丝' }, turns: [] })
+    expect(uiView(data, ui, 's1').session).toEqual({ role: { id: 'alice', name: '爱丽丝' }, roster, turns: [] })
+  })
+
+  it('sets the role of a session before or after it starts', () => {
+    const { data, ui } = setup()
+    data.bindings.setDefaultRole('alice')
+    // 还没开始的会话选了"不用角色"，默认角色不能接管它。
+    applyUiAction(data, ui, { action: 'session.role', session: 'session-1', role: null })
+    data.settle({ id: 'session-1' })
+    expect(data.bindings.get('session-1')).toBeNull()
+    expect(uiView(data, ui, 'session-1').session?.role).toBeNull()
+    applyUiAction(data, ui, { action: 'session.role', session: 'session-1', role: 'alice' })
+    expect(uiView(data, ui, 'session-1').session?.role).toEqual({ id: 'alice', name: '爱丽丝' })
+    expect(() => applyUiAction(data, ui, { action: 'session.role', session: 'session-1', role: 'bob' })).toThrow('没有')
+    expect(() => applyUiAction(data, ui, { action: 'session.role', session: '__proto__', role: null })).toThrow(BadRequest)
+    expect(() => applyUiAction(data, ui, { action: 'session.role', session: 1, role: null })).toThrow(BadRequest)
+    expect(data.bindings.get('session-1')).toBe('alice')
   })
 
   it('reports the role of each turn, with names read from the library', () => {
@@ -63,7 +80,7 @@ describe('ui settings', () => {
     data.bindings.set('s1', 'bob')
     data.recordTurn({ id: 's1' }, 3)
     data.roles.save({ id: 'alice', name: '小爱', description: '', persona: '设定。' }, false)
-    expect(uiView(data, ui, 's1').session).toEqual({
+    expect(uiView(data, ui, 's1').session).toMatchObject({
       role: { id: 'bob', name: '鲍勃' },
       turns: [{ turn: 1, role: { id: 'alice', name: '小爱' } }, { turn: 3, role: { id: 'bob', name: '鲍勃' } }],
     })
@@ -95,6 +112,29 @@ describe('avatar per turn in the browser', () => {
       session = { role: a, turns: [] }
       state.refreshRole('s2')
       await vi.waitFor(() => { expect(state.roleAt('s2', 7)).toEqual(a) })
+      state.dispose()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('sets the role of a session and keeps the answer', async () => {
+    const roster = [{ id: 'a', name: '甲', description: '' }]
+    const fetch = vi.fn((_url: string, init?: RequestInit) => {
+      const body = init?.body === undefined ? undefined : JSON.parse(String(init.body)) as { role: string | null }
+      const role = body?.role === 'a' ? { id: 'a', name: '甲' } : null
+      return Promise.resolve(new Response(JSON.stringify({ settings: DEFAULT_UI_SETTINGS, avatars: {}, session: { role, roster, turns: [] } })))
+    })
+    vi.stubGlobal('fetch', fetch)
+    try {
+      const state = new UiState()
+      expect(state.session('s1')).toBeUndefined()
+      await vi.waitFor(() => { expect(state.session('s1')?.roster).toEqual(roster) })
+      await state.setRole('s1', 'a')
+      expect(state.session('s1')?.role).toEqual({ id: 'a', name: '甲' })
+      expect(fetch).toHaveBeenLastCalledWith('api/qqbot/ui?session=s1', expect.objectContaining({
+        method: 'POST', body: JSON.stringify({ action: 'session.role', session: 's1', role: 'a' }),
+      }))
       state.dispose()
     } finally {
       vi.unstubAllGlobals()

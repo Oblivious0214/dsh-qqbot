@@ -1,7 +1,7 @@
 /**
  * dsh-qqbot 浏览器端：给 qqbot 会话根节点加 data-qqbot，QQ 样式（qq-style.ts）只写在它下面；
  * 侧边栏底部（左下角"更多"上面）放"新建 QQ 会话"按钮，DSH 设置窗口里加"QQ Bot"页（不提供"设为默认"），
- * 在 qqbot 会话标题栏放提示词查看器，编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复。
+ * 在 qqbot 会话标题栏放提示词查看器，新会话页和输入栏放角色切换（role-chip.tsx），编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -22,6 +22,7 @@ import {
 import { CROPPER_CLASS, CROPPER_CSS } from './image-cropper.tsx'
 import { PromptViewerButton, ROOT_CLASS, VIEWER_CSS, type PromptViewerInjected } from './prompt-viewer.tsx'
 import { buildQqCss, MARK_ATTRIBUTE } from './qq-style.ts'
+import { HeroRoleChip, InputRoleChip, ROLE_CHIP_CLASS, ROLE_CHIP_CSS, type RoleChipInjected } from './role-chip.tsx'
 import { installSegments } from './segments.tsx'
 import { UiState } from './ui-state.ts'
 
@@ -139,8 +140,8 @@ export function apply(ctx: Context): void {
   // 查看器、编辑器、裁剪弹窗和底部按钮的样式分别在 ROOT_CLASS、EDITOR_CLASS、CROPPER_CLASS、FOOTER_CLASS 下；插件关闭时移除。
   ctx.effect(() => {
     const style = document.createElement('style')
-    style.dataset['qqbotStyle'] = `${ROOT_CLASS} ${EDITOR_CLASS} ${CROPPER_CLASS} ${FOOTER_CLASS}`
-    style.textContent = VIEWER_CSS + EDITOR_CSS + CROPPER_CSS + FOOTER_CSS
+    style.dataset['qqbotStyle'] = `${ROOT_CLASS} ${EDITOR_CLASS} ${CROPPER_CLASS} ${FOOTER_CLASS} ${ROLE_CHIP_CLASS}`
+    style.textContent = VIEWER_CSS + EDITOR_CSS + CROPPER_CSS + FOOTER_CSS + ROLE_CHIP_CSS
     document.head.append(style)
     return () => { style.remove() }
   }, 'qqbot: viewer and editor style')
@@ -151,4 +152,18 @@ export function apply(ctx: Context): void {
     id: 'qqbot-prompt-viewer',
     inject: (): PromptViewerInjected => ({ openEditor }),
   }, PromptViewerButton))
+
+  // 角色切换：新会话页在 agent 预设右边，会话开始后在输入栏左侧、联动按钮（order 15）左边。都只在 qqbot 会话里渲染。
+  const roleInjected = (): RoleChipInjected => ({ ui, openEditor })
+  ctx.slots.inject('conversation.hero.options', () => ctx.slots.register({
+    name: 'conversation.hero.options',
+    id: 'qqbot-role',
+    inject: roleInjected,
+  }, HeroRoleChip))
+  ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+    name: 'conversation.input.left',
+    id: 'qqbot-role',
+    order: 10,
+    inject: roleInjected,
+  }, InputRoleChip))
 }

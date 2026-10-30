@@ -1,6 +1,6 @@
 /**
  * 角色库：`<数据目录>/roles/` 下每个角色一个目录 `<id>/ROLE.md`，或单个文件 `<id>.md`。
- * 文件格式：frontmatter（id、name、description、memeFrequency、proactivity、voiceId 等）+ 正文。格式参考 dsh-persona-switcher（MIT，yupaoa）。
+ * 文件格式：frontmatter（id、name、description、memeFrequency、proactivity、motionActions、motionRanges、voiceId 等）+ 正文。格式参考 dsh-persona-switcher（MIT，yupaoa）。
  * id 是内部键（会话绑定、头像、预设选择都按它记），界面上不显示，也不让用户填：编辑器新建时自动生成，
  * 手写的文件不写 id 时用文件名。用户按名称认角色，所以编辑器保存时要求名称不重复。
  */
@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { isMemeFrequency, type MemeFrequency } from './format.ts'
-import { ROLE_PROACTIVITIES, type RoleProactivity } from './library-types.ts'
+import { MOTION_ACTIONS, MOTION_RANGES, ROLE_PROACTIVITIES, type MotionAction, type MotionRange, type RoleProactivity } from './library-types.ts'
 import { isRecord, renameWithRetry, writeText, type Warn } from './storage.ts'
 
 export interface Role {
@@ -22,6 +22,9 @@ export interface Role {
   readonly memeFrequency?: MemeFrequency
   /** 设备主动性上限（`proactivity: follow|situational|high`）；没写或写错时为空，表示不限。 */
   readonly proactivity?: RoleProactivity
+  /** 偏好的设备动作和范围（`motionActions: slide, steady`）；不认识的值丢掉，全丢掉或没写时为空。 */
+  readonly motionActions?: readonly MotionAction[]
+  readonly motionRanges?: readonly MotionRange[]
   /** 语音字段原样保留，迁移语音时再使用。 */
   readonly voiceId: string
   readonly voicePreviewText: string
@@ -32,6 +35,14 @@ export const ROLE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 
 export function isRoleProactivity(value: unknown): value is RoleProactivity {
   return typeof value === 'string' && (ROLE_PROACTIVITIES as readonly string[]).includes(value)
+}
+
+/** 逗号分隔的列表：按 choices 的顺序去重，丢掉不认识的值；一个都不剩时为空。 */
+function pickList<T extends string>(raw: string | undefined, choices: readonly T[]): T[] | undefined {
+  if (raw === undefined) return undefined
+  const values = new Set(raw.split(/[,，]/).map(v => v.trim()))
+  const picked = choices.filter(c => values.has(c))
+  return picked.length === 0 ? undefined : picked
 }
 
 function splitFrontmatter(text: string): { front: string; body: string } {
@@ -78,6 +89,8 @@ export function parseRole(text: string, fallbackId: string): Role | undefined {
   if (id === '') return undefined
   const memeFrequency = scalar(front, 'memeFrequency')?.trim()
   const proactivity = scalar(front, 'proactivity')?.trim()
+  const motionActions = pickList(scalar(front, 'motionActions'), MOTION_ACTIONS)
+  const motionRanges = pickList(scalar(front, 'motionRanges'), MOTION_RANGES)
   return {
     id,
     name: (scalar(front, 'name') ?? id).trim() || id,
@@ -85,6 +98,8 @@ export function parseRole(text: string, fallbackId: string): Role | undefined {
     persona,
     ...isMemeFrequency(memeFrequency) ? { memeFrequency } : {},
     ...isRoleProactivity(proactivity) ? { proactivity } : {},
+    ...motionActions === undefined ? {} : { motionActions },
+    ...motionRanges === undefined ? {} : { motionRanges },
     voiceId: jsonScalar(front, 'voiceId'),
     voicePreviewText: jsonScalar(front, 'voicePreviewText'),
   }
@@ -116,6 +131,9 @@ export interface RoleDraft {
   readonly memeFrequency?: MemeFrequency
   /** 为空表示不限，保存时去掉这一行。 */
   readonly proactivity?: RoleProactivity
+  /** 为空表示没有偏好，保存时去掉这一行。 */
+  readonly motionActions?: readonly MotionAction[]
+  readonly motionRanges?: readonly MotionRange[]
 }
 
 const NAME_LIMIT = 64
@@ -125,7 +143,7 @@ const PERSONA_LIMIT = 50_000
 /** 校验编辑界面提交的角色；不合规时抛出可以直接展示给用户的错误。 */
 export function validateRoleDraft(value: unknown): RoleDraft {
   if (!isRecord(value)) throw new TypeError('角色格式无效')
-  const { id, name, description, persona, memeFrequency, proactivity } = value
+  const { id, name, description, persona, memeFrequency, proactivity, motionActions, motionRanges } = value
   if (id !== undefined && (typeof id !== 'string' || !ROLE_ID_PATTERN.test(id))) throw new TypeError('角色 id 无效')
   if (typeof name !== 'string' || name.trim() === '' || name.length > NAME_LIMIT || /[\r\n]/.test(name)) {
     throw new TypeError(`角色名称不能为空，不能换行，最多 ${NAME_LIMIT} 个字符`)
@@ -138,11 +156,23 @@ export function validateRoleDraft(value: unknown): RoleDraft {
   }
   if (memeFrequency !== undefined && !isMemeFrequency(memeFrequency)) throw new TypeError('表情频率无效')
   if (proactivity !== undefined && !isRoleProactivity(proactivity)) throw new TypeError('联动主动性无效')
+  const actions = validList(motionActions, MOTION_ACTIONS, '偏好动作无效')
+  const ranges = validList(motionRanges, MOTION_RANGES, '偏好范围无效')
   return {
     ...id === undefined ? {} : { id }, name: name.trim(), description: description.trim(), persona: persona.trim(),
     ...memeFrequency === undefined ? {} : { memeFrequency },
     ...proactivity === undefined ? {} : { proactivity },
+    ...actions === undefined ? {} : { motionActions: actions },
+    ...ranges === undefined ? {} : { motionRanges: ranges },
   }
+}
+
+/** 编辑界面提交的列表：每项都要认识；按 choices 的顺序去重，空列表当作没写。 */
+function validList<T extends string>(value: unknown, choices: readonly T[], message: string): T[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.some(v => !choices.includes(v as T))) throw new TypeError(message)
+  const picked = choices.filter(c => value.includes(c))
+  return picked.length === 0 ? undefined : picked
 }
 
 /**
@@ -172,6 +202,12 @@ export function renderRole(draft: RoleDraft & { readonly id: string }, existing:
   front = draft.proactivity === undefined
     ? removeField(front, 'proactivity')
     : setField(front, 'proactivity', draft.proactivity)
+  front = draft.motionActions === undefined
+    ? removeField(front, 'motionActions')
+    : setField(front, 'motionActions', draft.motionActions.join(', '))
+  front = draft.motionRanges === undefined
+    ? removeField(front, 'motionRanges')
+    : setField(front, 'motionRanges', draft.motionRanges.join(', '))
   return `---${front}\n---\n\n${draft.persona}\n`
 }
 
@@ -214,7 +250,7 @@ export class RoleLibrary {
   /**
    * 新建或修改一个角色。新建时编辑器不带 id，生成一个没用过的；带了 id（测试等内部调用）时不能已存在。
    * 修改时 id 必须已存在。名称不能和别的角色重复。
-   * 修改只换 name、description、memeFrequency、proactivity 和正文，frontmatter 其他字段保留。新建写成 `<id>/ROLE.md`。
+   * 修改只换 name、description、memeFrequency、proactivity、motionActions、motionRanges 和正文，frontmatter 其他字段保留。新建写成 `<id>/ROLE.md`。
    */
   save(value: unknown, create: boolean): Role {
     const draft = validateRoleDraft(value)

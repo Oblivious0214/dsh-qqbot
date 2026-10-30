@@ -63,7 +63,12 @@ export class QqbotService extends Service implements QqbotRegistry {
   role(session: QqbotSession): QqbotRoleInfo | undefined {
     const role = this.content.roleFor(session)
     if (role === undefined) return undefined
-    return { name: role.name, ...role.proactivity === undefined ? {} : { proactivity: role.proactivity } }
+    return {
+      name: role.name,
+      ...role.proactivity === undefined ? {} : { proactivity: role.proactivity },
+      ...role.motionActions === undefined ? {} : { motionActions: role.motionActions },
+      ...role.motionRanges === undefined ? {} : { motionRanges: role.motionRanges },
+    }
   }
 }
 

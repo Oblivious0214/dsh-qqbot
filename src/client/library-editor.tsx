@@ -10,7 +10,8 @@ import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  DEFAULT_MEME_FREQUENCY, LIBRARY_PATH, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS, ROLE_PROACTIVITIES, ROLE_PROACTIVITY_LABELS,
+  DEFAULT_MEME_FREQUENCY, LIBRARY_PATH, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS, MOTION_ACTION_LABELS, MOTION_ACTIONS,
+  MOTION_RANGE_LABELS, MOTION_RANGES, ROLE_PROACTIVITIES, ROLE_PROACTIVITY_LABELS,
   type LibraryAction, type LibraryPreset, type LibraryPresetDraft, type LibraryRole, type LibraryRoleDraft, type LibraryView,
 } from '../library-types.ts'
 import { RoleAvatarField, UiForm } from './ui-editor.tsx'
@@ -95,6 +96,27 @@ function Field({ label, hint, children }: { readonly label: string; readonly hin
   </label>
 }
 
+/** 多选一组复选框。value 按 choices 的顺序；一个都不选时传 undefined。 */
+function ChoiceField<T extends string>({ label, hint, choices, labels, value, onChange }: {
+  readonly label: string; readonly hint: string; readonly choices: readonly T[]; readonly labels: Record<T, string>
+  readonly value: readonly T[] | undefined; readonly onChange: (value: readonly T[] | undefined) => void
+}) {
+  const selected = new Set(value)
+  return <div className="ql-field">
+    <span>{label}</span>
+    <div className="ql-actions">
+      {choices.map(choice => <label key={choice} className="ql-toggle">
+        <input type="checkbox" checked={selected.has(choice)} onChange={(event) => {
+          const next = choices.filter(c => c === choice ? event.target.checked : selected.has(c))
+          onChange(next.length === 0 ? undefined : next)
+        }} />
+        <span>{labels[choice]}</span>
+      </label>)}
+    </div>
+    <small>{hint}</small>
+  </div>
+}
+
 const BLANK_ROLE: LibraryRoleDraft = { name: '', description: '', persona: '' }
 const BLANK_PRESET: LibraryPresetDraft = { name: '', head: '', mid: '', tail: '' }
 
@@ -156,6 +178,12 @@ function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRem
         {ROLE_PROACTIVITIES.map(p => <option key={p} value={p}>{ROLE_PROACTIVITY_LABELS[p]}</option>)}
       </select>
     </Field>
+    <ChoiceField label="偏好动作" hint="装了设备插件时生效。只是倾向，用户的要求优先；不选表示没有偏好。"
+      choices={MOTION_ACTIONS} labels={MOTION_ACTION_LABELS} value={draft.motionActions}
+      onChange={(value) => { setDraft(({ motionActions: _, ...rest }) => value === undefined ? rest : { ...rest, motionActions: value }); onDirty(true) }} />
+    <ChoiceField label="偏好范围" hint="同上。滑动只在全行程、下半程、上半程里生效。"
+      choices={MOTION_RANGES} labels={MOTION_RANGE_LABELS} value={draft.motionRanges}
+      onChange={(value) => { setDraft(({ motionRanges: _, ...rest }) => value === undefined ? rest : { ...rest, motionRanges: value }); onDirty(true) }} />
     {!create && <Field label="破限预设" hint="改了立即保存。">
       <select value={role.preset ?? ''} disabled={busy}
         onChange={(event) => { void run({ action: 'role.preset', id: role.id, ...event.target.value === '' ? {} : { preset: event.target.value } }) }}>

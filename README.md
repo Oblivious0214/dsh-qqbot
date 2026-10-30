@@ -62,9 +62,11 @@ QQ Bot 会话里，模型用一个 `[qq]` 块把回复分成几段，界面按�
 ```md
 memeFrequency: low   # low 低 / medium 适中 / high 高 / off 不主动发；不写时为适中
 proactivity: follow  # 设备联动主动性上限：follow 跟随 / situational 情境主动 / high 高主动；不写时不限
+motionActions: "steady, slide"   # 偏好动作，逗号分隔：steady accelerate decelerate intermittent fast_out slow_out slide
+motionRanges: "full, upper"      # 偏好范围，逗号分隔：full lower_half upper_half lower middle upper
 ```
 
-`proactivity` 只交给设备插件，dsh-qqbot 自己不用。编辑器里叫"联动主动性上限"，选高主动时不写这一行。
+`proactivity`、`motionActions`、`motionRanges` 只交给设备插件，dsh-qqbot 自己不用。编辑器里叫"联动主动性上限""偏好动作""偏好范围"，选高主动或一项都不勾时不写这一行。不认识的值读的时候丢掉。
 
 ### 长对话压缩
 
@@ -90,7 +92,7 @@ QQ Bot 会话用 DSH 原生的 compaction-basic 压缩：阈值、保留最近�
 
 左下角"更多" → 设置 → **QQ Bot**；或在提示词查看器里点角色、破限预设段落旁的"编辑"（弹窗，直接定位到这一段）。两处是同一个编辑器。在设置窗口里，切换标签和条目前会提醒保存，但直接关掉设置窗口时不提醒，没保存的改动会丢。
 
-- 角色：新建、修改名称/简介/设定/表情频率/联动主动性上限、删除、设为新会话默认、单独选破限预设。修改只换这几个字段，角色文件里的语音等其他字段原样保留。删除的角色移到 `qqbot/roles-trash/`，放回 `roles/` 就恢复。
+- 角色：新建、修改名称/简介/设定/表情频率/联动主动性上限/偏好动作和范围、删除、设为新会话默认、单独选破限预设。修改只换这几个字段，角色文件里的语音等其他字段原样保留。删除的角色移到 `qqbot/roles-trash/`，放回 `roles/` 就恢复。
 - 破限预设：一份预设有开头、中间、结尾三段，分别放在系统提示词最前、角色设定之后、最后。可以新建、复制、修改、删除（至少留一份）、设为默认。没有单独选择的角色和无角色会话用默认预设。
 - 保存后下一条消息起生效。改动会让用到它的会话下一轮的前缀缓存从改动处开始失效，平时不要频繁改。
 - 角色和破限预设都只按名称显示，名称不能重复。内部 id 自动生成，界面上看不到，改名不影响已有会话、头像和预设选择。
@@ -117,7 +119,7 @@ ctx.inject(['qqbot'], (child) => {
   child.effect(() => child.qqbot.extension({ name: 'toy', text: session => '...' }))
   // 运行时状态：进入 qqbot:runtime context，不影响系统提示词前缀。
   child.effect(() => child.qqbot.runtime('toy', session => 'device=disconnected'))
-  // 会话当前角色：{ name, proactivity? }，没有角色时为 undefined。每次现读。
+  // 会话当前角色：{ name, proactivity?, motionActions?, motionRanges? }，没有角色时为 undefined。每次现读。
   child.qqbot.role({ id: sessionId })
 })
 ```

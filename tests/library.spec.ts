@@ -53,6 +53,25 @@ describe('role files written by the editor', () => {
       .toThrow('联动主动性无效')
   })
 
+  it('writes motion preferences as comma lists and drops unknown values', () => {
+    const existing = '---\nid: alice\nmotionActions: slide, wild，steady, slide\nmotionRanges: nowhere\ncustom: 保留\n---\n\n旧设定。\n'
+    const parsed = parseRole(existing, 'x')
+    expect(parsed?.motionActions).toEqual(['steady', 'slide'])
+    expect(parsed).not.toHaveProperty('motionRanges')
+    const written = renderRole({ ...draft, motionActions: ['steady', 'slide'], motionRanges: ['full', 'upper'] }, existing)
+    expect(written).toContain('motionActions: "steady, slide"')
+    expect(parseRole(written, 'x')).toMatchObject({ motionActions: ['steady', 'slide'], motionRanges: ['full', 'upper'] })
+    const cleared = renderRole(draft, existing)
+    expect(cleared).not.toMatch(/motionActions|motionRanges/)
+    expect(cleared).toContain('custom: 保留')
+    const library = new RoleLibrary(mkdtempSync(join(tmpdir(), 'dsh-qqbot-library-')), () => {})
+    expect(() => library.save({ ...draft, motionActions: ['wild'] }, true)).toThrow('偏好动作无效')
+    expect(() => library.save({ ...draft, motionRanges: 'full' }, true)).toThrow('偏好范围无效')
+    // 编辑器按选项顺序提交；空列表等于没写。
+    expect(library.save({ ...draft, motionActions: ['slide', 'steady', 'slide'], motionRanges: [] }, true))
+      .toMatchObject({ motionActions: ['steady', 'slide'] })
+  })
+
   it('handles files without frontmatter', () => {
     expect(parseRole(renderRole(draft, '只有正文。'), 'alice')).toMatchObject({ id: 'alice', name: '爱丽丝', persona: '爱丽丝的设定。' })
   })

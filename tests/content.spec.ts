@@ -267,6 +267,9 @@ describe('host service with data', () => {
       writeRole(join(home, 'qqbot', 'roles'), 'alice', ROLE_A.replace('memeFrequency: high', 'proactivity: situational'))
       content.roles.reload()
       expect(root.qqbot.role({ id: 's1' })).toEqual({ name: '爱丽丝', proactivity: 'situational' })
+      writeRole(join(home, 'qqbot', 'roles'), 'alice', ROLE_A.replace('memeFrequency: high', 'motionActions: slide\nmotionRanges: upper, full'))
+      content.roles.reload()
+      expect(root.qqbot.role({ id: 's1' })).toEqual({ name: '爱丽丝', motionActions: ['slide'], motionRanges: ['full', 'upper'] })
     } finally {
       process.env['DSH_HOME'] = previous
     }

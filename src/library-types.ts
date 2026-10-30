@@ -33,6 +33,21 @@ export const ROLE_PROACTIVITY_LABELS: Record<RoleProactivity, string> = {
   high: '高主动',
 }
 
+/**
+ * 角色卡 `motionActions`、`motionRanges` 字段：角色偏好的设备动作和范围，逗号分隔。
+ * 只是倾向，由设备插件写进它的规则；dsh-qqbot 自己不用，名称和设备插件的动作、范围一致。
+ */
+export const MOTION_ACTIONS = ['steady', 'accelerate', 'decelerate', 'intermittent', 'fast_out', 'slow_out', 'slide'] as const
+export type MotionAction = typeof MOTION_ACTIONS[number]
+export const MOTION_ACTION_LABELS: Record<MotionAction, string> = {
+  steady: '稳定节奏', accelerate: '渐快', decelerate: '渐慢', intermittent: '间歇', fast_out: '快去慢回', slow_out: '慢去快回', slide: '滑动',
+}
+export const MOTION_RANGES = ['full', 'lower_half', 'upper_half', 'lower', 'middle', 'upper'] as const
+export type MotionRange = typeof MOTION_RANGES[number]
+export const MOTION_RANGE_LABELS: Record<MotionRange, string> = {
+  full: '全行程', lower_half: '下半程', upper_half: '上半程', lower: '下端局部', middle: '中间段', upper: '上端局部',
+}
+
 export interface LibraryRole {
   /** 内部键，自动生成，界面上不显示。 */
   readonly id: string
@@ -43,6 +58,9 @@ export interface LibraryRole {
   readonly memeFrequency?: MemeFrequency
   /** 设备主动性上限；没写时为空，表示不限。 */
   readonly proactivity?: RoleProactivity
+  /** 偏好的设备动作和范围；没写时为空。 */
+  readonly motionActions?: readonly MotionAction[]
+  readonly motionRanges?: readonly MotionRange[]
   /** 单独选的破限预设；跟随默认时为空。 */
   readonly preset?: string
 }
@@ -76,6 +94,8 @@ export interface LibraryRoleDraft {
   readonly persona: string
   readonly memeFrequency?: MemeFrequency
   readonly proactivity?: RoleProactivity
+  readonly motionActions?: readonly MotionAction[]
+  readonly motionRanges?: readonly MotionRange[]
 }
 
 /** 角色和预设：新建不带 id（服务端生成），修改时带原 id；名称不能重复。 */

@@ -10,6 +10,8 @@ export function proseOnly(text) {
   return text.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`/g, '')
     .split('\n').filter(line => !/^\s*>/.test(line)).join('\n');
 }
+// Stages keep only text, cycles and motion. Other fields a model adds (durationMs, emotion…)
+// and an invalid cycles are dropped instead of failing the reply; motion stays for the device plugin to check.
 export function parseTimedReply(text) {
   const matches = [...proseOnly(text).matchAll(/\[qq\]([\s\S]*?)\[\/qq\]/g)];
   if (!matches.length) return null;
@@ -18,15 +20,17 @@ export function parseTimedReply(text) {
   try { value = JSON.parse(matches[0][1]); } catch { throw Error('分段回复格式无效。'); }
   if (!value || value.version !== 1 || Object.keys(value).sort().join(',') !== 'stages,version'
     || !Array.isArray(value.stages) || !value.stages.length || value.stages.length > 20) throw Error('分段回复格式无效。');
-  for (const stage of value.stages) {
+  const stages = value.stages.map(stage => {
     if (!stage || typeof stage !== 'object' || Array.isArray(stage)
-      || Object.keys(stage).some(key => !['text', 'cycles', 'motion'].includes(key))
       || typeof stage.text !== 'string' || !stage.text.trim() || stage.text.length > 4000
-      || /\[\/?(?:qq|dsh)\]/.test(stage.text)
-      || stage.cycles !== undefined && (!Number.isInteger(stage.cycles) || stage.cycles < 1 || stage.cycles > 100))
+      || /\[\/?(?:qq|dsh)\]/.test(stage.text))
       throw Error('段落格式无效。');
-  }
-  return value;
+    const kept = { text: stage.text };
+    if (Number.isInteger(stage.cycles) && stage.cycles >= 1 && stage.cycles <= 100) kept.cycles = stage.cycles;
+    if (Object.hasOwn(stage, 'motion')) kept.motion = stage.motion;
+    return kept;
+  });
+  return { version: 1, stages };
 }
 
 // Streaming read: the closed stages of a reply that may still be arriving.

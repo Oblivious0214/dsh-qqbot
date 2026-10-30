@@ -10,7 +10,7 @@ import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  DEFAULT_MEME_FREQUENCY, LIBRARY_PATH, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS,
+  DEFAULT_MEME_FREQUENCY, LIBRARY_PATH, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS, ROLE_PROACTIVITIES, ROLE_PROACTIVITY_LABELS,
   type LibraryAction, type LibraryPreset, type LibraryPresetDraft, type LibraryRole, type LibraryRoleDraft, type LibraryView,
 } from '../library-types.ts'
 import { RoleAvatarField, UiForm } from './ui-editor.tsx'
@@ -144,6 +144,16 @@ function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRem
       }}>
         <option value="">默认（{MEME_FREQUENCY_LABELS[DEFAULT_MEME_FREQUENCY]}）</option>
         {MEME_FREQUENCIES.map(f => <option key={f} value={f}>{MEME_FREQUENCY_LABELS[f]}</option>)}
+      </select>
+    </Field>
+    <Field label="联动主动性上限" hint="装了设备插件时生效。实际档位取这里和联动设置里较低的一个。">
+      <select value={draft.proactivity ?? 'high'} onChange={(event) => {
+        // 高主动等于不限，不写进角色卡。
+        const value = ROLE_PROACTIVITIES.find(p => p === event.target.value && p !== 'high')
+        setDraft(({ proactivity: _, ...rest }) => value === undefined ? rest : { ...rest, proactivity: value })
+        onDirty(true)
+      }}>
+        {ROLE_PROACTIVITIES.map(p => <option key={p} value={p}>{ROLE_PROACTIVITY_LABELS[p]}</option>)}
       </select>
     </Field>
     {!create && <Field label="破限预设" hint="改了立即保存。">

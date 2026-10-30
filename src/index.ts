@@ -10,13 +10,13 @@ import { SessionBindings } from './bindings.ts'
 import { QqbotData } from './content.ts'
 import * as library from './library.ts'
 import { JailbreakStore } from './presets.ts'
-import { QqbotRegistryStore, type QqbotExtensionEntry, type QqbotRegistry, type QqbotText } from './registry.ts'
+import { QqbotRegistryStore, type QqbotExtensionEntry, type QqbotRegistry, type QqbotRoleInfo, type QqbotSession, type QqbotText } from './registry.ts'
 import { RoleLibrary } from './roles.ts'
 import { dataDir, dshHome } from './storage.ts'
 import * as ui from './ui.ts'
 import * as viewer from './viewer.ts'
 
-export type { QqbotExtensionEntry, QqbotRegistry, QqbotSession, QqbotText } from './registry.ts'
+export type { QqbotExtensionEntry, QqbotRegistry, QqbotRoleInfo, QqbotSession, QqbotText } from './registry.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -58,6 +58,12 @@ export class QqbotService extends Service implements QqbotRegistry {
 
   runtime(name: string, text: QqbotText): () => void {
     return this.store.runtime(name, text, callerName(this.ctx))
+  }
+
+  role(session: QqbotSession): QqbotRoleInfo | undefined {
+    const role = this.content.roleFor(session)
+    if (role === undefined) return undefined
+    return { name: role.name, ...role.proactivity === undefined ? {} : { proactivity: role.proactivity } }
   }
 }
 

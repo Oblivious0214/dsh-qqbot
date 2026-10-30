@@ -261,6 +261,12 @@ describe('host service with data', () => {
         .toContain('表情频率：高')
       expect(renderRuntime(store, { id: 's1' })).toBe('role: 爱丽丝')
       expect(renderRuntime(store, { id: 's2' })).toBe('')
+      // 外部插件按会话读当前角色；角色卡没写 proactivity 时为不限。
+      expect(root.qqbot.role({ id: 's1' })).toEqual({ name: '爱丽丝' })
+      expect(root.qqbot.role({ id: 's2' })).toBeUndefined()
+      writeRole(join(home, 'qqbot', 'roles'), 'alice', ROLE_A.replace('memeFrequency: high', 'proactivity: situational'))
+      content.roles.reload()
+      expect(root.qqbot.role({ id: 's1' })).toEqual({ name: '爱丽丝', proactivity: 'situational' })
     } finally {
       process.env['DSH_HOME'] = previous
     }

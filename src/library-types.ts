@@ -20,6 +20,19 @@ export const MEME_FREQUENCY_LABELS: Record<MemeFrequency, string> = {
   off: '不主动发',
 }
 
+/**
+ * 角色卡 `proactivity` 字段：这个角色最多到哪个设备主动性档位，由设备插件和用户的选择取较低者。
+ * 没写时不限（等于 high）。dsh-qqbot 自己不用它，只通过登记服务的 `role()` 交给设备插件。
+ */
+export const ROLE_PROACTIVITIES = ['follow', 'situational', 'high'] as const
+export type RoleProactivity = typeof ROLE_PROACTIVITIES[number]
+
+export const ROLE_PROACTIVITY_LABELS: Record<RoleProactivity, string> = {
+  follow: '跟随',
+  situational: '情境主动',
+  high: '高主动',
+}
+
 export interface LibraryRole {
   /** 内部键，自动生成，界面上不显示。 */
   readonly id: string
@@ -28,6 +41,8 @@ export interface LibraryRole {
   readonly persona: string
   /** 没写时为空，用 DEFAULT_MEME_FREQUENCY。 */
   readonly memeFrequency?: MemeFrequency
+  /** 设备主动性上限；没写时为空，表示不限。 */
+  readonly proactivity?: RoleProactivity
   /** 单独选的破限预设；跟随默认时为空。 */
   readonly preset?: string
 }
@@ -60,6 +75,7 @@ export interface LibraryRoleDraft {
   readonly description: string
   readonly persona: string
   readonly memeFrequency?: MemeFrequency
+  readonly proactivity?: RoleProactivity
 }
 
 /** 角色和预设：新建不带 id（服务端生成），修改时带原 id；名称不能重复。 */

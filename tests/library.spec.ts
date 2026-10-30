@@ -41,6 +41,18 @@ describe('role files written by the editor', () => {
       .toThrow('表情频率无效')
   })
 
+  it('writes the proactivity cap, drops it when unlimited and rejects unknown values', () => {
+    const existing = '---\nid: alice\nproactivity: follow\ncustom: 保留\n---\n\n旧设定。\n'
+    expect(parseRole(existing, 'x')?.proactivity).toBe('follow')
+    expect(parseRole(renderRole({ ...draft, proactivity: 'situational' }, existing), 'x')?.proactivity).toBe('situational')
+    const cleared = renderRole(draft, existing)
+    expect(cleared).not.toContain('proactivity')
+    expect(cleared).toContain('custom: 保留')
+    expect(parseRole('---\nproactivity: wild\n---\n正文', 'x')?.proactivity).toBeUndefined()
+    expect(() => new RoleLibrary(mkdtempSync(join(tmpdir(), 'dsh-qqbot-library-')), () => {}).save({ ...draft, proactivity: 'wild' }, true))
+      .toThrow('联动主动性无效')
+  })
+
   it('handles files without frontmatter', () => {
     expect(parseRole(renderRole(draft, '只有正文。'), 'alice')).toMatchObject({ id: 'alice', name: '爱丽丝', persona: '爱丽丝的设定。' })
   })

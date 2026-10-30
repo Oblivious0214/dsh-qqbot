@@ -3,6 +3,8 @@
  * 预设内的 dsh-qqbot/prompt 读取这些条目，组装成 qqbot 会话的 section 和 context。
  */
 
+import type { RoleProactivity } from './library-types.ts'
+
 /** 组装提示词时所属的 qqbot 会话。 */
 export interface QqbotSession {
   readonly id: string
@@ -21,12 +23,21 @@ export interface QqbotExtensionEntry {
   readonly text: QqbotText
 }
 
+/** 会话当前角色里给外部插件用的部分。 */
+export interface QqbotRoleInfo {
+  readonly name: string
+  /** 角色卡写的设备主动性上限；没写时为空，表示不限。 */
+  readonly proactivity?: RoleProactivity
+}
+
 /** 外部插件通过 `ctx.inject(['qqbot'], ...)` 可选接入的接口。 */
 export interface QqbotRegistry {
   /** 在外部槽位登记一段规则，返回 disposer。 */
   extension(entry: QqbotExtensionEntry): () => void
   /** 写入运行时状态，进入 `qqbot:runtime` context，返回 disposer。 */
   runtime(name: string, text: QqbotText): () => void
+  /** 会话当前的角色；没有角色时为空。每次现读，换角色、改角色卡后立即反映。 */
+  role(session: QqbotSession): QqbotRoleInfo | undefined
 }
 
 /** 登记来源：登记它的插件名，供提示词查看器显示。取不到时为空。 */
@@ -41,7 +52,8 @@ export interface QqbotRegistrySnapshot {
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 
-export class QqbotRegistryStore implements QqbotRegistry {
+/** 登记部分；`role()` 由 QqbotService 按角色库实现。 */
+export class QqbotRegistryStore implements Omit<QqbotRegistry, 'role'> {
   private readonly extensions = new Map<string, QqbotExtensionEntry & QqbotSource>()
   // 值包一层对象，旧 disposer 才不会误删同名同文本的新登记。
   private readonly runtimes = new Map<string, { readonly text: QqbotText } & QqbotSource>()

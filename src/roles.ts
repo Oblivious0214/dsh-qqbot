@@ -1,6 +1,6 @@
 /**
  * 角色库：`<数据目录>/roles/` 下每个角色一个目录 `<id>/ROLE.md`，或单个文件 `<id>.md`。
- * 文件格式：frontmatter（id、name、description、memeFrequency、voiceId 等）+ 正文。格式参考 dsh-persona-switcher（MIT，yupaoa）。
+ * 文件格式：frontmatter（id、name、description、memeFrequency、proactivity、voiceId 等）+ 正文。格式参考 dsh-persona-switcher（MIT，yupaoa）。
  * id 是内部键（会话绑定、头像、预设选择都按它记），界面上不显示，也不让用户填：编辑器新建时自动生成，
  * 手写的文件不写 id 时用文件名。用户按名称认角色，所以编辑器保存时要求名称不重复。
  */
@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { isMemeFrequency, type MemeFrequency } from './format.ts'
+import { ROLE_PROACTIVITIES, type RoleProactivity } from './library-types.ts'
 import { isRecord, renameWithRetry, writeText, type Warn } from './storage.ts'
 
 export interface Role {
@@ -19,6 +20,8 @@ export interface Role {
   readonly persona: string
   /** 表情频率（`memeFrequency: low|medium|high|off`）；没写或写错时为空，用默认档。 */
   readonly memeFrequency?: MemeFrequency
+  /** 设备主动性上限（`proactivity: follow|situational|high`）；没写或写错时为空，表示不限。 */
+  readonly proactivity?: RoleProactivity
   /** 语音字段原样保留，迁移语音时再使用。 */
   readonly voiceId: string
   readonly voicePreviewText: string
@@ -26,6 +29,10 @@ export interface Role {
 
 /** 接口和头像文件名接受的 id 格式。扫描时更宽松，手写的文件名不合规也能读到。 */
 export const ROLE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+export function isRoleProactivity(value: unknown): value is RoleProactivity {
+  return typeof value === 'string' && (ROLE_PROACTIVITIES as readonly string[]).includes(value)
+}
 
 function splitFrontmatter(text: string): { front: string; body: string } {
   const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
@@ -70,12 +77,14 @@ export function parseRole(text: string, fallbackId: string): Role | undefined {
   const id = (scalar(front, 'id') ?? fallbackId).trim()
   if (id === '') return undefined
   const memeFrequency = scalar(front, 'memeFrequency')?.trim()
+  const proactivity = scalar(front, 'proactivity')?.trim()
   return {
     id,
     name: (scalar(front, 'name') ?? id).trim() || id,
     description: (scalar(front, 'description') ?? '').trim(),
     persona,
     ...isMemeFrequency(memeFrequency) ? { memeFrequency } : {},
+    ...isRoleProactivity(proactivity) ? { proactivity } : {},
     voiceId: jsonScalar(front, 'voiceId'),
     voicePreviewText: jsonScalar(front, 'voicePreviewText'),
   }
@@ -105,6 +114,8 @@ export interface RoleDraft {
   readonly persona: string
   /** 为空表示用默认档，保存时去掉这一行。 */
   readonly memeFrequency?: MemeFrequency
+  /** 为空表示不限，保存时去掉这一行。 */
+  readonly proactivity?: RoleProactivity
 }
 
 const NAME_LIMIT = 64
@@ -114,7 +125,7 @@ const PERSONA_LIMIT = 50_000
 /** 校验编辑界面提交的角色；不合规时抛出可以直接展示给用户的错误。 */
 export function validateRoleDraft(value: unknown): RoleDraft {
   if (!isRecord(value)) throw new TypeError('角色格式无效')
-  const { id, name, description, persona, memeFrequency } = value
+  const { id, name, description, persona, memeFrequency, proactivity } = value
   if (id !== undefined && (typeof id !== 'string' || !ROLE_ID_PATTERN.test(id))) throw new TypeError('角色 id 无效')
   if (typeof name !== 'string' || name.trim() === '' || name.length > NAME_LIMIT || /[\r\n]/.test(name)) {
     throw new TypeError(`角色名称不能为空，不能换行，最多 ${NAME_LIMIT} 个字符`)
@@ -126,9 +137,11 @@ export function validateRoleDraft(value: unknown): RoleDraft {
     throw new TypeError(`角色设定不能为空，最多 ${PERSONA_LIMIT} 个字符`)
   }
   if (memeFrequency !== undefined && !isMemeFrequency(memeFrequency)) throw new TypeError('表情频率无效')
+  if (proactivity !== undefined && !isRoleProactivity(proactivity)) throw new TypeError('联动主动性无效')
   return {
     ...id === undefined ? {} : { id }, name: name.trim(), description: description.trim(), persona: persona.trim(),
     ...memeFrequency === undefined ? {} : { memeFrequency },
+    ...proactivity === undefined ? {} : { proactivity },
   }
 }
 
@@ -156,6 +169,9 @@ export function renderRole(draft: RoleDraft & { readonly id: string }, existing:
   front = draft.memeFrequency === undefined
     ? removeField(front, 'memeFrequency')
     : setField(front, 'memeFrequency', draft.memeFrequency)
+  front = draft.proactivity === undefined
+    ? removeField(front, 'proactivity')
+    : setField(front, 'proactivity', draft.proactivity)
   return `---${front}\n---\n\n${draft.persona}\n`
 }
 
@@ -198,7 +214,7 @@ export class RoleLibrary {
   /**
    * 新建或修改一个角色。新建时编辑器不带 id，生成一个没用过的；带了 id（测试等内部调用）时不能已存在。
    * 修改时 id 必须已存在。名称不能和别的角色重复。
-   * 修改只换 name、description、memeFrequency 和正文，frontmatter 其他字段保留。新建写成 `<id>/ROLE.md`。
+   * 修改只换 name、description、memeFrequency、proactivity 和正文，frontmatter 其他字段保留。新建写成 `<id>/ROLE.md`。
    */
   save(value: unknown, create: boolean): Role {
     const draft = validateRoleDraft(value)

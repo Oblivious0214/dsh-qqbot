@@ -24,6 +24,7 @@ export function libraryView(data: QqbotData, saved?: string): LibraryView {
       return {
         id: role.id, name: role.name, description: role.description, persona: role.persona,
         ...role.memeFrequency === undefined ? {} : { memeFrequency: role.memeFrequency },
+        ...role.proactivity === undefined ? {} : { proactivity: role.proactivity },
         ...preset === undefined ? {} : { preset },
       }
     }),

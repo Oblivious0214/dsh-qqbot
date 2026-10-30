@@ -5,6 +5,7 @@
 
 import { NO_ROLE, SessionBindings, type RoleChoice } from './bindings.ts'
 import { DEFAULT_MEME_FREQUENCY, type MemeFrequency } from './library-types.ts'
+import type { MemePreferences } from './library-types.ts'
 import { DEFAULT_JAILBREAK, JailbreakStore, type JailbreakPreset } from './presets.ts'
 import type { QqbotSession } from './registry.ts'
 import { RoleLibrary, type Role } from './roles.ts'
@@ -20,6 +21,7 @@ export interface QqbotContent {
   roleIdFor(session: QqbotSession): string | undefined
   /** 当前角色的表情频率；没有角色或角色卡没写时用默认档。 */
   memeFrequencyFor(session: QqbotSession): MemeFrequency
+  memePreferencesFor(session: QqbotSession): MemePreferences | undefined
   /**
    * 真实组装前调用：没有记录的会话把当前默认角色写下来，之后改默认角色不会让进行中的会话换人。
    * 只读路径（提示词查看器）不调用它。
@@ -35,6 +37,7 @@ export function createDefaultContent(): QqbotContent {
     personaFor: () => '',
     roleIdFor: () => undefined,
     memeFrequencyFor: () => DEFAULT_MEME_FREQUENCY,
+    memePreferencesFor: () => undefined,
     settle: () => {},
     recordTurn: () => {},
   }
@@ -76,6 +79,10 @@ export class QqbotData implements QqbotContent {
 
   memeFrequencyFor(session: QqbotSession): MemeFrequency {
     return this.roleFor(session)?.memeFrequency ?? DEFAULT_MEME_FREQUENCY
+  }
+
+  memePreferencesFor(session: QqbotSession): MemePreferences | undefined {
+    return this.roleFor(session)
   }
 
   settle(session: QqbotSession): void {

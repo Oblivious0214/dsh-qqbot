@@ -1,65 +1,37 @@
 /**
  * dsh-qqbot 浏览器端：给 qqbot 会话根节点加 data-qqbot，QQ 样式（qq-style.ts）只写在它下面；
- * 侧边栏底部（左下角"更多"上面）放"新建 QQ 会话"按钮，DSH 设置窗口里加"QQ Bot"页（不提供"设为默认"），
- * 在 qqbot 会话标题栏放提示词查看器，新会话页和输入栏放角色切换（role-chip.tsx），编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复，
+ * DSH 设置窗口里加"QQ Bot"入口（不提供"设为默认"），新会话沿用 DSH 原生预设选择，
+ * 在 qqbot 会话添加「提示词」视图，新会话页和输入栏放角色切换（role-chip.tsx），编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复，
  * 角色选了音色时显示成语音条。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { IconNewChatOutlineMedium, IconNewChatOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { PRESET_ID } from '../view-types.ts'
 import {
   EDITOR_CLASS, EDITOR_CSS, LibraryEditorHost, LibrarySettingsSection,
   type EditorTarget, type LibraryEditorInjected, type LibrarySettingsInjected,
 } from './library-editor.tsx'
 import { CROPPER_CLASS, CROPPER_CSS } from './image-cropper.tsx'
-import { PromptViewerButton, ROOT_CLASS, VIEWER_CSS, type PromptViewerInjected } from './prompt-viewer.tsx'
+import { installPromptView, ROOT_CLASS, VIEWER_CSS } from './prompt-viewer.tsx'
 import { buildQqCss, MARK_ATTRIBUTE } from './qq-style.ts'
 import { HeroRoleChip, InputRoleChip, ROLE_CHIP_CLASS, ROLE_CHIP_CSS, type RoleChipInjected } from './role-chip.tsx'
 import { installSegments } from './segments.tsx'
 import { UiState } from './ui-state.ts'
 import { VoicePlayer } from './voice-player.ts'
 import { VoiceState } from './voice-state.ts'
+import { ACTION_DIALOG_CLASS, ACTION_DIALOG_CSS } from './action-dialog.tsx'
+import { UiExtensions, UiExtensionsService } from './ui-extensions.tsx'
 
 export { MARK_ATTRIBUTE, PRESET_ID }
 
 type SessionId = keyof SessionListState['byId']
 
-export const inject = ['sessions', 'slots', 'uiWorkspace']
-
-interface NewSessionInjected {
-  readonly startQqSession: () => void
-}
-
-type NewSessionButtonProps = PropsRuntime<'sidebar.footer.action'> & InjectFace<NewSessionInjected>
-
-/** 侧边栏底部的按钮，样式照 DSH 左下角"更多"那一行；收起侧边栏时只留图标。 */
-function NewSessionButton({ wide, startQqSession }: NewSessionButtonProps) {
-  return <Tooltip label="新建 QQ 会话" side="right" disabled={wide}>
-    <button type="button" className={FOOTER_CLASS} data-collapsed={!wide} aria-label="新建 QQ 会话" onClick={startQqSession}>
-      {wide ? <IconNewChatOutlineMedium size={14} /> : <IconNewChatOutlineRegular size={18} />}
-      {wide && <span>新建 QQ 会话</span>}
-    </button>
-  </Tooltip>
-}
-
-const FOOTER_CLASS = 'dsh-qqbot-footer'
-
-const FOOTER_CSS = `
-.${FOOTER_CLASS} { user-select: none; display: flex; align-items: center; width: 100%; height: 32px; gap: 8px; padding: 6px 2px 6px 6px;
-  border: 0; border-radius: var(--dsw-radius-md); background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; line-height: 20px; cursor: pointer; }
-.${FOOTER_CLASS}[data-collapsed="true"] { box-sizing: border-box; width: 36px; height: 36px; justify-content: center; gap: 0; padding: 0; }
-.${FOOTER_CLASS} > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (hover: hover) { .${FOOTER_CLASS}:hover { background: var(--dsw-alias-interactive-bg-hover); } }
-`
+export const inject = ['sessions', 'slots', 'uiSession']
 
 export function apply(ctx: Context): void {
   const presetOf = (sessionId: string | null): string | undefined => {
@@ -76,6 +48,8 @@ export function apply(ctx: Context): void {
 
   // 界面设置、头像版本和各会话的角色；读不到时用默认设置。
   const ui = new UiState()
+  const extensions = new UiExtensions()
+  ctx.plugin(UiExtensionsService, extensions)
   ctx.effect(() => () => { ui.dispose() }, 'qqbot: ui state')
   void ui.reload().catch(() => {})
 
@@ -118,24 +92,7 @@ export function apply(ctx: Context): void {
     }
   }, 'qqbot: mark qqbot sessions')
 
-  // 显式指定 qqbot 预设创建会话；不改用户的默认预设。
-  const startQqSession = () => { ctx.uiWorkspace.startSession(undefined, { clearPreviousDraft: false, agentPreset: PRESET_ID }) }
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
-    id: 'qqbot-new-session',
-    inject: (): NewSessionInjected => ({ startQqSession }),
-  }, NewSessionButton))
-
-  // 设置窗口（左下角"更多"→ 设置）里的"QQ Bot"页，排在 DSH 自带的页后面。
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section',
-    id: 'qqbot',
-    order: 100,
-    label: () => 'QQ Bot',
-    inject: (): LibrarySettingsInjected => ({ ui, voice: voiceState, startQqSession }),
-  }, LibrarySettingsSection))
-
-  // 提示词查看器的"编辑"打开编辑器弹窗；查看器关闭后它还要留着，所以挂在常驻的 shell.overlay。
+  // 提示词查看器的"编辑"打开独立编辑器弹窗，挂在常驻的 shell.overlay。
   const editorTarget = createSnapshotStore<EditorTarget | null>(null, { flush: 'sync' })
   const openEditor = (target: EditorTarget) => { editorTarget.set(target) }
   const closeEditor = () => { editorTarget.set(null) }
@@ -143,24 +100,28 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'qqbot-library-editor',
-    inject: (): LibraryEditorInjected => ({ hooks: { editorTarget }, closeEditor, ui, voice: voiceState }),
+    inject: (): LibraryEditorInjected => ({ hooks: { editorTarget }, closeEditor, ui, voice: voiceState, extensions }),
   }, LibraryEditorHost))
 
-  // 查看器、编辑器、裁剪弹窗和底部按钮的样式分别在 ROOT_CLASS、EDITOR_CLASS、CROPPER_CLASS、FOOTER_CLASS 下；插件关闭时移除。
+  // 选中设置侧栏的"QQ Bot"即关闭宿主设置并打开独立编辑器。
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'qqbot',
+    order: 100,
+    label: () => 'QQ Bot',
+    inject: (): LibrarySettingsInjected => ({ openEditor }),
+  }, LibrarySettingsSection))
+
+  // 查看器、编辑器和裁剪弹窗的样式收在各自根 class 下；插件关闭时移除。
   ctx.effect(() => {
     const style = document.createElement('style')
-    style.dataset['qqbotStyle'] = `${ROOT_CLASS} ${EDITOR_CLASS} ${CROPPER_CLASS} ${FOOTER_CLASS} ${ROLE_CHIP_CLASS}`
-    style.textContent = VIEWER_CSS + EDITOR_CSS + CROPPER_CSS + FOOTER_CSS + ROLE_CHIP_CSS
+    style.dataset['qqbotStyle'] = `${ROOT_CLASS} ${EDITOR_CLASS} ${CROPPER_CLASS} ${ROLE_CHIP_CLASS} ${ACTION_DIALOG_CLASS}`
+    style.textContent = VIEWER_CSS + EDITOR_CSS + CROPPER_CSS + ROLE_CHIP_CSS + ACTION_DIALOG_CSS
     document.head.append(style)
     return () => { style.remove() }
   }, 'qqbot: viewer and editor style')
 
-  // 组件自己判断预设，标准会话里渲染 null。
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
-    name: 'conversation.session.header.utilities',
-    id: 'qqbot-prompt-viewer',
-    inject: (): PromptViewerInjected => ({ openEditor }),
-  }, PromptViewerButton))
+  installPromptView(ctx, openEditor)
 
   // 角色切换：新会话页在 agent 预设右边，会话开始后在输入栏左侧、联动按钮（order 15）左边。都只在 qqbot 会话里渲染。
   const roleInjected = (): RoleChipInjected => ({ ui, openEditor })

@@ -19,6 +19,8 @@ MIT License
   qqbot 会话的聊天区下写 CSS 变量，不改全局主题
 - src/client/qq-layout.ts、segments/bubbles.ts：src/client/qq-style.ts 的气泡、头像、聊天宽度、沉浸模式
   样式参考了它们的几何和选择器，按本插件重写；没有带原文件里的腾讯企鹅头像
+- src/client/settings-row.tsx、settings-ui.tsx：src/client/ui-editor.tsx 和 library-editor.tsx 的五套渐变
+  代表色、色板卡片及自定义背景同组布局参考这些文件，按 QQ Bot 编辑器重写
 - src/settings-schema.ts 的显示间隔设置（随机区间、按字数对数）：src/ui-types.ts 的 segmentInterval 参考其算法
 - src/client/image-editor.ts：src/client/image-cropper.tsx 的裁剪弹窗（取景、缩放范围、键盘操作、背景比例选项、
   Cropper.js 参数）迁移自该文件，界面改用 DSH 的 Modal 和 Button 重写。Cropper.js 的声明见下文
@@ -68,6 +70,9 @@ MIT License
 
 来源文件：
 - lib/index.js 的角色卡格式（frontmatter + 正文）：src/roles.ts 参考了它的格式和解析规则，代码重写
+- lib/meme-preference.js、src/client/meme-preference.js：src/meme-preferences.ts、src/client/meme-catalogue.ts、
+  src/client/meme-fields.tsx 的图库/标签多选、频率、补充文字和只读目录探测流程参考这些文件，按 QQ 编辑器重写；
+  新角色字段独立保存，不导入旧插件数据，不迁移改写 dsh-meme 提示词的兼容代码。
 
 ------------------------------------------------------------
 dialogue-timing（[qq] 分段协议）

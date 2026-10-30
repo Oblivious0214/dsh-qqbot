@@ -2,6 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import { MAX_HOLD_MS, ReplyClock, type ClockTimers, type SegmentEndReason, type SegmentHooks, type SegmentStage } from '../src/client/reply-clock.ts'
 import { SegmentsService, type QqbotSegments } from '../src/client/segments-service.ts'
+import { SegmentAnnotations } from '../src/client/segment-annotations.tsx'
 import { decodeReply, INVALID_REPLY } from '../src/client/decode.ts'
 import { parseTimedStream, salvageTimedReply } from '../src/vendor/dialogue-timing/protocol.js'
 
@@ -245,7 +246,8 @@ describe('reply clock', () => {
     fake.advance(2000)
     expect(clock.count('s', 'r')).toBe(2)
     expect(errors.length).toBe(2)
-    expect(changes()).toBe(2)
+    // 两次显示和一次完成状态通知；只读播放状态也需要收到结束更新。
+    expect(changes()).toBe(3)
   })
 
   it('closes unfinished replies and stops calling hooks after dispose', () => {
@@ -266,7 +268,8 @@ describe('qqbotSegments service', () => {
     const fake = fakeTimers()
     const clock = new ReplyClock({ delay: () => 1000, onChange: () => {}, onError: () => {}, timers: fake.timers })
     const root = new Context()
-    await root.plugin(SegmentsService, { clock })
+    const annotations = new SegmentAnnotations()
+    await root.plugin(SegmentsService, { clock, annotations })
     const ended: SegmentEndReason[] = []
     const consumer = await root.plugin({
       name: 'consumer',
@@ -275,15 +278,59 @@ describe('qqbotSegments service', () => {
         const segments = (ctx as unknown as { qqbotSegments: QqbotSegments }).qqbotSegments
         segments.register({ ended: (_s, _r, reason) => { ended.push(reason) } })
         segments.pause('s')
+        segments.annotate(() => null)
       },
     })
     clock.feed('s', 'r', stages('a'), true, true)
     fake.advance(0)
     expect([clock.paused('s'), clock.count('s', 'r')]).toEqual([true, 0])
+    expect(annotations.getSnapshot()).toHaveLength(1)
     await consumer.dispose()
     expect(clock.paused('s')).toBe(false)
+    expect(annotations.getSnapshot()).toHaveLength(0)
     fake.advance(0)
     expect(clock.count('s', 'r')).toBe(1)
     expect(ended).toEqual([])
+  })
+})
+
+describe('read-only segment playback', () => {
+  it('reads the resolved interval, freezes nested pauses and resumes the remainder', () => {
+    const { clock, fake, events } = setup()
+    clock.register({ durations: () => 2400 })
+    clock.feed('s', 'r', stages('a', 'b'), true, true)
+    fake.advance(600)
+    expect(clock.playback('s', 'r')).toEqual({ index: 0, status: 'running', remainingMs: 1800 })
+    const resume = clock.pause('s'), resume2 = clock.pause('s')
+    fake.advance(10000)
+    resume()
+    expect(clock.playback('s', 'r')).toEqual({ index: 0, status: 'paused', remainingMs: 1800 })
+    const before = events.length
+    for (let i = 0; i < 100; i++) clock.playback('s', 'r')
+    expect(events).toHaveLength(before)
+    resume2()
+    fake.advance(1799)
+    expect(clock.playback('s', 'r')?.remainingMs).toBe(1)
+    fake.advance(1)
+    expect(clock.playback('s', 'r')).toEqual({ index: 1, status: 'complete', remainingMs: 0 })
+  })
+
+  it('reports stream waits, cancellation, failures and history without new timers', () => {
+    const { clock, fake, events } = setup()
+    clock.feed('s', 'stream', stages('a'), false, true)
+    fake.advance(1200)
+    expect(clock.playback('s', 'stream')).toEqual({ index: 0, status: 'running', remainingMs: 0 })
+    clock.interrupt('s')
+    expect(clock.playback('s', 'stream')?.status).toBe('interrupted')
+    clock.feed('s', 'failed', stages('a', 'b'), false, true)
+    fake.advance(0)
+    clock.fail('s', 'failed')
+    expect(clock.playback('s', 'failed')?.status).toBe('failed')
+    const before = events.length
+    clock.feed('s', 'history', stages('old'), true, false)
+    expect(clock.playback('s', 'history')?.status).toBe('history')
+    expect(clock.playback('s', 'absent')).toBeUndefined()
+    expect(events).toHaveLength(before)
+    expect(fake.pending()).toBe(0)
   })
 })

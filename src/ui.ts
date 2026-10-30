@@ -15,7 +15,7 @@ import type {} from './index.ts'
 import { ROLE_ID_PATTERN } from './roles.ts'
 import { isRecord, readJson, renameWithRetry, writeJson, type Warn } from './storage.ts'
 import {
-  BACKGROUND_FITS, DEFAULT_UI_SETTINGS, IMAGE_BYTE_LIMIT, IMAGE_PATH, INTERVAL_METHODS, PALETTES, UI_LIMITS, UI_PATH,
+  BACKGROUND_FITS, DEFAULT_UI_SETTINGS, IMAGE_BYTE_LIMIT, IMAGE_PATH, PALETTES, UI_LIMITS, UI_PATH,
   type UiError, type UiRole, type UiSettings, type UiView,
 } from './ui-types.ts'
 
@@ -54,11 +54,8 @@ export function validateUiSettings(value: unknown): UiSettings {
     avatars: bool(value['avatars'], '头像'),
     chatMaxWidth: Math.round(numberIn(value['chatMaxWidth'], '聊天宽度', UI_LIMITS.chatMaxWidth)),
     immersive: bool(value['immersive'], '沉浸模式'),
+    backgroundEnabled: value['backgroundEnabled'] === undefined ? true : bool(value['backgroundEnabled'], '自定义背景'),
     backgroundFit: oneOf(value['backgroundFit'], '背景显示方式', BACKGROUND_FITS),
-    intervalMethod: oneOf(value['intervalMethod'], '间隔方式', INTERVAL_METHODS),
-    intervalMin: numberIn(value['intervalMin'], '最短间隔', UI_LIMITS.interval),
-    intervalMax: numberIn(value['intervalMax'], '最长间隔', UI_LIMITS.interval),
-    logBase: numberIn(value['logBase'], '对数底数', UI_LIMITS.logBase),
   }
 }
 
@@ -233,6 +230,7 @@ export function applyUiAction(data: QqbotData, ui: UiStore, body: unknown): void
     case 'background.set': {
       const image = decodeImage(body['data'], IMAGE_BYTE_LIMIT.background)
       ui.background().write(image.type, image.bytes)
+      ui.saveSettings({ ...ui.settings, backgroundEnabled: true })
       return
     }
     case 'background.remove':

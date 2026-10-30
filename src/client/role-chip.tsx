@@ -12,11 +12,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { PRESET_ID } from '../view-types.ts'
 import type { OpenEditor } from './library-editor.tsx'
 import type { UiState } from './ui-state.ts'
+import { ActionDialog } from './action-dialog.tsx'
 
 /** 样式都在这个根 class 下（CLAUDE.md 隔离原则第 3 条）。 */
 export const ROLE_CHIP_CLASS = 'dsh-qqbot-role'
 
 export const ROLE_CHIP_CSS = `
+/* 宿主 heroOptions 用 auto 外边距靠右；只在 qqbot 的角色菜单出现时让它紧跟 Agent 预设，并允许收缩。 */
+[data-qqbot] div:has(> [data-slot="conversation.hero.options"] .${ROLE_CHIP_CLASS}[data-place="hero"]) { margin-left: 0; flex: 0 1 auto; }
 .${ROLE_CHIP_CLASS} { display: inline-flex; min-width: 0; max-width: 100%; }
 .${ROLE_CHIP_CLASS} .qr-trigger { appearance: none; display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 200px; min-height: 28px; padding: 0 8px;
   border: 0; border-radius: var(--dsw-radius-sm, 8px); background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; line-height: 20px; font-weight: 500; white-space: nowrap; cursor: pointer; }
@@ -27,7 +30,6 @@ export const ROLE_CHIP_CSS = `
 .${ROLE_CHIP_CLASS} .qr-trigger > svg { flex: none; }
 .${ROLE_CHIP_CLASS} .qr-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .${ROLE_CHIP_CLASS}-item { display: flex; flex-direction: column; min-width: 0; max-width: 280px; }
-.${ROLE_CHIP_CLASS}-item > span:last-child:not(:first-child) { color: var(--dsw-alias-label-tertiary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 `
 
 const NONE_ID = '\u0000none'
@@ -79,14 +81,13 @@ function RoleChip({ place, sessionId, ui, openEditor }: { readonly place: Place;
 
   const current = view?.role ?? null
   const label = view === undefined ? '角色' : current === null ? '不用角色' : current.name
-  const hint = error ?? (place === 'hero' ? '这个会话用的角色' : '切换角色，下一条消息起生效')
+  const hint = place === 'hero' ? '这个会话用的角色' : '切换角色，下一条消息起生效'
   const items: MenuEntry[] = [
     { id: NONE_ID, label: <span className={`${ROLE_CHIP_CLASS}-item`}><span>不用角色</span></span> },
     ...(view?.roster ?? []).map(role => ({
       id: role.id,
       label: <span className={`${ROLE_CHIP_CLASS}-item`}>
         <span>{role.name}</span>
-        {role.description !== '' && <span>{role.description}</span>}
       </span>,
     })),
     { type: 'separator', id: 'qr-separator' },
@@ -105,7 +106,7 @@ function RoleChip({ place, sessionId, ui, openEditor }: { readonly place: Place;
     setError(undefined)
     ui.setRole(sessionId, role).then(
       () => { setBusy(false) },
-      (reason: unknown) => { setBusy(false); setError(`角色没有切换：${reason instanceof Error ? reason.message : String(reason)}`) },
+      (reason: unknown) => { setBusy(false); setError(reason instanceof Error ? reason.message : String(reason)) },
     )
   }
 
@@ -118,5 +119,8 @@ function RoleChip({ place, sessionId, ui, openEditor }: { readonly place: Place;
         <span className="qr-label">{label}</span>
         <IconChevronDownOutlineRegular size={14} />
       </button>} />
+    {error !== undefined && <ActionDialog title="角色没有切换" cancelLabel="知道了" onCancel={() => { setError(undefined) }}>
+      {error}
+    </ActionDialog>}
   </span>
 }

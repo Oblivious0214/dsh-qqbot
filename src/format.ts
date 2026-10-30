@@ -4,6 +4,7 @@
  */
 
 import { MEME_FREQUENCIES, type MemeFrequency } from './library-types.ts'
+import type { MemePreferences } from './library-types.ts'
 import { SEGMENT_PROMPT } from './vendor/dialogue-timing/protocol.js'
 
 /** 分段规则：[qq] 块的格式由 dialogue-timing 协议定义，解析和显示在 dsh-qqbot 的浏览器端。 */
@@ -29,10 +30,13 @@ export function isMemeFrequency(value: unknown): value is MemeFrequency {
  * 表情规则。发送方式（Web 写标记还是走 IM 渠道、纯文字模式）以 send_meme 工具说明和结果为准，这里不重复，
  * 免得和 dsh-meme 的设置冲突；这里只管什么时候发、发多少。
  */
-export function memeRule(frequency: MemeFrequency): string {
+export function memeRule(frequency: MemeFrequency, preferences?: MemePreferences): string {
   return [
     `表情包：用 ${MEME_TOOL} 按情绪或关键词找候选，挑贴合的一张，按工具说明的方式发出。`,
     '一次回复最多一张；用户在说正事时不发。',
     FREQUENCY_TEXT[frequency],
-  ].join('\n')
+    preferences?.memePacks?.length ? `优先图库：${preferences.memePacks.map(pack => JSON.stringify(pack.name)).join('、')}；从已启用图库中优先挑选，没有合适的可用其他图库。` : '',
+    preferences?.memeTags?.length ? `偏好标签：${preferences.memeTags.map(tag => JSON.stringify(tag)).join('、')}。` : '',
+    preferences?.memePrompt ? `表情补充要求：\n${preferences.memePrompt}` : '',
+  ].filter(Boolean).join('\n')
 }

@@ -7,6 +7,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { QqbotData } from './content.ts'
 import type {} from './index.ts'
+import { MEME_TOOL } from './format.ts'
 import { LIBRARY_PATH, type LibraryError, type LibraryView } from './library-types.ts'
 import { isRecord } from './storage.ts'
 import type { UiStore } from './ui.ts'
@@ -14,17 +15,22 @@ import type { UiStore } from './ui.ts'
 export const name = 'qqbot-library'
 
 /** 编辑界面需要的全部数据。顺带重新扫描角色库，用户直接改过的文件由此生效。 */
-export function libraryView(data: QqbotData, saved?: string): LibraryView {
+export function libraryView(data: QqbotData, saved?: string, features: LibraryView['features'] = { meme: false, toy: false }): LibraryView {
   data.roles.reload()
   const defaultRole = data.bindings.defaultRole
   return {
+    features,
     rolesDir: data.roles.dir,
     roles: data.roles.list().map((role) => {
       const preset = data.presets.roleChoice(role.id)
       return {
         id: role.id, name: role.name, description: role.description, persona: role.persona,
         ...role.memeFrequency === undefined ? {} : { memeFrequency: role.memeFrequency },
+        ...role.memePacks === undefined ? {} : { memePacks: role.memePacks },
+        ...role.memeTags === undefined ? {} : { memeTags: role.memeTags },
+        ...role.memePrompt === undefined ? {} : { memePrompt: role.memePrompt },
         ...role.proactivity === undefined ? {} : { proactivity: role.proactivity },
+        ...role.proactivityTexts === undefined ? {} : { proactivityTexts: role.proactivityTexts },
         ...role.motionActions === undefined ? {} : { motionActions: role.motionActions },
         ...role.motionRanges === undefined ? {} : { motionRanges: role.motionRanges },
         ...role.voice === undefined ? {} : { voice: role.voice },
@@ -72,8 +78,17 @@ function requireRole(data: QqbotData, id: string): void {
 export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore): string | undefined {
   if (!isRecord(body)) throw new BadRequest('请求格式无效')
   switch (body['action']) {
-    case 'role.save':
-      return data.roles.save(body['role'], flag(body, 'create')).id
+    case 'role.save': {
+      const draft = body['role']
+      const preset = isRecord(draft) ? draft['preset'] : undefined
+      // 写角色前先校验预设，失败不能创建半个角色；旧调用未传时保留原绑定。
+      if (preset !== undefined && (typeof preset !== 'string' || data.presets.get(preset) === undefined)) {
+        throw new Error('所选破限预设已不存在，请重新选择')
+      }
+      const saved = data.roles.save(draft, flag(body, 'create')).id
+      if (typeof preset === 'string') data.presets.assign(saved, preset)
+      return saved
+    }
     case 'role.remove':
       // 会话绑定、默认角色和预设选择都留着：角色卡放回来就恢复。没有角色的会话按无角色运行。
       // 头像跟着移到回收站：之后新建同 id 的角色不会继承旧头像。
@@ -140,7 +155,11 @@ export function apply(ctx: Context): void {
           return fail(409, 'failed', error instanceof Error ? error.message : String(error))
         }
       }
-      return json(200, libraryView(data, saved))
+      // 按真实登记判断启用状态，不读安装目录或用户的插件配置。
+      return json(200, libraryView(data, saved, {
+        meme: ctx.get('tools')?.get(MEME_TOOL) !== undefined,
+        toy: ctx.qqbot.store.snapshot().extensions.some(entry => entry.name === 'toy'),
+      }))
     },
   }), 'qqbot: library route')
 }

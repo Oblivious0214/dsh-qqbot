@@ -5,7 +5,7 @@
  * 计时和打断的行为迁移自 dsh-qq-skin（MIT，lispking）的 src/client/segments/，按本插件重写：
  * - 只处理 [qq] 块；没有 [qq] 块的回复整条作为一个气泡显示，不按标点自动拆分。
  *   提示词让模型"无需分段时直接正常回复"，这时就是一条消息。
- * - 段落间隔按界面设置（ui-types.ts 的 segmentDelay）。
+ * - 段落间隔优先由外部插件提供，兜底按字数计算（ui-types.ts 的 segmentDelay）。
  * - 外面包一层 REPLY_ATTRIBUTE 节点，带上这一轮回复时角色的头像或首字（`/role` 换人后旧消息不变），样式见 qq-style.ts。
  *   没有角色的回复不加 ROLE_ATTRIBUTE，不画头像。
  * - 历史消息直接全部显示；只有本页打开后生成的回复才按间隔逐段出现。计时在 reply-clock.ts，流式时第一段一闭合就显示。
@@ -28,6 +28,7 @@ import { decodeReply } from './decode.ts'
 import { imageUrl, REPLY_ATTRIBUTE, ROLE_ATTRIBUTE } from './qq-style.ts'
 import { ReplyClock } from './reply-clock.ts'
 import { SegmentsService } from './segments-service.ts'
+import { SegmentAnnotations, useSegmentAnnotations } from './segment-annotations.tsx'
 import type { SessionRole, UiState } from './ui-state.ts'
 import { useVoiceCards, type VoiceBubble } from './voice-cards.tsx'
 import type { VoicePlayer } from './voice-player.ts'
@@ -50,6 +51,7 @@ export interface QqbotSessionFilter {
 
 /** 插件自己的显示状态：计时、打断、已显示的段落。不写会话，不改消息。 */
 class SegmentModel {
+  readonly annotations = new SegmentAnnotations()
   readonly openedAt = Date.now()
   readonly clock: ReplyClock
   private interruptions = new Interruptions()
@@ -195,11 +197,16 @@ ${text}`, voice: playable.voice, text }
     })
 
     const hasRole = role !== undefined && role !== null
+    const annotations = useSegmentAnnotations({ root, registry: model.annotations, session: props.sessionId, reply: replyId,
+      stages: stream?.stages ?? [], visible: stream === null ? 0 : projected.filter(block => block.kind === 'text').length,
+      playback: () => model.clock.playback(props.sessionId, replyId),
+    })
     const salvaged = stream?.stages.some(stage => stage.salvaged === true) === true
     return <div ref={root} {...{ [REPLY_ATTRIBUTE]: '', ...hasRole ? { [ROLE_ATTRIBUTE]: '' } : {} }} style={avatarStyle(ui, role)}
       title={salvaged ? '格式有误，已尽量显示文字' : undefined}>
       {createElement(Native, { ...props, node, renderSlot: renderSlotFor(props) })}
       {cards}
+      {annotations}
     </div>
   }
 
@@ -229,9 +236,9 @@ function createInputObserver(model: SegmentModel, filter: QqbotSessionFilter) {
  * 只认自带的那一个，不去包装别的插件的包装，避免两个插件互相重包。
  */
 export function installSegments(ctx: Context, filter: QqbotSessionFilter, ui: UiState, voice: SegmentVoice): void {
-  const model = new SegmentModel(text => segmentDelay(text, ui.settings), (error) => { ctx.logger.warn('qqbot segments: %s', error) })
+  const model = new SegmentModel(text => segmentDelay(text), (error) => { ctx.logger.warn('qqbot segments: %s', error) })
   ctx.effect(() => () => { model.dispose() }, 'qqbot: segment model')
-  ctx.plugin(SegmentsService, { clock: model.clock })
+  ctx.plugin(SegmentsService, { clock: model.clock, annotations: model.annotations })
 
   ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
     name: 'conversation.input.left', id: 'qqbot-segments-input', order: 100,

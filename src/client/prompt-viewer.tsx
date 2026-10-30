@@ -1,13 +1,15 @@
 /**
- * 提示词查看器：qqbot 会话标题栏右侧的按钮和弹窗，只读。
+ * 提示词查看器：qqbot 会话的「提示词」视图，只读。
  * 数据来自 host 的 PROMPT_VIEW_PATH；改内容要去对应的编辑入口，这里不改文本（架构文档第 11 节）。
- * 角色和破限预设的段落带"编辑"按钮，关掉查看器、打开编辑器并定位到对应条目。
+ * 角色和破限预设的段落带"编辑"按钮，打开编辑器并定位到对应条目。
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { Button, IconContextInjectionOutlineRegular, IconRefreshOutlineRegular, Modal, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { Context } from '@deepseek-ai/cordis'
+import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { SECTION_NAME } from '../order.ts'
 import { PRESET_ID, PROMPT_VIEW_PATH, type PromptView, type PromptViewPart } from '../view-types.ts'
 import type { EditorTarget, OpenEditor } from './library-editor.tsx'
@@ -17,6 +19,9 @@ export const ROOT_CLASS = 'dsh-qqbot-viewer'
 
 export const VIEWER_CSS = `
 [role="dialog"].${ROOT_CLASS} { width: min(880px, 100%); max-height: 100%; }
+.${ROOT_CLASS}.qv-page { box-sizing: border-box; width: 100%; max-width: 1120px; min-width: 0; margin: 0 auto; padding: 20px 24px; }
+.${ROOT_CLASS}.qv-page .qv-body { max-height: none; overflow: visible; padding-right: 0; }
+@media (max-width: 600px) { .${ROOT_CLASS}.qv-page { padding: 12px; } }
 .${ROOT_CLASS} .qv-body { display: flex; flex-direction: column; gap: 12px; max-height: 70vh; overflow: auto; padding-right: 4px; }
 .${ROOT_CLASS} .qv-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .${ROOT_CLASS} .qv-bar .qv-grow { flex: 1; }
@@ -145,7 +150,7 @@ function libraryTarget(load: Load): EditorTarget {
   return roleId !== undefined ? { tab: 'roles', id: roleId } : { tab: 'presets', id: presetId }
 }
 
-function ViewerDialog({ sessionId, onClose, onEdit }: { readonly sessionId: string; readonly onClose: () => void; readonly onEdit: Edit }) {
+function ViewerPage({ sessionId, onEdit }: { readonly sessionId: string; readonly onEdit: Edit }) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [bySource, setBySource] = useState(false)
   const [generation, setGeneration] = useState(0)
@@ -163,8 +168,7 @@ function ViewerDialog({ sessionId, onClose, onEdit }: { readonly sessionId: stri
     void navigator.clipboard.writeText(load.view.system.parts.map(part => part.text).join('\n\n'))
   }, [load])
 
-  return <Modal open onClose={onClose} title="提示词查看器" closeLabel="关闭" className={ROOT_CLASS}
-    description="当前 QQ 会话发给模型的内容，只读。角色和破限预设的段落可以跳到编辑器；外部插件的内容到插件设置里改。">
+  return <section className={`${ROOT_CLASS} qv-page`} aria-label="提示词查看器">
     <div className="qv-body">
       <div className="qv-bar">
         <Button size="sm" variant={bySource ? 'ghost' : 'outline'} onClick={() => { setBySource(false) }}>按段落</Button>
@@ -176,29 +180,47 @@ function ViewerDialog({ sessionId, onClose, onEdit }: { readonly sessionId: stri
       </div>
       <ViewerBody load={load} bySource={bySource} onEdit={onEdit} />
     </div>
-  </Modal>
+  </section>
 }
 
 export interface PromptViewerInjected {
   readonly openEditor: OpenEditor
 }
 
-export type PromptViewerButtonProps = PropsRuntime<'conversation.session.header.utilities'> & InjectFace<PromptViewerInjected>
+export type PromptViewerProps = PropsRuntime<'conversation.view'> & InjectFace<PromptViewerInjected>
 
 /** 只在 qqbot 会话里出现；标准会话返回 null，不渲染任何东西。 */
-export function PromptViewerButton({ sessionId, useSessions, openEditor }: PromptViewerButtonProps) {
+export function PromptViewer({ sessionId, useSessions, openEditor }: PromptViewerProps) {
   const preset = useSessions((state) => {
     const value = state.byId[sessionId]?.projectionValues?.agentPreset
     return typeof value === 'string' ? value : undefined
   })
-  const [open, setOpen] = useState(false)
   if (preset !== PRESET_ID) return null
-  return <>
-    <Tooltip label="提示词查看器" side="bottom">
-      <Button size="sm" variant="toolbar" aria-label="提示词查看器" icon={<IconContextInjectionOutlineRegular size={16} />}
-        onClick={() => { setOpen(true) }} />
-    </Tooltip>
-    {open && <ViewerDialog sessionId={sessionId} onClose={() => { setOpen(false) }}
-      onEdit={(target) => { setOpen(false); openEditor(target) }} />}
-  </>
+  return <ViewerPage key={sessionId} sessionId={sessionId} onEdit={openEditor} />
+}
+
+/** 宿主的 View 列表不支持逐会话过滤，只在当前主会话属于 qqbot 时登记。 */
+export function installPromptView(ctx: Context, openEditor: OpenEditor): void {
+  ctx.slots.inject('conversation.view', () => {
+    const current = ctx.uiSession.adapter.current
+    let disposeView: (() => void) | undefined
+    const sync = () => {
+      const id = current.getSnapshot().key
+      const byId = ctx.sessions.list.getSnapshot().byId
+      const enabled = id !== undefined && byId[id as keyof typeof byId]?.projectionValues?.agentPreset === PRESET_ID
+      if (enabled && disposeView === undefined) {
+        disposeView = ctx.slots.register({
+          name: 'conversation.view', id: 'qqbot-prompt-viewer', order: 20, label: '提示词',
+          inject: (): PromptViewerInjected => ({ openEditor }),
+        }, PromptViewer)
+      } else if (!enabled && disposeView !== undefined) {
+        disposeView()
+        disposeView = undefined
+      }
+    }
+    const stopCurrent = current.subscribe(sync)
+    const stopList = ctx.sessions.list.subscribe(sync)
+    sync()
+    return () => { stopCurrent(); stopList(); disposeView?.() }
+  })
 }

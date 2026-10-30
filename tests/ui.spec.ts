@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -36,14 +36,49 @@ describe('ui settings', () => {
   it('rejects invalid settings', () => {
     const { data, ui } = setup()
     expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { ...DEFAULT_UI_SETTINGS, palette: 'pink' } })).toThrow(BadRequest)
-    expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { ...DEFAULT_UI_SETTINGS, intervalMax: 11 } })).toThrow('最长间隔')
+    expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { ...DEFAULT_UI_SETTINGS, chatMaxWidth: 1601 } })).toThrow('聊天宽度')
     expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { palette: 'green' } })).toThrow(BadRequest)
+  })
+
+  it('retains a background when switching palettes and reactivates it on upload', () => {
+    const { dir, data, ui } = setup()
+    applyUiAction(data, ui, { action: 'background.set', data: dataUrl('png', PNG) })
+    applyUiAction(data, ui, { action: 'settings.save', settings: { ...ui.settings, palette: 'green', backgroundEnabled: false } })
+    const reloaded = new UiStore(dir, () => {})
+    const version = reloaded.background().find()?.version
+    expect(version).toBeTypeOf('number')
+    expect(buildQqCss(reloaded.settings, version)).not.toContain('background-image')
+    applyUiAction(data, reloaded, { action: 'settings.save', settings: { ...reloaded.settings, backgroundEnabled: true } })
+    expect(buildQqCss(reloaded.settings, version)).toContain('kind=background')
+    applyUiAction(data, reloaded, { action: 'settings.save', settings: { ...reloaded.settings, backgroundEnabled: false } })
+    applyUiAction(data, reloaded, { action: 'background.set', data: dataUrl('jpeg', JPEG) })
+    expect(new UiStore(dir, () => {}).settings.backgroundEnabled).toBe(true)
+  })
+
+  it('keeps existing backgrounds enabled when reading or saving older settings', () => {
+    const { dir, data, ui } = setup()
+    const { backgroundEnabled: _enabled, ...older } = DEFAULT_UI_SETTINGS
+    writeFileSync(join(dir, 'ui.json'), JSON.stringify(older))
+    expect(new UiStore(dir, () => {}).settings.backgroundEnabled).toBe(true)
+    applyUiAction(data, ui, { action: 'settings.save', settings: older })
+    expect(ui.settings.backgroundEnabled).toBe(true)
+    expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { ...older, backgroundEnabled: 'yes' } })).toThrow(BadRequest)
   })
 
   it('keeps the valid fields of a hand-edited file', () => {
     const { dir } = setup()
     writeFileSync(join(dir, 'ui.json'), JSON.stringify({ palette: 'black', chatMaxWidth: 'wide', bubbleTail: false }))
     expect(new UiStore(dir, () => {}).settings).toEqual({ ...DEFAULT_UI_SETTINGS, palette: 'black', bubbleTail: false })
+  })
+
+  it('ignores retired interval settings when loading and drops them when saving', () => {
+    const { dir, data } = setup()
+    const oldSettings = { ...DEFAULT_UI_SETTINGS, palette: 'black', intervalMethod: 'random', intervalMin: 0, intervalMax: 0, logBase: 1.1 }
+    writeFileSync(join(dir, 'ui.json'), JSON.stringify(oldSettings))
+    const ui = new UiStore(dir, () => {})
+    expect(ui.settings).toEqual({ ...DEFAULT_UI_SETTINGS, palette: 'black' })
+    applyUiAction(data, ui, { action: 'settings.save', settings: oldSettings })
+    expect(JSON.parse(readFileSync(join(dir, 'ui.json'), 'utf8'))).toEqual({ version: 1, ...DEFAULT_UI_SETTINGS, palette: 'black' })
   })
 
   it('reports the session role only when asked', () => {
@@ -207,16 +242,16 @@ describe('cropped image output', () => {
 })
 
 describe('segment delay', () => {
-  it('picks between min and max for random', () => {
-    const settings = { ...DEFAULT_UI_SETTINGS, intervalMin: 2, intervalMax: 1 }
-    expect(segmentDelay('x', settings, 0)).toBe(1000)
-    expect(segmentDelay('x', settings, 0.5)).toBe(1500)
+  it('uses a fixed log base of 2.6 and preserves the small random variation', () => {
+    const expected = Math.log(3) / Math.log(2.6) * 1000
+    expect(segmentDelay('好的', 0)).toBeCloseTo(expected)
+    expect(segmentDelay('好的', 0.5)).toBeCloseTo(expected + 250)
+    expect(segmentDelay('hello world', 0)).toBeCloseTo(expected)
   })
 
-  it('grows with length for log and caps at 10 seconds', () => {
-    const settings = { ...DEFAULT_UI_SETTINGS, intervalMethod: 'log' as const }
-    expect(segmentDelay('好的', settings, 0)).toBeLessThan(segmentDelay('今天下班以后我们一起去江边看烟花吧', settings, 0))
-    expect(segmentDelay('字'.repeat(100000), { ...settings, logBase: 1.1 }, 1)).toBe(10000)
+  it('grows with length and caps at 10 seconds including the variation', () => {
+    expect(segmentDelay('好的', 0)).toBeLessThan(segmentDelay('今天下班以后我们一起去江边看烟花吧', 0))
+    expect(segmentDelay('字'.repeat(100000), 0.999)).toBe(10000)
   })
 })
 

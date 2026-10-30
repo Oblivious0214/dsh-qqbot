@@ -68,7 +68,7 @@ export function assembleParts(
     {
       name: SECTION_NAME.FORMAT_MEME,
       order: SECTION_ORDER.FORMAT_MEME,
-      text: features.meme ? perSession(s => memeRule(content.memeFrequencyFor(s))) : '',
+      text: features.meme ? perSession(s => memeRule(content.memeFrequencyFor(s), content.memePreferencesFor(s))) : '',
     },
     ...store.snapshot().extensions.map(entry => ({
       name: `${SECTION_NAME.EXT_PREFIX}${entry.name}`,

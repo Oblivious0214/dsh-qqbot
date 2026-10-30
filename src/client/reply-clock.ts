@@ -3,7 +3,7 @@
  * 计时不依赖组件是否挂载：切走会话或滚动后，段落仍按时出现，外部插件（设备）仍按时收到通知。
  *
  * - 流式输出时第一段一闭合就显示，之后每段在上一段显示后过 holdMs 出现；到点了下一段还没生成出来，就等它生成出来再显示。
- * - holdMs 先问外部插件（SegmentHooks.durations，例如设备按 cycles 算出的时长），没有时用界面设置的间隔。
+ * - holdMs 先问外部插件（SegmentHooks.durations，例如设备按 cycles 算出的时长），没有时用按字数计算的兜底间隔。
  * - 暂停（pause）时这个会话里的回复停在当前段，恢复后从剩余时间接着走。
  * - 用户发了新消息（interrupt）时没出现的段落不再出现。
  * - 历史回复（不是实时的）直接全部显示，不计时，也不通知外部插件。
@@ -29,6 +29,13 @@ export type SegmentEndReason =
   | 'failed'
   /** dsh-qqbot 停用或页面关闭。 */
   | 'closed'
+
+/** 只读显示快照；不新增计时器、不调用设备回调。 */
+export interface SegmentPlayback {
+  readonly index: number
+  readonly status: 'history' | 'running' | 'paused' | SegmentEndReason
+  readonly remainingMs: number
+}
 
 /** 外部插件的回调。都是可选的；抛出的错误只记日志，不影响文字显示。 */
 export interface SegmentHooks {
@@ -75,10 +82,11 @@ interface Row {
   left: number | undefined
   timer: unknown
   ended: boolean
+  reason?: SegmentEndReason
 }
 
 export interface ReplyClockOptions {
-  /** 外部插件没给停留时间时的间隔，来自界面设置。 */
+  /** 外部插件没给停留时间时，按字数计算的兜底间隔。 */
   readonly delay: (text: string) => number
   /** 显示的段数变了。 */
   readonly onChange: () => void
@@ -144,6 +152,16 @@ export class ReplyClock {
     return row.passive ? row.stages.length : row.shown
   }
 
+  playback(session: string, reply: string): SegmentPlayback | undefined {
+    const row = this.rows.get(keyOf(session, reply))
+    if (row === undefined) return undefined
+    return {
+      index: row.shown - 1,
+      status: row.passive ? 'history' : row.reason ?? (this.paused(session) ? 'paused' : 'running'),
+      remainingMs: row.ended ? 0 : row.left ?? Math.max(0, row.due - this.timers.now()),
+    }
+  }
+
   /** 用户发了新消息：这个会话里还在推进的回复都停在当前段。 */
   interrupt(session: string): void {
     for (const row of this.rows.values()) if (row.session === session) this.end(row, 'interrupted')
@@ -159,6 +177,7 @@ export class ReplyClock {
         row.left = Math.max(0, row.due - now)
         this.clearTimer(row)
       }
+      this.options.onChange()
     }
     let released = false
     return () => {
@@ -174,6 +193,7 @@ export class ReplyClock {
         if (row.shown < row.stages.length) this.kick(row)
         else if (row.complete) this.finish(row)
       }
+      this.options.onChange()
     }
   }
 
@@ -242,8 +262,10 @@ export class ReplyClock {
   private end(row: Row, reason: SegmentEndReason): void {
     if (row.ended) return
     row.ended = true
+    row.reason = reason
     this.clearTimer(row)
     this.emit(hooks => hooks.ended?.(row.session, row.reply, reason))
+    this.options.onChange()
   }
 
   private clearTimer(row: Row): void {

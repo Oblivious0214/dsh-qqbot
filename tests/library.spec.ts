@@ -74,6 +74,21 @@ describe('role files written by the editor', () => {
       .toMatchObject({ motionActions: ['steady', 'slide'] })
   })
 
+  it('round-trips per-role autonomy prompts and exposes them to the editor', () => {
+    const { data: d } = data()
+    const texts = { follow: '按角色决定。\n保留 "引号" 和 \\ 路径。', high: '' }
+    applyLibraryAction(d, { action: 'role.save', create: true, role: { ...draft, proactivityTexts: texts } })
+    expect(libraryView(d).roles[0]?.proactivityTexts).toEqual(texts)
+    expect(d.roles.get('alice')?.proactivityTexts).toEqual(texts)
+    applyLibraryAction(d, { action: 'role.save', create: false, role: draft })
+    expect(d.roles.get('alice')).not.toHaveProperty('proactivityTexts')
+    expect(renderRole(draft, renderRole({ ...draft, proactivityTexts: texts }, undefined))).not.toContain('proactivityTexts:')
+    for (const invalid of [{ wild: 'x' }, { high: 2 }, { follow: 'x'.repeat(2001) }, []]) {
+      expect(() => d.roles.save({ ...draft, proactivityTexts: invalid }, false)).toThrow('自主性提示词')
+    }
+    expect(parseRole('---\nproactivityTexts: {bad}\n---\n设定。', 'x')).not.toHaveProperty('proactivityTexts')
+  })
+
   it('handles files without frontmatter', () => {
     expect(parseRole(renderRole(draft, '只有正文。'), 'alice')).toMatchObject({ id: 'alice', name: '爱丽丝', persona: '爱丽丝的设定。' })
   })
@@ -133,6 +148,31 @@ describe('role files written by the editor', () => {
 })
 
 describe('library actions', () => {
+  it('saves a concrete preset with the role and keeps it when the default changes', () => {
+    const { dir, data: d } = data()
+    d.presets.save({ id: 'soft', name: '温和', head: 'H', mid: '', tail: '' }, true)
+    applyLibraryAction(d, { action: 'role.save', create: true, role: { ...draft, preset: 'default' } })
+    d.presets.setDefault('soft')
+    expect(d.presets.forRole('alice').id).toBe('default')
+    applyLibraryAction(d, { action: 'role.save', create: false, role: { ...draft, persona: '新设定', preset: 'soft' } })
+    expect(libraryView(d).roles[0]).toMatchObject({ persona: '新设定', preset: 'soft' })
+    // 预设关系仍放预设存储，不混进角色正文或卡片字段。
+    expect(readFileSync(join(dir, 'roles', 'alice', 'ROLE.md'), 'utf8')).not.toContain('preset:')
+    // 旧调用不传预设，也不能意外清空已选关系。
+    applyLibraryAction(d, { action: 'role.save', create: false, role: draft })
+    expect(d.presets.roleChoice('alice')).toBe('soft')
+  })
+
+  it('rejects missing presets before writing or overwriting a role', () => {
+    const { data: d } = data()
+    expect(() => applyLibraryAction(d, { action: 'role.save', create: true, role: { ...draft, preset: 'missing' } })).toThrow('重新选择')
+    expect(d.roles.list()).toEqual([])
+    applyLibraryAction(d, { action: 'role.save', create: true, role: { ...draft, preset: 'default' } })
+    expect(() => applyLibraryAction(d, { action: 'role.save', create: false, role: { ...draft, name: '不应写入', preset: null } })).toThrow('重新选择')
+    expect(d.roles.get('alice')?.name).toBe(draft.name)
+    expect(d.presets.roleChoice('alice')).toBe('default')
+  })
+
   it('makes up the id of a new preset and refuses a second preset with the same name', () => {
     const { data: d } = data()
     const id = applyLibraryAction(d, { action: 'preset.save', create: true, preset: { name: '温和', head: 'H', mid: '', tail: '' } })
@@ -198,7 +238,7 @@ describe('library route', () => {
       const response = await routes.get(LIBRARY_PATH)!.fetch(new Request(`http://127.0.0.1${LIBRARY_PATH}`, init))
       return { status: response.status, body: await response.json() as LibraryView & { error?: string; message?: string } }
     }
-    return { routes, call, fiber }
+    return { routes, call, fiber, root }
   }
 
   it('reads, writes and reports errors', async () => {
@@ -214,5 +254,19 @@ describe('library route', () => {
     expect(saved.body.roles.map(r => r.id)).toEqual(['alice'])
     await fiber.dispose()
     expect(routes.has(LIBRARY_PATH)).toBe(false)
+  })
+
+  it('reports only currently registered optional capabilities, including disposal', async () => {
+    const { call, fiber, root } = await mount()
+    expect((await call()).body.features).toEqual({ meme: false, toy: false })
+    let meme = true
+    root.provide('tools', { get: (name: string) => name === 'send_meme' && meme ? {} : undefined })
+    const remove = root.qqbot.extension({ name: 'toy', text: () => '' })
+    // 设备尚未接入会话也可编辑偏好；只检查插件登记，不求值规则。
+    expect((await call()).body.features).toEqual({ meme: true, toy: true })
+    meme = false
+    remove()
+    expect((await call()).body.features).toEqual({ meme: false, toy: false })
+    await fiber.dispose()
   })
 })

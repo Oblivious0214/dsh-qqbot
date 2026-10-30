@@ -12,8 +12,12 @@ import { isMemeFrequency, type MemeFrequency } from './format.ts'
 import { MOTION_ACTIONS, MOTION_RANGES, ROLE_PROACTIVITIES, type MotionAction, type MotionRange, type RoleProactivity } from './library-types.ts'
 import { isRecord, renameWithRetry, writeText, type Warn } from './storage.ts'
 import { VOICE_ID_PATTERN } from './voice-types.ts'
+import type { MemePreferences } from './library-types.ts'
+import { validateMemePreferences } from './meme-preferences.ts'
+import { validateProactivityTexts } from './role-proactivity.ts'
+import type { RoleProactivityTexts } from './library-types.ts'
 
-export interface Role {
+export interface Role extends MemePreferences {
   readonly id: string
   readonly name: string
   readonly description: string
@@ -23,6 +27,7 @@ export interface Role {
   readonly memeFrequency?: MemeFrequency
   /** 设备主动性上限（`proactivity: follow|situational|high`）；没写或写错时为空，表示不限。 */
   readonly proactivity?: RoleProactivity
+  readonly proactivityTexts?: RoleProactivityTexts
   /** 偏好的设备动作和范围（`motionActions: slide, steady`）；不认识的值丢掉，全丢掉或没写时为空。 */
   readonly motionActions?: readonly MotionAction[]
   readonly motionRanges?: readonly MotionRange[]
@@ -68,6 +73,17 @@ function scalar(front: string, key: string): string | undefined {
   return value
 }
 
+/** 新表情字段用单行 JSON，保留多行补充文字、引号和反斜线，不影响其他 frontmatter。 */
+function readMemePreferences(front: string): MemePreferences {
+  const result: Record<string, unknown> = {}
+  for (const key of ['memePacks', 'memeTags', 'memePrompt']) {
+    const raw = rawScalar(front, key)
+    if (raw === undefined) continue
+    try { Object.assign(result, validateMemePreferences({ [key]: JSON.parse(raw) })) } catch { /* 手写字段错误只忽略该字段。 */ }
+  }
+  return result as MemePreferences
+}
+
 /** 解析一个角色文件；没有正文时返回 undefined。 */
 export function parseRole(text: string, fallbackId: string): Role | undefined {
   const { front, body } = splitFrontmatter(text)
@@ -77,6 +93,11 @@ export function parseRole(text: string, fallbackId: string): Role | undefined {
   if (id === '') return undefined
   const memeFrequency = scalar(front, 'memeFrequency')?.trim()
   const proactivity = scalar(front, 'proactivity')?.trim()
+  let proactivityTexts: RoleProactivityTexts | undefined
+  try {
+    const raw = rawScalar(front, 'proactivityTexts')
+    if (raw !== undefined) proactivityTexts = validateProactivityTexts(JSON.parse(raw))
+  } catch { /* 手写字段无效时沿用联动默认说明。 */ }
   const motionActions = pickList(scalar(front, 'motionActions'), MOTION_ACTIONS)
   const motionRanges = pickList(scalar(front, 'motionRanges'), MOTION_RANGES)
   const voice = scalar(front, 'voice')?.trim()
@@ -85,8 +106,10 @@ export function parseRole(text: string, fallbackId: string): Role | undefined {
     name: (scalar(front, 'name') ?? id).trim() || id,
     description: (scalar(front, 'description') ?? '').trim(),
     persona,
+    ...readMemePreferences(front),
     ...isMemeFrequency(memeFrequency) ? { memeFrequency } : {},
     ...isRoleProactivity(proactivity) ? { proactivity } : {},
+    ...proactivityTexts === undefined ? {} : { proactivityTexts },
     ...motionActions === undefined ? {} : { motionActions },
     ...motionRanges === undefined ? {} : { motionRanges },
     ...voice !== undefined && VOICE_ID_PATTERN.test(voice) ? { voice } : {},
@@ -110,7 +133,7 @@ export function roleEntries(dir: string): [entry: string, file: string, fallback
 }
 
 /** 编辑界面提交的角色内容。修改时带 id；新建时不带，由 save() 生成。 */
-export interface RoleDraft {
+export interface RoleDraft extends MemePreferences {
   readonly id?: string
   readonly name: string
   readonly description: string
@@ -119,6 +142,7 @@ export interface RoleDraft {
   readonly memeFrequency?: MemeFrequency
   /** 为空表示不限，保存时去掉这一行。 */
   readonly proactivity?: RoleProactivity
+  readonly proactivityTexts?: RoleProactivityTexts
   /** 为空表示没有偏好，保存时去掉这一行。 */
   readonly motionActions?: readonly MotionAction[]
   readonly motionRanges?: readonly MotionRange[]
@@ -146,13 +170,16 @@ export function validateRoleDraft(value: unknown): RoleDraft {
   }
   if (memeFrequency !== undefined && !isMemeFrequency(memeFrequency)) throw new TypeError('表情频率无效')
   if (proactivity !== undefined && !isRoleProactivity(proactivity)) throw new TypeError('联动主动性无效')
+  const proactivityTexts = validateProactivityTexts(value['proactivityTexts'])
   const actions = validList(motionActions, MOTION_ACTIONS, '偏好动作无效')
   const ranges = validList(motionRanges, MOTION_RANGES, '偏好范围无效')
   if (voice !== undefined && (typeof voice !== 'string' || !VOICE_ID_PATTERN.test(voice))) throw new TypeError('音色无效')
   return {
     ...id === undefined ? {} : { id }, name: name.trim(), description: description.trim(), persona: persona.trim(),
+    ...validateMemePreferences(value),
     ...memeFrequency === undefined ? {} : { memeFrequency },
     ...proactivity === undefined ? {} : { proactivity },
+    ...proactivityTexts === undefined ? {} : { proactivityTexts },
     ...actions === undefined ? {} : { motionActions: actions },
     ...ranges === undefined ? {} : { motionRanges: ranges },
     ...voice === undefined ? {} : { voice },
@@ -191,6 +218,15 @@ export function renderRole(draft: RoleDraft & { readonly id: string }, existing:
   front = draft.memeFrequency === undefined
     ? removeField(front, 'memeFrequency')
     : setField(front, 'memeFrequency', draft.memeFrequency)
+  for (const key of ['memePacks', 'memeTags', 'memePrompt', 'proactivityTexts'] as const) {
+    const value = draft[key]
+    if (value === undefined) front = removeField(front, key)
+    else {
+      const line = `${key}: ${JSON.stringify(value)}`
+      const pattern = new RegExp(`^${key}[ \\t]*:.*$`, 'm')
+      front = pattern.test(front) ? front.replace(pattern, () => line) : `${front.replace(/\n+$/, '')}\n${line}`
+    }
+  }
   front = draft.proactivity === undefined
     ? removeField(front, 'proactivity')
     : setField(front, 'proactivity', draft.proactivity)

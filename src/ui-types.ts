@@ -29,9 +29,6 @@ export const BACKGROUND_FIT_LABELS: Record<BackgroundFit, string> = {
   fill: '拉伸',
 }
 
-export const INTERVAL_METHODS = ['random', 'log'] as const
-export type IntervalMethod = typeof INTERVAL_METHODS[number]
-
 export interface UiSettings {
   readonly palette: Palette
   /** 用户气泡右侧的小尾巴。 */
@@ -42,16 +39,9 @@ export interface UiSettings {
   readonly chatMaxWidth: number
   /** 隐藏工具调用过程和回合统计，只留消息和时间。 */
   readonly immersive: boolean
+  /** 背景图片作为特殊色板启用；切换普通色板时保留已上传图片。 */
+  readonly backgroundEnabled: boolean
   readonly backgroundFit: BackgroundFit
-  /**
-   * 段落间隔怎么算（设备插件按 cycles 给出时长的段落除外）。random：在最短和最长之间随机；
-   * log：按字数取对数（字数越多停得越久，最多 10 秒），参考 AstrBot 的分段间隔。
-   */
-  readonly intervalMethod: IntervalMethod
-  /** 秒。 */
-  readonly intervalMin: number
-  readonly intervalMax: number
-  readonly logBase: number
 }
 
 /** 默认值和 dsh-qq-skin 一致。 */
@@ -61,17 +51,12 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   avatars: true,
   chatMaxWidth: 880,
   immersive: true,
+  backgroundEnabled: true,
   backgroundFit: 'cover',
-  intervalMethod: 'random',
-  intervalMin: 0.5,
-  intervalMax: 1.5,
-  logBase: 2.6,
 }
 
 export const UI_LIMITS = {
   chatMaxWidth: { min: 480, max: 1600 },
-  interval: { min: 0, max: 10 },
-  logBase: { min: 1.1, max: 10 },
 } as const
 
 /** 图片版本号（保存时的毫秒时间戳），拼进图片地址，换图后浏览器不会用旧缓存。 */
@@ -119,14 +104,11 @@ export const AVATAR_SIZE = 256
 export const BACKGROUND_MAX_EDGE = 1920
 export const IMAGE_BYTE_LIMIT = { avatar: 1024 * 1024, background: 8 * 1024 * 1024 } as const
 
-/** 段落等多久（毫秒）。random 传 [0,1) 的随机数，测试时可以固定。 */
-export function segmentDelay(text: string, settings: UiSettings, random = Math.random()): number {
-  if (settings.intervalMethod === 'log') {
-    const ascii = /^[\x00-\x7f]*$/.test(text)
-    const units = ascii ? text.trim().split(/\s+/).filter(Boolean).length : (text.match(/[\p{L}\p{N}]/gu) ?? []).length
-    return Math.min(10, Math.log(units + 1) / Math.log(settings.logBase) + random * 0.5) * 1000
-  }
-  const min = Math.min(settings.intervalMin, settings.intervalMax)
-  const max = Math.max(settings.intervalMin, settings.intervalMax)
-  return (min + random * (max - min)) * 1000
+/** 外部插件未提供时长时的兜底间隔（毫秒）：字数取底数 2.6 的对数，最多 10 秒。
+ * 保留 0–0.5 秒随机浮动；random 传 [0,1) 的随机数，测试时可以固定。
+ */
+export function segmentDelay(text: string, random = Math.random()): number {
+  const ascii = /^[\x00-\x7f]*$/.test(text)
+  const units = ascii ? text.trim().split(/\s+/).filter(Boolean).length : (text.match(/[\p{L}\p{N}]/gu) ?? []).length
+  return Math.min(10, Math.log(units + 1) / Math.log(2.6) + random * 0.5) * 1000
 }

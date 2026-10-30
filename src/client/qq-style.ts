@@ -47,7 +47,7 @@ function tokenRules(settings: UiSettings): string {
 }
 
 function backgroundRule(settings: UiSettings, background: number | undefined): string {
-  const image = background === undefined ? '' : `
+  const image = background === undefined || !settings.backgroundEnabled ? '' : `
   background-image: url("${imageUrl('background', background)}");
   background-size: ${settings.backgroundFit === 'fill' ? '100% 100%' : settings.backgroundFit};
   background-position: center;
@@ -148,6 +148,7 @@ ${BUBBLE} {
   overflow-wrap: anywhere;
 }
 ${BUBBLE} > :last-child { margin-bottom: 0; }
+${REPLY} [data-qqbot-annotation]:empty { display: none; }
 @media (prefers-reduced-motion: no-preference) {
   ${BUBBLE} { animation: qqbot-bubble-arrive 160ms ease-out; }
 }

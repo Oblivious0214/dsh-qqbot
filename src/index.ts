@@ -70,6 +70,7 @@ export class QqbotService extends Service implements QqbotRegistry {
     return {
       name: role.name,
       ...role.proactivity === undefined ? {} : { proactivity: role.proactivity },
+      ...role.proactivityTexts === undefined ? {} : { proactivityTexts: role.proactivityTexts },
       ...role.motionActions === undefined ? {} : { motionActions: role.motionActions },
       ...role.motionRanges === undefined ? {} : { motionRanges: role.motionRanges },
     }

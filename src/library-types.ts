@@ -20,6 +20,19 @@ export const MEME_FREQUENCY_LABELS: Record<MemeFrequency, string> = {
   off: '不主动发',
 }
 
+/** 只保存角色偏好，不修改 dsh-meme 的图库开关。名称供界面和提示词使用。 */
+export interface MemePackChoice {
+  readonly id: string
+  readonly name: string
+}
+
+export interface MemePreferences {
+  readonly memePacks?: readonly MemePackChoice[]
+  readonly memeTags?: readonly string[]
+  readonly memePrompt?: string
+}
+export const MEME_PROMPT_LIMIT = 4000
+
 /**
  * 角色卡 `proactivity` 字段：这个角色最多到哪个设备主动性档位，由设备插件和用户的选择取较低者。
  * 没写时不限（等于 high）。dsh-qqbot 自己不用它，只通过登记服务的 `role()` 交给设备插件。
@@ -28,10 +41,14 @@ export const ROLE_PROACTIVITIES = ['follow', 'situational', 'high'] as const
 export type RoleProactivity = typeof ROLE_PROACTIVITIES[number]
 
 export const ROLE_PROACTIVITY_LABELS: Record<RoleProactivity, string> = {
-  follow: '跟随',
-  situational: '情境主动',
-  high: '高主动',
+  follow: '低自主性',
+  situational: '中自主性',
+  high: '高自主性',
 }
+
+/** 每个角色分别改写三档说明；未写的档位使用联动插件提供的默认说明。 */
+export type RoleProactivityTexts = Partial<Record<RoleProactivity, string>>
+export const ROLE_PROACTIVITY_TEXT_LIMIT = 2000
 
 /**
  * 角色卡 `motionActions`、`motionRanges` 字段：角色偏好的设备动作和范围，逗号分隔。
@@ -48,7 +65,7 @@ export const MOTION_RANGE_LABELS: Record<MotionRange, string> = {
   full: '全行程', lower_half: '下半程', upper_half: '上半程', lower: '下端局部', middle: '中间段', upper: '上端局部',
 }
 
-export interface LibraryRole {
+export interface LibraryRole extends MemePreferences {
   /** 内部键，自动生成，界面上不显示。 */
   readonly id: string
   readonly name: string
@@ -58,6 +75,7 @@ export interface LibraryRole {
   readonly memeFrequency?: MemeFrequency
   /** 设备主动性上限；没写时为空，表示不限。 */
   readonly proactivity?: RoleProactivity
+  readonly proactivityTexts?: RoleProactivityTexts
   /** 偏好的设备动作和范围；没写时为空。 */
   readonly motionActions?: readonly MotionAction[]
   readonly motionRanges?: readonly MotionRange[]
@@ -77,6 +95,8 @@ export interface LibraryPreset {
 }
 
 export interface LibraryView {
+  /** 当前已启用的可选插件能力，供编辑器按需显示选项。 */
+  readonly features: { readonly meme: boolean; readonly toy: boolean }
   /** 角色卡所在目录，界面上提示用户也可以直接改文件。 */
   readonly rolesDir: string
   readonly roles: readonly LibraryRole[]
@@ -89,16 +109,19 @@ export interface LibraryView {
 }
 
 /** 新建时不带 id，由服务端生成；修改时带上原 id。 */
-export interface LibraryRoleDraft {
+export interface LibraryRoleDraft extends MemePreferences {
   readonly id?: string
   readonly name: string
   readonly description: string
   readonly persona: string
   readonly memeFrequency?: MemeFrequency
   readonly proactivity?: RoleProactivity
+  readonly proactivityTexts?: RoleProactivityTexts
   readonly motionActions?: readonly MotionAction[]
   readonly motionRanges?: readonly MotionRange[]
   readonly voice?: string
+  /** 角色编辑器选择的具体预设，随角色保存。旧调用未传时保留原选择。 */
+  readonly preset?: string
 }
 
 /** 角色和预设：新建不带 id（服务端生成），修改时带原 id；名称不能重复。 */

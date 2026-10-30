@@ -26,7 +26,7 @@ function roster(data: QqbotData, current: string | undefined): string {
   const roles = data.roles.list()
   if (roles.length === 0) return '角色库是空的：到设置 → QQ Bot 里新建角色。'
   return roles
-    .map(role => `${role.id === current ? '*' : ' '} ${role.name}${role.description === '' ? '' : ` — ${role.description}`}`)
+    .map(role => `${role.id === current ? '*' : ' '} ${role.name}`)
     .join('\n')
 }
 

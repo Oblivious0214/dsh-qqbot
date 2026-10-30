@@ -3,7 +3,7 @@
  * 预设内的 dsh-qqbot/prompt 读取这些条目，组装成 qqbot 会话的 section 和 context。
  */
 
-import type { MotionAction, MotionRange, RoleProactivity } from './library-types.ts'
+import type { MotionAction, MotionRange, RoleProactivity, RoleProactivityTexts } from './library-types.ts'
 
 /** 组装提示词时所属的 qqbot 会话。 */
 export interface QqbotSession {
@@ -28,6 +28,7 @@ export interface QqbotRoleInfo {
   readonly name: string
   /** 角色卡写的设备主动性上限；没写时为空，表示不限。 */
   readonly proactivity?: RoleProactivity
+  readonly proactivityTexts?: RoleProactivityTexts
   /** 角色卡写的偏好动作和范围；没写时为空。 */
   readonly motionActions?: readonly MotionAction[]
   readonly motionRanges?: readonly MotionRange[]

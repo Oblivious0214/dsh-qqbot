@@ -3,7 +3,7 @@
  * 计时不依赖组件是否挂载：切走会话或滚动后，段落仍按时出现，外部插件（设备）仍按时收到通知。
  *
  * - 流式输出时第一段一闭合就显示，之后每段在上一段显示后过 holdMs 出现；到点了下一段还没生成出来，就等它生成出来再显示。
- * - holdMs 先问外部插件（SegmentHooks.durations，例如设备按 cycles 算出的时长），没有时用段落的 durationMs，再没有时用界面设置的间隔。
+ * - holdMs 先问外部插件（SegmentHooks.durations，例如设备按 cycles 算出的时长），没有时用界面设置的间隔。
  * - 暂停（pause）时这个会话里的回复停在当前段，恢复后从剩余时间接着走。
  * - 用户发了新消息（interrupt）时没出现的段落不再出现。
  * - 历史回复（不是实时的）直接全部显示，不计时，也不通知外部插件。
@@ -14,7 +14,6 @@
 /** 交给外部插件的段落：文字和协议扩展字段，原样来自 [qq] 块。 */
 export interface SegmentStage {
   readonly text: string
-  readonly durationMs?: number
   readonly cycles?: number
   readonly motion?: unknown
 }
@@ -77,7 +76,7 @@ interface Row {
 }
 
 export interface ReplyClockOptions {
-  /** 段落没写 durationMs 时的间隔，来自界面设置。 */
+  /** 外部插件没给停留时间时的间隔，来自界面设置。 */
   readonly delay: (text: string) => number
   /** 显示的段数变了。 */
   readonly onChange: () => void
@@ -233,7 +232,7 @@ export class ReplyClock {
       }
     }
     if (value === undefined) {
-      try { value = stage.durationMs ?? this.options.delay(stage.text) } catch (error) { this.options.onError(error) }
+      try { value = this.options.delay(stage.text) } catch (error) { this.options.onError(error) }
     }
     return Math.min(MAX_HOLD_MS, Math.max(0, value ?? 0))
   }

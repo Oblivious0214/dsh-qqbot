@@ -1,4 +1,4 @@
-export interface TimedStage { text: string; durationMs?: number; cycles?: number; motion?: unknown }
+export interface TimedStage { text: string; cycles?: number; motion?: unknown }
 export interface TimedReply { version: 1; stages: TimedStage[] }
 /** complete: [/qq] has arrived. Otherwise only the closed stages so far. */
 export interface TimedStream { stages: TimedStage[]; complete: boolean }

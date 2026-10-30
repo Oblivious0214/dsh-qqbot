@@ -54,6 +54,7 @@ describe('parseTimedStream', () => {
     expect(parseTimedStream('普通回复')).toBeNull()
     expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":"a","cycles":3}]}[/qq]')).toEqual({ stages: [{ text: 'a', cycles: 3 }], complete: true })
     expect(() => parseTimedStream('[qq]{"version":1,"stages":[{"text":""},')).toThrow()
+    expect(() => parseTimedStream('[qq]{"version":1,"stages":[{"text":"a","durationMs":500}]}[/qq]')).toThrow()
     expect(() => parseTimedStream('[qq]{"version":1,"stages":[{"text":"a"}]}[/qq][qq]{}[/qq]')).toThrow()
   })
 })
@@ -61,18 +62,18 @@ describe('parseTimedStream', () => {
 describe('reply clock', () => {
   it('reveals a complete live reply stage by stage and ends once', () => {
     const { clock, fake, events } = setup()
-    clock.feed('s', '1:0', [{ text: 'a', durationMs: 500 }, { text: 'b' }, { text: 'c' }], true, true)
+    clock.feed('s', '1:0', stages('a', 'b', 'c'), true, true)
     expect(clock.count('s', '1:0')).toBe(0)
     fake.advance(0)
     expect(clock.count('s', '1:0')).toBe(1)
-    fake.advance(499)
+    fake.advance(999)
     expect(clock.count('s', '1:0')).toBe(1)
     fake.advance(1)
     expect(clock.count('s', '1:0')).toBe(2)
     fake.advance(1000)
     expect(clock.count('s', '1:0')).toBe(3)
     expect(events).toEqual([
-      ['revealed', 's', '1:0', 0, 'a', 500],
+      ['revealed', 's', '1:0', 0, 'a', 1000],
       ['revealed', 's', '1:0', 1, 'b', 1000],
       ['revealed', 's', '1:0', 2, 'c', undefined],
       ['ended', 's', '1:0', 'complete'],
@@ -118,7 +119,7 @@ describe('reply clock', () => {
     expect(fake.pending()).toBe(0)
   })
 
-  it('takes hook durations first, then durationMs, then the ui delay, clamped', () => {
+  it('takes hook durations first, then the ui delay, clamped', () => {
     const { clock, fake, events, errors } = setup(700)
     const seen: [readonly SegmentStage[], number][] = []
     clock.register({ durations: () => { throw new Error('boom') } })
@@ -134,13 +135,13 @@ describe('reply clock', () => {
     expect(errors.length).toBe(3)
   })
 
-  it('falls back to the stage durationMs when no hook answers', () => {
+  it('falls back to the ui delay when no hook answers', () => {
     const { clock, fake, events } = setup(700)
     clock.register({ durations: () => undefined })
-    clock.feed('s', 'r', [{ text: 'a', durationMs: 50 }, { text: 'b' }, { text: 'c' }], true, true)
+    clock.feed('s', 'r', stages('a', 'b', 'c'), true, true)
     fake.advance(0)
-    fake.advance(50)
-    expect(events.filter(e => e[0] === 'revealed').map(e => e[5])).toEqual([50, 700])
+    fake.advance(700)
+    expect(events.filter(e => e[0] === 'revealed').map(e => e[5])).toEqual([700, 700])
   })
 
   it('stops at the current stage when interrupted', () => {

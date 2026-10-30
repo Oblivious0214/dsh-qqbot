@@ -44,7 +44,7 @@ export interface UiSettings {
   readonly immersive: boolean
   readonly backgroundFit: BackgroundFit
   /**
-   * 没写 durationMs 的段落怎么算间隔。random：在最短和最长之间随机；
+   * 段落间隔怎么算（设备插件按 cycles 给出时长的段落除外）。random：在最短和最长之间随机；
    * log：按字数取对数（字数越多停得越久，最多 10 秒），参考 AstrBot 的分段间隔。
    */
   readonly intervalMethod: IntervalMethod
@@ -118,7 +118,7 @@ export const AVATAR_SIZE = 256
 export const BACKGROUND_MAX_EDGE = 1920
 export const IMAGE_BYTE_LIMIT = { avatar: 1024 * 1024, background: 8 * 1024 * 1024 } as const
 
-/** 没写 durationMs 的段落等多久（毫秒）。random 传 [0,1) 的随机数，测试时可以固定。 */
+/** 段落等多久（毫秒）。random 传 [0,1) 的随机数，测试时可以固定。 */
 export function segmentDelay(text: string, settings: UiSettings, random = Math.random()): number {
   if (settings.intervalMethod === 'log') {
     const ascii = /^[\x00-\x7f]*$/.test(text)

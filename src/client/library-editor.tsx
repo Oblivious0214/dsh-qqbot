@@ -1,11 +1,13 @@
 /**
- * 角色、破限预设和界面设置编辑器：一个弹窗，挂在 `shell.overlay`（全局常驻），从侧边栏"更多"菜单或提示词查看器打开。
+ * 角色、破限预设和界面设置编辑器。同一份编辑器有两个位置：DSH 设置窗口里的"QQ Bot"页（左下角"更多"→ 设置），
+ * 和提示词查看器"编辑"打开的弹窗（挂在全局常驻的 `shell.overlay`，定位到对应条目）。
  * 角色和预设来自 host 的 LIBRARY_PATH，保存后下一条消息起生效；界面设置和头像见 ui-editor.tsx。
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
   DEFAULT_MEME_FREQUENCY, LIBRARY_PATH, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS,
@@ -19,6 +21,11 @@ export const EDITOR_CLASS = 'dsh-qqbot-library'
 
 export const EDITOR_CSS = `
 [role="dialog"].${EDITOR_CLASS} { width: min(960px, 100%); max-height: 100%; }
+.${EDITOR_CLASS}.ql-section { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.${EDITOR_CLASS} .ql-section-head { display: flex; align-items: center; gap: 12px; }
+.${EDITOR_CLASS} .ql-section-head .ql-note { flex: 1; margin: 0; }
+.${EDITOR_CLASS}.ql-section .ql-main { height: auto; min-height: 480px; }
+.${EDITOR_CLASS}.ql-section .ql-list { flex-basis: 150px; }
 .${EDITOR_CLASS} .ql-body { display: flex; flex-direction: column; gap: 10px; }
 .${EDITOR_CLASS} .ql-tabs { display: flex; gap: 6px; }
 .${EDITOR_CLASS} .ql-main { display: flex; gap: 12px; height: 64vh; min-height: 320px; }
@@ -235,7 +242,8 @@ function PresetForm({ view, busy, onDirty, run, preset, template, onSaved, onRem
 /** 列表里选中的条目：已有条目的 id，或一份还没保存的新条目。 */
 type Selection<T> = { readonly id: string } | { readonly draft: T }
 
-function LibraryDialog({ target, ui, onClose }: { readonly target: EditorTarget; readonly ui: UiState; readonly onClose: () => void }) {
+/** 编辑器内容和关闭前的检查：有未保存的改动时，guard 先显示确认，确认后才执行。 */
+function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: (next: () => void) => void; readonly content: ReactNode } {
   const [view, setView] = useState<LibraryView | undefined>()
   const [loadError, setLoadError] = useState<string | undefined>()
   const [actionError, setActionError] = useState<string | undefined>()
@@ -328,9 +336,7 @@ function LibraryDialog({ target, ui, onClose }: { readonly target: EditorTarget;
     </div>
   })()
 
-  return <Modal open onClose={() => { guard(onClose) }} title="QQ Bot 设置" closeLabel="关闭" className={EDITOR_CLASS}
-    description="只用于 QQ Bot 会话。也可以直接编辑文件，打开这里或执行 /role 时重新读取。">
-    <div className="ql-body">
+  const content = <div className="ql-body">
       <div className="ql-tabs">
         <Button size="sm" variant={tab === 'roles' ? 'outline' : 'ghost'}
           onClick={() => { if (tab !== 'roles') go(() => { setTab('roles') }) }}>角色</Button>
@@ -347,8 +353,39 @@ function LibraryDialog({ target, ui, onClose }: { readonly target: EditorTarget;
       {actionError !== undefined && <div className="ql-state ql-warn">{actionError}</div>}
       {body}
     </div>
+  return { guard, content }
+}
+
+const DESCRIPTION = '只用于 QQ Bot 会话。也可以直接编辑文件，打开这里或执行 /role 时重新读取。'
+
+function LibraryDialog({ target, ui, onClose }: { readonly target: EditorTarget; readonly ui: UiState; readonly onClose: () => void }) {
+  const { guard, content } = useLibraryEditor(target, ui)
+  return <Modal open onClose={() => { guard(onClose) }} title="QQ Bot 设置" closeLabel="关闭" className={EDITOR_CLASS} description={DESCRIPTION}>
+    {content}
   </Modal>
 }
+
+export interface LibrarySettingsInjected {
+  readonly ui: UiState
+  readonly startQqSession: () => void
+}
+
+/**
+ * DSH 设置窗口里的"QQ Bot"页。设置窗口的关闭由 DSH 管，拦不住，所以这里关窗口会丢掉没保存的改动；
+ * 页内切换标签和条目照常确认。
+ */
+export function LibrarySettingsSection({ close, ui, startQqSession }: PropsRuntime<'settings.section'> & InjectFace<LibrarySettingsInjected>) {
+  const { content } = useLibraryEditor(ROLES, ui)
+  return <div className={`${EDITOR_CLASS} ql-section`}>
+    <div className="ql-section-head">
+      <p className="ql-note">{DESCRIPTION}</p>
+      <Button size="sm" variant="outline" onClick={() => { close(); startQqSession() }}>新建 QQ 会话</Button>
+    </div>
+    {content}
+  </div>
+}
+
+const ROLES: EditorTarget = { tab: 'roles' }
 
 export interface LibraryEditorInjected {
   readonly hooks: { readonly editorTarget: SnapshotStore<EditorTarget | null> }

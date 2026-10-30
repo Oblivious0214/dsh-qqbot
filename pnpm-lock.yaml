@@ -44,6 +44,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-session':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-session
         version: link:../../qqbot/src/deepseek-harness/packages/client/ui-session
+      '@deepseek-ai/dsh-client-ui-settings':
+        specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-settings
+        version: link:../../qqbot/src/deepseek-harness/packages/client/ui-settings
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: link:../../qqbot/src/deepseek-harness/packages/client/ui-sidebar
         version: link:../../qqbot/src/deepseek-harness/packages/client/ui-sidebar

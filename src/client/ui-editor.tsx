@@ -62,7 +62,8 @@ export function RoleAvatarField({ ui, role }: { readonly ui: UiState; readonly r
         {version !== undefined && <Button size="sm" variant="ghost" disabled={busy}
           onClick={() => { void run(() => Promise.resolve({ action: 'avatar.remove', role: role.id })) }}>改回首字</Button>}
       </div>}
-    {role !== undefined && <small>居中裁成正方形，存在 qqbot/images/avatars/。改了立即生效，只影响界面显示。</small>}
+    {role !== undefined && <small>居中裁成正方形，存在 qqbot/images/avatars/。改了立即生效，只影响界面显示。
+      会话要用 /role 选了这个角色，或把它设为新会话默认，消息旁才会显示头像。</small>}
     {error !== undefined && <div className="ql-state ql-warn">{error}</div>}
   </div>
 }

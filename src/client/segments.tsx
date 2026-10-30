@@ -7,6 +7,7 @@
  *   提示词让模型"无需分段时直接正常回复"，这时就是一条消息。
  * - 没写 durationMs 的段落按界面设置的间隔（ui-types.ts 的 segmentDelay）。
  * - 外面包一层 REPLY_ATTRIBUTE 节点，带上这一轮回复时角色的头像或首字（`/role` 换人后旧消息不变），样式见 qq-style.ts。
+ *   没有角色的回复不加 ROLE_ATTRIBUTE，不画头像。
  * - 历史消息直接全部显示；只有本页打开后生成的回复才按间隔逐段出现。计时在 reply-clock.ts，流式时第一段一闭合就显示。
  * - 其他插件通过 ctx.qqbotSegments（segments-service.ts）改写停留时间、收到段落显示的通知、暂停显示。
  * - 用户在逐段显示途中发了新消息，没显示的段落不再出现（和 QQ 里打断对方一样）。只在内存里记，刷新后完整显示。
@@ -21,7 +22,7 @@ import type { FactoryComponentPropsOf, InjectFace, PropsRenderSlots, PropsRuntim
 import { Interruptions, chatActivity, submissionActivity } from '../vendor/dialogue-timing/interruptions.js'
 import { parseTimedStream, stripTimedReply } from '../vendor/dialogue-timing/protocol.js'
 import { segmentDelay } from '../ui-types.ts'
-import { imageUrl, REPLY_ATTRIBUTE } from './qq-style.ts'
+import { imageUrl, REPLY_ATTRIBUTE, ROLE_ATTRIBUTE } from './qq-style.ts'
 import { ReplyClock } from './reply-clock.ts'
 import { SegmentsService } from './segments-service.ts'
 import type { SessionRole, UiState } from './ui-state.ts'
@@ -155,7 +156,8 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     const projected = frozen ?? blocks
     if (frozen === undefined) model.remember(displayKey, props.sessionId, projected)
     const node = projected === data.blocks ? props.node : { ...props.node, data: { ...data, blocks: projected } }
-    return <div {...{ [REPLY_ATTRIBUTE]: '' }} style={avatarStyle(ui, role)}>
+    const hasRole = role !== undefined && role !== null
+    return <div {...{ [REPLY_ATTRIBUTE]: '', ...hasRole ? { [ROLE_ATTRIBUTE]: '' } : {} }} style={avatarStyle(ui, role)}>
       {createElement(Native, { ...props, node, renderSlot: renderSlotFor(props) })}
     </div>
   }

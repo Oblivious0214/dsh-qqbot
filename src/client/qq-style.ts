@@ -18,12 +18,15 @@ import { buildTokenOverrides } from './palettes.ts'
 export const MARK_ATTRIBUTE = 'data-qqbot'
 /** segments.tsx 包在 DSH 助手消息渲染器外面的节点。 */
 export const REPLY_ATTRIBUTE = 'data-qqbot-reply'
+/** 这一轮回复有角色时 segments.tsx 加在 REPLY 节点上；没有角色不画头像。 */
+export const ROLE_ATTRIBUTE = 'data-qqbot-role'
 
 const Q = `[${MARK_ATTRIBUTE}]`
 const DARK = `body[data-ds-dark-theme] ${Q}`
 const REPLY = `${Q} [${REPLY_ATTRIBUTE}]`
 /** DSH 助手消息里每个正文块的节点；推理过程（turn-process-inline）不算气泡。 */
-const BUBBLE = `${REPLY} > div > div > div:not([data-turn-process-inline])`
+const BUBBLE_PATH = '> div > div > div:not([data-turn-process-inline])'
+const BUBBLE = `${REPLY} ${BUBBLE_PATH}`
 
 /** 图片地址。相对路径：DSH 可能挂在子路径下（与提示词查看器一致）。 */
 export function imageUrl(kind: 'avatar' | 'background', version: number, role?: string): string {
@@ -72,10 +75,13 @@ ${Q} [data-chat-flow] [data-turn-tail] [data-clock='end'] > [class$='_endInfo'] 
 }
 `
 
-/** 每个气泡左边一个 33px 圆形头像，图片或首字二选一（变量由 segments.tsx 设在 REPLY 节点上）。 */
+/**
+ * 每个气泡左边一个 33px 圆形头像，图片或首字二选一（变量由 segments.tsx 设在 REPLY 节点上）。
+ * 没有角色的回复不画头像，左边距照留：角色还在读取时版面不跳。
+ */
 const AVATAR_CSS = `
 ${REPLY} { margin-left: 47px; }
-${BUBBLE}::before {
+${REPLY}[${ROLE_ATTRIBUTE}] ${BUBBLE_PATH}::before {
   position: absolute; top: 2px; left: -47px;
   width: 33px; height: 33px; border-radius: 50%;
   /* DSH 给所有元素设了 corner-shape: superellipse（ui-theme 的 corner-shape.css），圆形要写回 round。 */

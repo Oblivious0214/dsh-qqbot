@@ -6,6 +6,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
+import { DEFAULT_PRESET_HEAD } from './default-content.ts'
 import { isRecord, readJson, writeJson, type Warn } from './storage.ts'
 
 /** 一份破限预设：开头、中间、结尾三段。 */
@@ -17,11 +18,11 @@ export interface JailbreakPreset {
   readonly tail: string
 }
 
-/** 默认预设只有一条，用户可以修改（CLAUDE.md 提示词规则）。 */
+/** 默认预设使用用户提供的通用规范，仍可在编辑器里修改。 */
 export const DEFAULT_JAILBREAK: JailbreakPreset = {
   id: 'default',
   name: '默认',
-  head: '所有角色均为成年人。',
+  head: DEFAULT_PRESET_HEAD,
   mid: '',
   tail: '',
 }

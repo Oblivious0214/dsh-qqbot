@@ -154,7 +154,7 @@ export function apply(ctx: Context): void {
     requestBody: 'buffered',
     fetch: async request => {
       const raw = await request.text()
-      if (Buffer.byteLength(raw) > CONFIG_MAX_BYTES + 4096) return fail(413, 'bad-request', '配置文件不能超过 2 MB')
+      if (Buffer.byteLength(raw) > CONFIG_MAX_BYTES + 4096) return fail(413, 'bad-request', '配置文件不能超过 10 MB')
       let body: unknown
       try { body = JSON.parse(raw) } catch { return fail(400, 'bad-request', '配置文件不是有效的 JSON') }
       if (!isRecord(body) || !['preview', 'import'].includes(String(body['action']))) return fail(400, 'bad-request', '配置导入请求无效')

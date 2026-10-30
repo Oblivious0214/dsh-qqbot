@@ -1,9 +1,10 @@
 /** 文件只经认证的插件接口处理，不直接改磁盘；先预览，确认后才提交。 */
 import { useEffect, useRef, useState } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CONFIG_MAX_BYTES, CONFIG_PATH, type ConfigOptions, type ConfigPreview, type ConfigRequest, type ConfigResult } from '../config-types.ts'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CONFIG_PATH, type ConfigOptions, type ConfigPreview, type ConfigRequest, type ConfigResult } from '../config-types.ts'
 import type { LibraryView } from '../library-types.ts'
-import { ActionDialog } from './action-dialog.tsx'
+import { ACTION_DIALOG_CLASS, ActionDialog } from './action-dialog.tsx'
+import { ConfigPasswordError, readConfigFile } from './config-file.ts'
 
 async function request(body: ConfigRequest, signal?: AbortSignal): Promise<{ preview?: ConfigPreview; imported?: ConfigResult; library?: LibraryView }> {
   const response = await fetch(CONFIG_PATH, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), ...signal === undefined ? {} : { signal } })
@@ -19,6 +20,9 @@ export function ConfigImport({ onClose, onImported }: {
   const input = useRef<HTMLInputElement>(null)
   const submitting = useRef(false)
   const reading = useRef(0)
+  const readAbort = useRef<AbortController>()
+  const unlocking = useRef(false)
+  const [locked, setLocked] = useState<{ file: File; error?: string }>()
   const [fileName, setFileName] = useState('')
   const [config, setConfig] = useState<unknown>()
   const [options, setOptions] = useState<ConfigOptions>({ presets: true, roles: true, conflict: 'skip' })
@@ -28,8 +32,8 @@ export function ConfigImport({ onClose, onImported }: {
   const [loading, setLoading] = useState(false)
   const [retry, setRetry] = useState(0)
   const changeOptions = (next: ConfigOptions) => { setPreview(undefined); setLoading(true); setOptions(next) }
-  // File.text 不能中断，用序号防止已关闭弹窗或旧文件的结果覆盖当前选择。
-  useEffect(() => () => { reading.current++ }, [])
+  // 中断解压，并用序号防止已关闭弹窗或旧文件的结果覆盖当前选择。
+  useEffect(() => () => { reading.current++; readAbort.current?.abort() }, [])
   useEffect(() => {
     setPreview(undefined)
     if (config === undefined) return
@@ -45,8 +49,11 @@ export function ConfigImport({ onClose, onImported }: {
       .finally(() => { if (!abort.signal.aborted) setLoading(false) })
     return () => { abort.abort() }
   }, [config, options, retry])
-  const choose = async (file: File | undefined) => {
+  const choose = async (file: File | undefined, password?: string) => {
     if (file === undefined) return
+    readAbort.current?.abort()
+    const abort = new AbortController()
+    readAbort.current = abort
     const generation = ++reading.current
     setConfig(undefined)
     setPreview(undefined)
@@ -54,17 +61,19 @@ export function ConfigImport({ onClose, onImported }: {
     setFileName(file.name)
     setLoading(true)
     try {
-      if (file.size > CONFIG_MAX_BYTES) throw new Error('配置文件不能超过 2 MB')
-      const text = await file.text()
+      const parsed = await readConfigFile(file, abort.signal, password)
       if (generation !== reading.current) return
-      let parsed: unknown
-      try { parsed = JSON.parse(text.replace(/^\uFEFF/, '')) } catch { throw new Error('配置文件不是有效的 JSON，请重新选择') }
-      if (parsed === undefined || parsed === null) throw new Error('配置文件为空，请重新选择')
+      setLocked(undefined)
       setConfig(parsed)
     } catch (error) {
-      if (generation === reading.current) { setError(messageOf(error)); setLoading(false) }
+      if (generation === reading.current) {
+        if (error instanceof ConfigPasswordError) setLocked({ file, ...error.retry ? { error: error.message } : {} })
+        else { setLocked(undefined); setError(messageOf(error)) }
+        setLoading(false)
+      }
     }
   }
+  const cancelPassword = () => { reading.current++; readAbort.current?.abort(); setLocked(undefined); setLoading(false) }
   const confirm = async () => {
     if (submitting.current || preview === undefined || loading) return
     submitting.current = true
@@ -80,10 +89,10 @@ export function ConfigImport({ onClose, onImported }: {
     } finally { submitting.current = false; setBusy(false) }
   }
   const additions = preview?.entries.filter(entry => entry.status === 'add').length ?? 0
-  return <ActionDialog title="导入配置" cancelLabel="关闭" confirmLabel="确认导入" busy={busy} error={error}
+  return <><ActionDialog title="导入配置" cancelLabel="关闭" confirmLabel="确认导入" busy={busy} error={error}
     confirmDisabled={loading || additions === 0} onCancel={onClose} onConfirm={() => { void confirm() }}>
     <div className="qc-import">
-      <input ref={input} type="file" accept=".json,application/json" hidden aria-label="配置文件"
+      <input ref={input} type="file" accept=".json,.zip,application/json,application/zip,application/x-zip-compressed" hidden aria-label="配置文件"
         onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void choose(file) }} />
       <div><Button size="sm" variant="outline" disabled={busy || loading} onClick={() => { input.current?.click() }}>选择配置文件</Button></div>
       {fileName && <div className="qc-filename">{fileName}</div>}
@@ -106,6 +115,33 @@ export function ConfigImport({ onClose, onImported }: {
         onClick={() => { setRetry(n => n + 1) }}>重新预览</Button></div>}
     </div>
   </ActionDialog>
+    {locked !== undefined && <PasswordDialog busy={loading} error={locked.error} onCancel={cancelPassword} onUnlock={async password => {
+      if (unlocking.current) return
+      unlocking.current = true
+      try { await choose(locked.file, password) } finally { unlocking.current = false }
+    }} />}
+  </>
+}
+
+function PasswordDialog({ busy, error, onCancel, onUnlock }: {
+  readonly busy: boolean; readonly error: string | undefined; readonly onCancel: () => void
+  readonly onUnlock: (password: string) => Promise<void>
+}) {
+  const [password, setPassword] = useState('')
+  const input = useRef<HTMLInputElement>(null)
+  const wasBusy = useRef(busy)
+  useEffect(() => {
+    if (wasBusy.current && !busy) input.current?.focus()
+    wasBusy.current = busy
+  }, [busy])
+  const submit = () => { if (!busy && password.length > 0) { const value = password; setPassword(''); void onUnlock(value) } }
+  return <Modal open title="输入 ZIP 密码" closeLabel="关闭" className={ACTION_DIALOG_CLASS} backdropBlur={false} onClose={onCancel}
+    footer={<><Button variant="outline" onClick={onCancel}>取消</Button>
+      <Button variant="primary" disabled={busy || password.length === 0} onClick={submit}>{busy ? '正在解密…' : '解锁'}</Button></>}>
+    <label className="qc-password">密码<input ref={input} type="password" value={password} data-modal-autofocus="" autoComplete="off" disabled={busy}
+      onChange={e => { setPassword(e.target.value) }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit() } }} /></label>
+    {error !== undefined && <div className="qa-message qa-error" role="alert">{error}</div>}
+  </Modal>
 }
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error) }

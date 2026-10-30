@@ -17,7 +17,7 @@ function keys(value: Record<string, unknown>, allowed: readonly string[], label:
 }
 
 function parsePackage(value: unknown): ConfigPackage {
-  if (Buffer.byteLength(JSON.stringify(value) ?? '') > CONFIG_MAX_BYTES) throw new TypeError('配置文件不能超过 2 MB')
+  if (Buffer.byteLength(JSON.stringify(value) ?? '') > CONFIG_MAX_BYTES) throw new TypeError('配置文件不能超过 10 MB')
   if (!isRecord(value) || value['format'] !== 'dsh-qqbot-config' || value['version'] !== 1) {
     throw new TypeError('不是支持的 QQ Bot 配置包，请使用格式为 dsh-qqbot-config、版本为 1 的 JSON 文件')
   }

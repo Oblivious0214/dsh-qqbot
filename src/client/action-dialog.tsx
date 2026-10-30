@@ -4,7 +4,8 @@ import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 
 export const ACTION_DIALOG_CLASS = 'dsh-qqbot-action-dialog'
 export const ACTION_DIALOG_CSS = `
-[role="dialog"].${ACTION_DIALOG_CLASS} { width: min(420px, 100%); max-height: 100%; }
+[role="dialog"].${ACTION_DIALOG_CLASS} { width: min(420px, 100%); max-height: 100%; font-size: 14px; line-height: 22px; }
+.${ACTION_DIALOG_CLASS} .qa-message button { font-size: 14px; line-height: 22px; min-height: 36px; }
 .${ACTION_DIALOG_CLASS} .qa-content { min-height: 0; overflow: auto; }
 .${ACTION_DIALOG_CLASS} .qa-message { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
 .${ACTION_DIALOG_CLASS} .qa-error { margin-top: 12px; color: var(--dsw-alias-state-warn-label); }
@@ -18,7 +19,9 @@ export const ACTION_DIALOG_CSS = `
 .${ACTION_DIALOG_CLASS} .qc-preview li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
 .${ACTION_DIALOG_CLASS} .qc-preview li > span { min-width: 0; overflow-wrap: anywhere; }
 .${ACTION_DIALOG_CLASS} .qc-preview small { flex: none; color: var(--dsw-alias-label-secondary); }
-.${ACTION_DIALOG_CLASS} .qc-filename { overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.${ACTION_DIALOG_CLASS} .qc-filename { overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; }
+.${ACTION_DIALOG_CLASS} .qc-password { display: flex; flex-direction: column; gap: 8px; }
+.${ACTION_DIALOG_CLASS} .qc-password input { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; font: inherit; background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-primary); border: 1px solid var(--dsw-alias-border-l4); border-radius: 8px; }
 `
 
 export function ActionDialog({ title, children, onCancel, cancelLabel = '取消', onConfirm, confirmLabel = '确认', confirmDisabled = false, busy = false, error }: {

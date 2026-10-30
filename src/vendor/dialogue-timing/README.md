@@ -6,7 +6,7 @@
 
 | 文件 | SHA-256 |
 | --- | --- |
-| protocol.js | 0e00f29191b4f224a9b0c92b93368e6ad93f8e2c36da43e6a3dc5647dc738ffb |
+| protocol.js | 30bfb4a6a24d6b0035d8f52bdb063fc1948872afc414aaba9a1ef04bbc7a9fdd |
 | protocol.d.ts | 5fa091bea3384ca1150ecbed69b6684cc1d36446ba3557c51866469263d25433 |
 | interruptions.js | 6bb4929835571974ddfa619cd808a1e2e1d2443acb325b135f37fd231f2db505 |
 | interruptions.d.ts | 44127a298770a81c4163694c3b2c2112ae1798c0074d424a552e0f71496ab322 |

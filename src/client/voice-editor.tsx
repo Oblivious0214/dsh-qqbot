@@ -325,11 +325,12 @@ export function VoicePage({ voice, roles, onDirty, onBusy, guard, onOpenRole, on
       : removing.kind === 'engine' ? '会同时移除这个服务保存的密钥。' : usedRoles.length > 0 ? `${usedRoles.map(r => r.name).join('、')}将改为显示文字。` : '这个音色将从列表移除。'}
   </ActionDialog>
   return <div className="qv-page">
-    <div className="qv-heading"><h3>语音</h3><label className="ql-toggle"><span>启用语音</span><input type="checkbox"
+    <div className="qv-heading"><h3>语音</h3></div>
+    <label className="ql-toggle"><span>启用语音</span><input type="checkbox"
       checked={voice.settings.enabled} disabled={action.busy} onChange={event => {
         if (!event.target.checked) { setPreview(undefined); setRemoving(undefined); setAssigning(undefined) }
         void action.run({ action: 'settings.save', settings: { ...voice.settings, enabled: event.target.checked } })
-      }} /></label></div>
+      }} /></label>
     {removing === undefined && action.error !== undefined && <ActionDialog title="语音设置未保存" cancelLabel="知道了" onCancel={action.clearError}>
       {action.error}
     </ActionDialog>}

@@ -55,8 +55,8 @@ export default [
     dts: false,
     clean: false,
     sourcemap: true,
-    // 只允许把 Cropper.js 打包进 client.js（不从 CDN 加载），打包了别的依赖时构建报错。neverBundle 是 DSH web/src/platform.ts 的 PLATFORM_MODULES。
-    deps: { onlyBundle: ['cropperjs'], neverBundle: [
+    // Cropper.js 和 ZIP 解密代码随插件打包，不从 CDN 加载。neverBundle 是宿主平台模块。
+    deps: { onlyBundle: ['cropperjs', '@zip.js/zip.js'], neverBundle: [
       'react',
       'react/jsx-runtime',
       'react-dom',

@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { SessionBindings } from './bindings.ts'
 import { QqbotData } from './content.ts'
+import { initializeDefaultConfiguration } from './defaults.ts'
 import * as library from './library.ts'
 import { MemoryCoordinator } from './memory-coordinator.ts'
 import { JailbreakStore } from './presets.ts'
@@ -51,6 +52,7 @@ export class QqbotService extends Service implements QqbotRegistry {
     super(ctx, 'qqbot')
     const warn = (message: string) => ctx.logger.warn(message)
     const dir = dataDir(dshHome())
+    initializeDefaultConfiguration(dir, warn)
     this.ui = new ui.UiStore(dir, warn)
     this.voice = new voice.VoiceStore(dir, warn)
     this.content = new QqbotData(

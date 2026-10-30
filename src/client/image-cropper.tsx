@@ -204,10 +204,10 @@ export function ImageCropper({ kind, file, busy, error, onChangeFile, onCancel, 
 
 /** 弹窗样式，全部在 CROPPER_CLASS 下；Cropper.js 自带的样式也在这个前缀下。 */
 export const CROPPER_CSS = `${cropperCss}
-[role="dialog"].${CROPPER_CLASS} { width: min(720px, 100%); max-height: 100%; }
+[role="dialog"].${CROPPER_CLASS} { width: min(720px, 100%); max-height: 100%; font-size: 14px; line-height: 22px; }
 .${CROPPER_CLASS} .qc-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-.${CROPPER_CLASS} .qc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--dsw-alias-label-secondary); }
-.${CROPPER_CLASS} .qc-ratio { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.${CROPPER_CLASS} .qc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
+.${CROPPER_CLASS} .qc-ratio { display: flex; align-items: center; gap: 6px; font-size: 14px; }
 .${CROPPER_CLASS} .qc-ratio select { font: inherit; padding: 4px 8px; border-radius: var(--dsw-radius-sm); border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); color: inherit; }
 .${CROPPER_CLASS} .qc-stage { position: relative; height: clamp(160px, 42vh, 380px); overflow: hidden; border-radius: 12px; background: #151b24; touch-action: none; }
 .${CROPPER_CLASS} .qc-stage > img { display: block; max-width: 100%; max-height: 100%; }
@@ -216,8 +216,8 @@ export const CROPPER_CSS = `${cropperCss}
 .${CROPPER_CLASS} .cropper-view-box { outline: 2px solid var(--dsw-alias-brand-primary); outline-color: var(--dsw-alias-brand-primary); }
 .${CROPPER_CLASS} .cropper-line, .${CROPPER_CLASS} .cropper-point { background-color: var(--dsw-alias-brand-primary); }
 .${CROPPER_CLASS} .cropper-point { width: 7px; height: 7px; opacity: 1; }
-.${CROPPER_CLASS} .qc-zoom { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 13px; }
+.${CROPPER_CLASS} .qc-zoom { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; }
 .${CROPPER_CLASS} .qc-zoom input { flex: 1; accent-color: var(--dsw-alias-brand-primary); }
-.${CROPPER_CLASS} .qc-error { margin-top: 8px; font-size: 12px; color: var(--dsw-alias-state-warn-label); }
+.${CROPPER_CLASS} .qc-error { margin-top: 8px; font-size: 13px; line-height: 20px; color: var(--dsw-alias-state-warn-label); }
 .${CROPPER_CLASS} .qc-reset { margin-right: auto; }
 `

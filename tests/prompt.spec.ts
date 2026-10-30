@@ -8,6 +8,7 @@ import { SEGMENT_RULE, VOICE_RULE } from '../src/format.ts'
 import { SECTION_NAME } from '../src/order.ts'
 import { QqbotRegistryStore } from '../src/registry.ts'
 import { DEFAULT_VOICE_SETTINGS } from '../src/voice-types.ts'
+import { DEFAULT_JAILBREAK } from '../src/presets.ts'
 
 type AssembleInput = { agent?: { id: string }; toolSet?: { view: (scope: unknown) => ReadonlyMap<string, unknown> } }
 type Text = string | ((context: AssembleInput) => string)
@@ -104,7 +105,7 @@ describe('prompt plugin', () => {
     const fake = await setup()
     expect(assembleParts(fake.qqbot.content, fake.qqbot.store, { id: 's1' }).map(p => p.name))
       .toEqual(['qqbot:jb-head', 'qqbot:format-segment', 'qqbot:format-voice'])
-    expect(text(fake, 's1')).toBe(`所有角色均为成年人。\n\n${SEGMENT_RULE}\n\n${VOICE_RULE}`)
+    expect(text(fake, 's1')).toBe(`${DEFAULT_JAILBREAK.head}\n\n${SEGMENT_RULE}\n\n${VOICE_RULE}`)
   })
 
   it('diagnostic assembly without an agent has no per-session text', async () => {

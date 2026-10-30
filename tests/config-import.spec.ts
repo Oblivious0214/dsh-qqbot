@@ -5,7 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionBindings } from '../src/bindings.ts'
 import { QqbotData } from '../src/content.ts'
-import { CONFIG_PATH, type ConfigOptions } from '../src/config-types.ts'
+import { CONFIG_MAX_BYTES, CONFIG_PATH, type ConfigOptions } from '../src/config-types.ts'
 import { importConfiguration, previewConfiguration } from '../src/config-import.ts'
 import { JailbreakStore } from '../src/presets.ts'
 import { RoleLibrary } from '../src/roles.ts'
@@ -191,13 +191,17 @@ describe('configuration route lifecycle', () => {
       expect((await call('{')).status).toBe(400)
       expect((await call({ action: 'invalid' })).status).toBe(400)
       expect((await call({ action: 'preview', config: {}, options })).status).toBe(400)
+      const large = { format: config.format, version: 1, presets: Array.from({ length: 40 }, (_, n) => ({ name: `大包 ${n}`, head: '字'.repeat(20000) })) }
+      expect(Buffer.byteLength(JSON.stringify(large))).toBeGreaterThan(2 * 1024 * 1024)
+      expect((await call({ action: 'preview', config: large, options })).status).toBe(200)
+      expect((await call({ action: 'preview', config: { ...large, padding: 'x'.repeat(CONFIG_MAX_BYTES) }, options })).status).toBe(413)
       const response = await call({ action: 'preview', config, options })
       expect(response.status).toBe(200)
       const { preview } = await response.json() as { preview: { revision: string } }
       const imported = await call({ action: 'import', config, options, revision: preview.revision })
       expect(await imported.json()).toMatchObject({ imported: { presets: 1, roles: 1 }, library: { roles: [{ name: '测试角色' }] } })
       expect((await call({ action: 'import', config, options, revision: preview.revision })).status).toBe(409)
-      expect((await call('x'.repeat(2 * 1024 * 1024 + 4097))).status).toBe(413)
+      expect((await call('x'.repeat(CONFIG_MAX_BYTES + 4097))).status).toBe(413)
     } finally { await fiber.dispose() }
     expect(routes.has(CONFIG_PATH)).toBe(false)
   })

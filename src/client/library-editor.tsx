@@ -31,14 +31,16 @@ export const EDITOR_CLASS = 'dsh-qqbot-library'
 
 export const EDITOR_CSS = `
 ${VOICE_EDITOR_CSS}
-[role="dialog"].${EDITOR_CLASS} { width: min(960px, 100%); max-height: 100%; }
+[role="dialog"].${EDITOR_CLASS} { width: min(960px, 100%); max-height: 100%; font-size: 14px; line-height: 22px; }
 .${EDITOR_CLASS} .ql-modal-content, .${EDITOR_CLASS} .ql-modal-content > :last-child { min-height: 0; }
 .${EDITOR_CLASS} .ql-body { display: flex; flex-direction: column; gap: 10px; }
 .${EDITOR_CLASS} .ql-tabs { display: flex; gap: 6px; }
+/* 与 DSH 设置页一致：正文和控件 14/22，辅助文字 13/20；仅作用于本编辑器。 */
+.${EDITOR_CLASS} .ql-body button { font-size: 14px; line-height: 22px; min-height: 36px; }
 .${EDITOR_CLASS} .ql-import-button { margin-left: auto; }
 .${EDITOR_CLASS} .ql-main { display: flex; gap: 12px; height: 64vh; min-height: 320px; }
 .${EDITOR_CLASS} .ql-list { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; overflow: auto; border-right: 0.5px solid var(--dsw-alias-border-l2); padding-right: 8px; }
-.${EDITOR_CLASS} .ql-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 8px; border: none; border-radius: var(--dsw-radius-sm); background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.${EDITOR_CLASS} .ql-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 8px; border: none; border-radius: var(--dsw-radius-sm); background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 .${EDITOR_CLASS} .ql-row:hover { background: var(--dsw-alias-bg-layer-1); }
 .${EDITOR_CLASS} .ql-row[aria-current="true"] { background: var(--dsw-alias-bg-layer-2); font-weight: 600; }
 .${EDITOR_CLASS} .ql-row .ql-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -47,25 +49,25 @@ ${VOICE_EDITOR_CSS}
 .${EDITOR_CLASS} .ql-fields { overflow: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 0 4px 12px 0; }
 .${EDITOR_CLASS} .ql-fields > * { flex-shrink: 0; }
 .${EDITOR_CLASS} .ql-savebar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-top: 1px solid var(--dsw-alias-border-l2); padding: 10px 0 0; }
-.${EDITOR_CLASS} .ql-save-status { flex: 1; min-width: 80px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.${EDITOR_CLASS} .ql-save-status { flex: 1; min-width: 80px; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
 .${EDITOR_CLASS} .ql-body, .${EDITOR_CLASS} .ql-main { min-height: 0; }
 .${EDITOR_CLASS} .ql-tabs { flex-wrap: wrap; flex-shrink: 0; }
 .${EDITOR_CLASS} .ql-field > input[type="number"] { width: 120px; max-width: 100%; }
 .${EDITOR_CLASS} .ql-example-fold { flex: none; margin-top: 8px; }
-.${EDITOR_CLASS} .ql-example-fold > summary { cursor: pointer; font-size: 13px; margin-bottom: 8px; }
-.${EDITOR_CLASS} .ql-example { border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; overflow: hidden; font-size: 13px; }
+.${EDITOR_CLASS} .ql-example-fold > summary { cursor: pointer; font-size: 14px; margin-bottom: 8px; }
+.${EDITOR_CLASS} .ql-example { border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; overflow: hidden; font-size: 14px; }
 .${EDITOR_CLASS} .ql-example [data-chat-flow] { display: flex; flex-direction: column; gap: 18px; box-sizing: border-box; }
 .${EDITOR_CLASS} .ql-example-user-row { display: flex; justify-content: flex-end; }
 .${EDITOR_CLASS} .ql-example-user { padding: 9px 14px; background: var(--dsw-specific-bubble); max-width: 85%; overflow-wrap: anywhere; }
 .${EDITOR_CLASS} .ql-group { flex: none; border-top: 1px solid var(--dsw-alias-border-l2); }
-.${EDITOR_CLASS} .ql-group > summary { display: flex; align-items: center; gap: 8px; list-style: none; padding: 12px 0; cursor: pointer; font-size: 13px; color: var(--dsw-alias-label-primary); }
+.${EDITOR_CLASS} .ql-group > summary { display: flex; align-items: center; gap: 8px; list-style: none; padding: 12px 0; cursor: pointer; font-size: 14px; color: var(--dsw-alias-label-primary); }
 .${EDITOR_CLASS} .ql-group > summary::-webkit-details-marker { display: none; }
 .${EDITOR_CLASS} .ql-group > summary > strong { flex: none; }
 .${EDITOR_CLASS} .ql-group > summary::before { content: '›'; font-size: 18px; line-height: 1; transition: transform .12s; }
 .${EDITOR_CLASS} .ql-group[open] > summary::before { transform: rotate(90deg); }
 .${EDITOR_CLASS} .ql-group-body { display: flex; flex-direction: column; gap: 12px; padding: 0 0 6px; }
 .${EDITOR_CLASS} .qm-choices { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; }
-.${EDITOR_CLASS} .qm-choices > legend { padding: 0 0 6px; font-size: 13px; font-weight: 500; color: var(--dsw-alias-label-primary); }
+.${EDITOR_CLASS} .qm-choices > legend { padding: 0 0 6px; font-size: 14px; font-weight: 500; color: var(--dsw-alias-label-primary); }
 .${EDITOR_CLASS} .qm-choices .ql-toggle { max-width: 100%; overflow-wrap: anywhere; }
 .${EDITOR_CLASS} .qm-choices input { flex: none; }
 .${EDITOR_CLASS} .ql-field { display: flex; flex-direction: column; gap: 4px; }
@@ -91,20 +93,20 @@ ${VOICE_EDITOR_CSS}
   .${EDITOR_CLASS} .ql-inline > .ql-actions { justify-content: flex-start; }
 }
 .${EDITOR_CLASS} .ql-field > span[title] { cursor: help; }
-.${EDITOR_CLASS} .ql-field > span { font-size: 13px; font-weight: 500; color: var(--dsw-alias-label-primary); }
-.${EDITOR_CLASS} .ql-field > small, .${EDITOR_CLASS} .ql-note { font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.${EDITOR_CLASS} .ql-field > span { font-size: 14px; font-weight: 500; color: var(--dsw-alias-label-primary); }
+.${EDITOR_CLASS} .ql-field > small, .${EDITOR_CLASS} .ql-note { font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
 .${EDITOR_CLASS} .ql-field input, .${EDITOR_CLASS} .ql-field select, .${EDITOR_CLASS} .ql-field textarea {
   padding: 6px 10px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px;
+  background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px;
 }
 .${EDITOR_CLASS} .ql-field input:disabled { color: var(--dsw-alias-label-secondary); }
-.${EDITOR_CLASS} .ql-field textarea { resize: vertical; font-family: var(--dsw-font-mono, monospace); font-size: 12px; line-height: 18px; }
+.${EDITOR_CLASS} .ql-field textarea { resize: vertical; font-family: var(--dsw-font-mono, monospace); font-size: 14px; line-height: 22px; }
 .${EDITOR_CLASS} .ql-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.${EDITOR_CLASS} .ql-state { padding: 6px 10px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-1); font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.${EDITOR_CLASS} .ql-state { padding: 6px 10px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-1); font-size: 13px; line-height: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .${EDITOR_CLASS} .ql-warn { color: var(--dsw-alias-state-warn-label); }
-.${EDITOR_CLASS} .ql-empty { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.${EDITOR_CLASS} .ql-empty { color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; }
 .${EDITOR_CLASS} .ql-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 16px; }
-.${EDITOR_CLASS} .ql-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dsw-alias-label-primary); }
+.${EDITOR_CLASS} .ql-toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--dsw-alias-label-primary); }
 .${EDITOR_CLASS} .ql-avatar { width: 40px; height: 40px; border-radius: 50%; corner-shape: round; object-fit: cover; flex: none; }
 .${EDITOR_CLASS} .ql-avatar-initial { display: flex; align-items: center; justify-content: center; background: var(--dsw-alias-brand-primary); color: #fff; font-weight: 600; }
 .${EDITOR_CLASS} .ql-dual { display: grid; grid-template-columns: minmax(160px, 320px) auto; align-items: center; gap: 12px; justify-content: start; }
@@ -121,11 +123,11 @@ ${VOICE_EDITOR_CSS}
 .${EDITOR_CLASS} .ql-dual input[type="range"]:focus-visible { outline: none; }
 .${EDITOR_CLASS} .ql-dual input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
 .${EDITOR_CLASS} .ql-dual input[type="range"]:disabled::-webkit-slider-thumb { cursor: default; opacity: 0.5; }
-.${EDITOR_CLASS} .ql-dual output { font-size: 12px; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.${EDITOR_CLASS} .ql-dual output { font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .${EDITOR_CLASS} .ql-palettes { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 4px 0 8px; }
 .${EDITOR_CLASS} .ql-palette { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 12px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 16px;
-  background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px;
+  background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px;
   cursor: pointer; transition: background .12s, border-color .12s; }
 .${EDITOR_CLASS} .ql-palette:hover { background: var(--dsw-alias-bg-layer-1); }
 .${EDITOR_CLASS} .ql-palette[aria-pressed="true"] { border-color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-1); }
@@ -307,16 +309,20 @@ function RoleForm({ view, ui, voice, busy, saveStatus, removeError, clearError, 
         onChange={(value) => { setDraft(({ voice: _, ...rest }) => value === undefined ? rest : { ...rest, voice: value }); onDirty(true) }} /></div>
     </details>
     {view.features.toy && <details className="ql-group" onToggle={event => { if (event.target === event.currentTarget) setToyOpen(event.currentTarget.open) }}><summary><strong>联动玩具</strong></summary><div className="ql-group-body">
-    <Field label="自主性上限" inline hint="实际档位取这里和联动设置里较低的一个">
-      <select value={draft.proactivity ?? 'high'} onChange={(event) => {
-        // 高主动等于不限，不写进角色卡。
-        const value = ROLE_PROACTIVITIES.find(p => p === event.target.value && p !== 'high')
-        setDraft(({ proactivity: _, ...rest }) => value === undefined ? rest : { ...rest, proactivity: value })
+    <Field label="自主性" inline hint="AI 控制设备的自主程度：从主要依照用户要求，到更多依据剧情走向和角色性格自主决定。随角色保存，下一轮生效。">
+      <select value={draft.proactivity ?? 'follow'} onChange={(event) => {
+        const value = ROLE_PROACTIVITIES.find(p => p === event.target.value)
+        if (value === undefined) return
+        setDraft(rest => ({ ...rest, proactivity: value }))
         onDirty(true)
       }}>
         {ROLE_PROACTIVITIES.map(p => <option key={p} value={p}>{ROLE_PROACTIVITY_LABELS[p]}</option>)}
       </select>
     </Field>
+    <details className="ql-group"><summary>自主性说明</summary><div className="ql-group-body">
+      <p className="ql-note">AI 控制设备的自主程度：低自主性主要依照用户要求，中自主性结合剧情和角色性格适度调整，高自主性更多依据剧情和角色性格自主决定。随角色保存，下一轮生效；三档提示词可在下方修改。</p>
+    </div></details>
+    {draft.proactivity === 'high' && <p className="ql-note">高自主性下，在对话里说“停”“慢一点”时，AI 可能按人设继续。需要立即停下时，请用暂停按钮或暂停快捷键。</p>}
     <ChoiceField label="偏好动作" hint="只是倾向，用户的要求优先；不选表示没有偏好"
       choices={MOTION_ACTIONS} labels={MOTION_ACTION_LABELS} value={draft.motionActions}
       onChange={(value) => { setDraft(({ motionActions: _, ...rest }) => value === undefined ? rest : { ...rest, motionActions: value }); onDirty(true) }} />

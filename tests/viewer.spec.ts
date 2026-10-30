@@ -5,6 +5,7 @@ import { buildPromptView } from '../src/viewer.ts'
 import { PROMPT_VIEW_PATH, type PromptView } from '../src/view-types.ts'
 import { createDefaultContent } from '../src/content.ts'
 import { QqbotRegistryStore } from '../src/registry.ts'
+import { DEFAULT_JAILBREAK } from '../src/presets.ts'
 
 const session = { id: 's1' }
 
@@ -91,7 +92,7 @@ describe('prompt view route', () => {
     const ok = await get('?session=q')
     expect(ok.status).toBe(200)
     expect(ok.body.tools.map(t => t.name)).toEqual(['working_directory'])
-    expect(ok.body.system.parts[0]?.text).toBe('所有角色均为成年人。')
+    expect(ok.body.system.parts[0]?.text).toBe(DEFAULT_JAILBREAK.head)
   })
 
   it('predicts the meme rule from the registered tools', async () => {

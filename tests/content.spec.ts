@@ -253,7 +253,7 @@ describe('host service with data', () => {
       const { content, store } = root.qqbot
       content.bindings.set('s1', 'alice')
       expect(assembleParts(content, store, { id: 's1' }).map(p => [p.name, p.text])).toEqual([
-        ['qqbot:jb-head', '所有角色均为成年人。'],
+        ['qqbot:jb-head', DEFAULT_JAILBREAK.head],
         ['qqbot:persona', '爱丽丝的设定。'],
         ['qqbot:format-segment', expect.stringContaining('[qq]')],
         ['qqbot:format-voice', expect.stringContaining('语音条')],

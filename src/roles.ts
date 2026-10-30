@@ -140,7 +140,7 @@ export interface RoleDraft extends MemePreferences {
   readonly persona: string
   /** 为空表示用默认档，保存时去掉这一行。 */
   readonly memeFrequency?: MemeFrequency
-  /** 为空表示不限，保存时去掉这一行。 */
+  /** 为空表示使用低自主性，保存时去掉这一行。 */
   readonly proactivity?: RoleProactivity
   readonly proactivityTexts?: RoleProactivityTexts
   /** 为空表示没有偏好，保存时去掉这一行。 */

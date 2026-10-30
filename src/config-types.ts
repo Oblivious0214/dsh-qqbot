@@ -1,6 +1,6 @@
 /** 可分享配置包只使用名称；本机内部键、凭据和授权不进入配置包。 */
 export const CONFIG_PATH = '/api/qqbot/config'
-export const CONFIG_MAX_BYTES = 2 * 1024 * 1024
+export const CONFIG_MAX_BYTES = 10 * 1024 * 1024
 
 export interface ConfigOptions {
   readonly presets: boolean

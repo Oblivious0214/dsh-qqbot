@@ -34,8 +34,8 @@ export interface MemePreferences {
 export const MEME_PROMPT_LIMIT = 4000
 
 /**
- * 角色卡 `proactivity` 字段：这个角色最多到哪个设备主动性档位，由设备插件和用户的选择取较低者。
- * 没写时不限（等于 high）。dsh-qqbot 自己不用它，只通过登记服务的 `role()` 交给设备插件。
+ * 角色卡 `proactivity` 字段：这个角色的设备自主性档位，设备插件直接使用。
+ * 没写时使用低自主性（follow）。dsh-qqbot 自己不用它，只通过登记服务的 `role()` 交给设备插件。
  */
 export const ROLE_PROACTIVITIES = ['follow', 'situational', 'high'] as const
 export type RoleProactivity = typeof ROLE_PROACTIVITIES[number]
@@ -73,7 +73,7 @@ export interface LibraryRole extends MemePreferences {
   readonly persona: string
   /** 没写时为空，用 DEFAULT_MEME_FREQUENCY。 */
   readonly memeFrequency?: MemeFrequency
-  /** 设备主动性上限；没写时为空，表示不限。 */
+  /** 设备自主性档位；没写时使用低自主性。 */
   readonly proactivity?: RoleProactivity
   readonly proactivityTexts?: RoleProactivityTexts
   /** 偏好的设备动作和范围；没写时为空。 */

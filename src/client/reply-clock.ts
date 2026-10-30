@@ -16,6 +16,8 @@ export interface SegmentStage {
   readonly text: string
   readonly cycles?: number
   readonly motion?: unknown
+  /** 回复的 JSON 坏了，这一段是尽量抽出来的文字，没有 cycles 和 motion。设备插件应停止本条回复的动作。 */
+  readonly salvaged?: true
 }
 
 export type SegmentEndReason =

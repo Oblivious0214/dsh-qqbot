@@ -20,8 +20,9 @@ import type { ChatNodeViewProps, PresentationInjected } from '@deepseek-ai/dsh-c
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { FactoryComponentPropsOf, InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Interruptions, chatActivity, submissionActivity } from '../vendor/dialogue-timing/interruptions.js'
-import { parseTimedStream, stripTimedReply } from '../vendor/dialogue-timing/protocol.js'
+import { stripTimedReply, type TimedStream } from '../vendor/dialogue-timing/protocol.js'
 import { segmentDelay } from '../ui-types.ts'
+import { decodeReply } from './decode.ts'
 import { imageUrl, REPLY_ATTRIBUTE, ROLE_ATTRIBUTE } from './qq-style.ts'
 import { ReplyClock } from './reply-clock.ts'
 import { SegmentsService } from './segments-service.ts'
@@ -126,10 +127,14 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     const replyId = `${data.turn}:${data.step}`
 
     // 流式时只取已经闭合的段落。生成结束时没写完的（用户停止生成）按已闭合的段落算作完整。
+    // JSON 坏了时尽量显示文字，见 decode.ts。
+    const lastGood = useRef<{ reply: string; stream: TimedStream } | undefined>(undefined)
     const decoded = useMemo(() => {
-      try { return { stream: parseTimedStream(source), error: '' } }
-      catch { return { stream: null, error: '分段回复格式无效，请让 AI 重试。' } }
-    }, [source])
+      const previous = lastGood.current?.reply === replyId ? lastGood.current.stream : null
+      const result = decodeReply(source, running, previous)
+      if (result.stream !== null && !result.stream.stages.some(stage => stage.salvaged === true)) lastGood.current = { reply: replyId, stream: result.stream }
+      return result
+    }, [source, running, replyId])
     const stream = decoded.stream
     const complete = stream !== null && (stream.complete || !running)
 
@@ -157,7 +162,9 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     if (frozen === undefined) model.remember(displayKey, props.sessionId, projected)
     const node = projected === data.blocks ? props.node : { ...props.node, data: { ...data, blocks: projected } }
     const hasRole = role !== undefined && role !== null
-    return <div {...{ [REPLY_ATTRIBUTE]: '', ...hasRole ? { [ROLE_ATTRIBUTE]: '' } : {} }} style={avatarStyle(ui, role)}>
+    const salvaged = stream?.stages.some(stage => stage.salvaged === true) === true
+    return <div {...{ [REPLY_ATTRIBUTE]: '', ...hasRole ? { [ROLE_ATTRIBUTE]: '' } : {} }} style={avatarStyle(ui, role)}
+      title={salvaged ? '格式有误，已尽量显示文字' : undefined}>
       {createElement(Native, { ...props, node, renderSlot: renderSlotFor(props) })}
     </div>
   }

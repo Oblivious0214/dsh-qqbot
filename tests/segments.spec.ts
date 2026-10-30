@@ -2,7 +2,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import { MAX_HOLD_MS, ReplyClock, type ClockTimers, type SegmentEndReason, type SegmentHooks, type SegmentStage } from '../src/client/reply-clock.ts'
 import { SegmentsService, type QqbotSegments } from '../src/client/segments-service.ts'
-import { parseTimedStream } from '../src/vendor/dialogue-timing/protocol.js'
+import { decodeReply, INVALID_REPLY } from '../src/client/decode.ts'
+import { parseTimedStream, salvageTimedReply } from '../src/vendor/dialogue-timing/protocol.js'
 
 /** 假时钟：advance(ms) 按时间顺序执行到点的计时器。 */
 function fakeTimers() {
@@ -58,6 +59,33 @@ describe('parseTimedStream', () => {
     expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":"a","cycles":0},{"text":"b","cycles":"3","motion":{"stop":true}},{"text":"c"')).toEqual({ stages: [{ text: 'a' }, { text: 'b', motion: { stop: true } }], complete: false })
     expect(() => parseTimedStream('[qq]{"version":1,"stages":[{"text":"a"}],"extra":1}[/qq]')).toThrow()
     expect(() => parseTimedStream('[qq]{"version":1,"stages":[{"text":"a"}]}[/qq][qq]{}[/qq]')).toThrow()
+  })
+})
+
+describe('salvage', () => {
+  // 正文里有未转义的引号和直接换行，JSON 解析失败。
+  const broken = '[qq]{"version":1,"stages":[{"text":"他说"你好"","motion":{"range":"full","tier":"high","action":"steady"}},{"text":"第二\n行\\n","cycles":3}]}[/qq]'
+
+  it('keeps only text from a block whose JSON does not parse', () => {
+    expect(salvageTimedReply(broken)).toEqual({ version: 1, stages: [
+      { text: '他说"你好"', salvaged: true }, { text: '第二\n行\n', salvaged: true },
+    ] })
+    // 能解析的块交给严格规则，不救；抽不出文字、正文含 [qq] 也不救。
+    expect(salvageTimedReply('[qq]{"version":1,"stages":[{"text":"a"}],"extra":1}[/qq]')).toBeNull()
+    expect(salvageTimedReply('[qq]{"version":1,"stages":[{"txt":"a"}[/qq]')).toBeNull()
+    expect(salvageTimedReply('[qq]{"version":1,"stages":[{"text":"a[dsh]"}[/qq]')).toBeNull()
+    expect(salvageTimedReply('普通回复')).toBeNull()
+  })
+
+  it('waits while streaming, then shows salvaged text after the stages already read', () => {
+    const head = parseTimedStream('[qq]{"version":1,"stages":[{"text":"他说"},{"text":"x')!
+    expect(head.stages).toEqual([{ text: '他说' }])
+    const tail = '[qq]{"version":1,"stages":[{"text":"他说"},{"text":"坏"引号"}]}[/qq]'
+    expect(decodeReply(tail, true, head)).toEqual({ stream: { stages: head.stages, complete: false }, error: '' })
+    expect(decodeReply(tail, false, head)).toEqual({ stream: { stages: [{ text: '他说' }, { text: '坏"引号', salvaged: true }], complete: true }, error: '' })
+    // 和已显示的对不上，或抽不出来时显示错误。
+    expect(decodeReply(tail, false, { stages: [{ text: '别的' }], complete: false })).toEqual({ stream: null, error: INVALID_REPLY })
+    expect(decodeReply('[qq]{"version":1,"stages":[{"text":"a"}],"extra":1}[/qq]', false, null)).toEqual({ stream: null, error: INVALID_REPLY })
   })
 })
 

@@ -77,6 +77,34 @@ export function parseTimedStream(text) {
   return { stages: parseTimedReply(`[qq]${JSON.stringify({ version: 1, stages })}[/qq]`).stages, complete: false };
 }
 
+// Best-effort text for a complete [qq] block whose JSON does not parse, typically an unescaped
+// quote or a raw newline inside a text value. Only text survives: cycles and motion are dropped,
+// and every stage is marked salvaged so the device plugin stops instead of guessing.
+// A text value ends at the quote followed by `,"key":` or `}`. The usual text checks still apply.
+// Returns null when the block parses (strict rules decide), is missing, or yields no text.
+export function salvageTimedReply(text) {
+  const matches = [...proseOnly(text).matchAll(/\[qq\]([\s\S]*?)\[\/qq\]/g)];
+  if (matches.length !== 1 || matches[0][1].length > 30000) return null;
+  const body = matches[0][1];
+  try { JSON.parse(body); return null; } catch { /* salvage below */ }
+  const stages = [];
+  const key = /"text"\s*:\s*"/g;
+  const end = /"(?=\s*(?:,\s*"[A-Za-z_]+"\s*:|\}))/g;
+  const escapes = { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
+  for (let m; (m = key.exec(body)) && stages.length < 20;) {
+    end.lastIndex = m.index + m[0].length;
+    let close;
+    while ((close = end.exec(body)) && body[close.index - 1] === '\\') { /* escaped quote */ }
+    if (!close) break;
+    const value = body.slice(m.index + m[0].length, close.index).replace(/\\(["\\/bfnrt]|u[0-9a-fA-F]{4})/g,
+      (_, c) => c[0] === 'u' ? String.fromCharCode(parseInt(c.slice(1), 16)) : escapes[c] ?? c);
+    if (!value.trim() || value.length > 4000 || /\[\/?(?:qq|dsh)\]/.test(value)) return null;
+    stages.push({ text: value, salvaged: true });
+    key.lastIndex = close.index + 1;
+  }
+  return stages.length ? { version: 1, stages } : null;
+}
+
 export function stripTimedReply(text) {
   return text.replace(/\[qq\][\s\S]*?(?:\[\/qq\]|$)/g, '')
     .replace(/\[(?:q(?:q(?:\])?)?)?$/g, '');

@@ -22,13 +22,15 @@ const draft = { id: 'alice', name: '爱丽丝', description: '室友', persona: 
 
 describe('role files written by the editor', () => {
   it('round-trips names with quotes and keeps other frontmatter fields', () => {
-    const existing = '---\nid: alice\nname: 旧名\nvoiceId: "v-1"\nmemeFrequency: low\ncustom: 保留\n---\n\n旧设定。\n'
-    const text = renderRole({ ...draft, name: '"小" 爱', description: '', memeFrequency: 'off' }, existing)
-    expect(text).toContain('voiceId: "v-1"')
+    const existing = '---\nid: alice\nname: 旧名\nvoice: v-0000000a\nmemeFrequency: low\ncustom: 保留\n---\n\n旧设定。\n'
+    const text = renderRole({ ...draft, name: '"小" 爱', description: '', memeFrequency: 'off', voice: 'v-0000000b' }, existing)
     expect(text).toContain('custom: 保留')
     expect(parseRole(text, 'x')).toMatchObject({
-      id: 'alice', name: '"小" 爱', description: '', persona: '爱丽丝的设定。', voiceId: 'v-1', memeFrequency: 'off',
+      id: 'alice', name: '"小" 爱', description: '', persona: '爱丽丝的设定。', voice: 'v-0000000b', memeFrequency: 'off',
     })
+    // 编辑器选"不用语音"时去掉这一行。
+    expect(renderRole(draft, text)).not.toContain('voice')
+    expect(() => new RoleLibrary(mkdtempSync(join(tmpdir(), 'dsh-qqbot-library-')), () => {}).save({ ...draft, voice: 'v-1' }, true)).toThrow('音色无效')
   })
 
   it('drops the meme frequency line when the editor resets it to default', () => {

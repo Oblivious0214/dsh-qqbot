@@ -1,5 +1,5 @@
 /**
- * dsh-qqbot host 层入口：提供 `ctx.qqbot` 登记服务、提示词查看器接口、角色/破限预设编辑接口和 QQ 界面设置接口。
+ * dsh-qqbot host 层入口：提供 `ctx.qqbot` 登记服务、提示词查看器接口、角色/破限预设编辑接口、QQ 界面设置接口和语音接口。
  * 本插件不注册任何提示词，不写 agent-preset-registry 的设置；
  * 提示词由 qqbot 预设内的 dsh-qqbot/prompt 组装。
  */
@@ -15,6 +15,7 @@ import { RoleLibrary } from './roles.ts'
 import { dataDir, dshHome } from './storage.ts'
 import * as ui from './ui.ts'
 import * as viewer from './viewer.ts'
+import * as voice from './voice.ts'
 
 export type { QqbotExtensionEntry, QqbotRegistry, QqbotRoleInfo, QqbotSession, QqbotText } from './registry.ts'
 
@@ -34,6 +35,8 @@ export class QqbotService extends Service implements QqbotRegistry {
   readonly content: QqbotData
   /** QQ 界面设置、角色头像和聊天背景，只给浏览器端显示用，不进提示词。 */
   readonly ui: ui.UiStore
+  /** 语音引擎、音色和朗读设置。API key 不在这里，在 DSH 凭据库。 */
+  readonly voice: voice.VoiceStore
   /**
    * 每个 agent 上一次真实组装出的系统提示词，供查看器对比"上一轮发出的"和"下一轮要发的"。
    * 以 agent 对象为键，agent 释放后自动回收；重启后为空。
@@ -45,6 +48,7 @@ export class QqbotService extends Service implements QqbotRegistry {
     const warn = (message: string) => ctx.logger.warn(message)
     const dir = dataDir(dshHome())
     this.ui = new ui.UiStore(dir, warn)
+    this.voice = new voice.VoiceStore(dir, warn)
     this.content = new QqbotData(new RoleLibrary(join(dir, 'roles'), warn), SessionBindings.at(dir, warn), JailbreakStore.at(dir, warn), warn)
     // 当前角色是会话中途会变的运行时状态，放 context 不放 section（CLAUDE.md 提示词规则）。
     // 写名称不写 id：id 是自动生成的内部键，对模型没有意义。改名也会让这一行变。
@@ -93,4 +97,5 @@ export function apply(ctx: Context): void {
   ctx.plugin(viewer)
   ctx.plugin(library)
   ctx.plugin(ui)
+  ctx.plugin(voice)
 }

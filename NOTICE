@@ -23,6 +23,10 @@ MIT License
 - src/client/image-editor.ts：src/client/image-cropper.tsx 的裁剪弹窗（取景、缩放范围、键盘操作、背景比例选项、
   Cropper.js 参数）迁移自该文件，界面改用 DSH 的 Modal 和 Button 重写。Cropper.js 的声明见下文
 
+- src/client/fish-voice.ts：src/client/voice-player.ts 的排队、取消和连续播放，src/client/voice-cards.tsx 的
+  语音条结构和时长显示，src/client/qq-style.ts 的语音条样式（QQ_FISH_VOICE_CSS）迁移自该文件，按本插件重写：
+  不再扫描整个页面，由每条回复交来要朗读的句子；合成走本插件自己的接口，不调用 dsh-fish-tts
+
 没有迁移自动拆分 Worker。以后迁移时，一并带上第三方声明，见原仓库 SEGMENTS-THIRD-PARTY-NOTICES.txt。
 
 ------------------------------------------------------------
@@ -83,6 +87,9 @@ MIT License，版权声明见原仓库 LICENSE
 
 ------------------------------------------------------------
 设计参考（未复制代码）
+
+- dsh-fish-tts，https://github.com/MaRi23333/dsh-fish-tts（MIT）：src/voice-engines.ts 的 Fish Audio 请求格式
+  （model 放请求头、reference_id、normalize、latency）参考了它的 synthesize()。
 
 - dsh-tavern，https://github.com/flizzywine/dsh-tavern：Agent 预设声明和隔离组压缩的写法。
 - AstrBot，https://github.com/AstrBotDevs/AstrBot（AGPL-3.0）：对话分段的行为规则。

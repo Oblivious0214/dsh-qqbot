@@ -1,0 +1,453 @@
+/**
+ * 语音：引擎（连接哪家服务）、音色（角色卡选的就是它）和朗读设置存 `<数据目录>/voice.json`。
+ * API key 存 DSH 的凭据库（`ctx.credentials`，记录键 `dsh-qqbot/tts-<引擎 id>`），不进 voice.json，GET 也不返回。
+ * 接口：VOICE_PATH 读写设置，SPEAK_PATH 合成一句返回音频。都走 DSH 的认证，只有 owner 能访问。
+ * 语音只在浏览器端朗读气泡，不进提示词，不影响前缀缓存。
+ */
+
+import { createHash, randomBytes } from 'node:crypto'
+import { join } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from './index.ts'
+import { isRecord, readJson, writeJson, type Warn } from './storage.ts'
+import { BadRequest } from './ui.ts'
+import { AUDIO_CONTENT_TYPES, normalizeBaseUrl, synthesize, SynthError, type Audio, type Fetch } from './voice-engines.ts'
+import {
+  DEFAULT_VOICE_SETTINGS, ENGINE_DEFAULTS, ENGINE_KEY, ENGINE_KINDS, SOVITS_LANGS, ENGINE_ID_PATTERN, SPEAK_PATH, SPEAK_TEXT_LIMIT, VOICE_DISPLAYS, VOICE_ID_PATTERN, VOICE_PATH,
+  type EngineConfig, type VoiceEngine, type VoiceEntry, type VoiceError, type VoiceParams, type VoiceSettings, type VoiceView,
+} from './voice-types.ts'
+
+export const name = 'qqbot-voice'
+
+/** 存 key 的地方。生产环境是 DSH 凭据库，测试用内存。 */
+export interface KeyStore {
+  read(engine: string): Promise<string | undefined>
+  /** null 表示删掉。 */
+  write(engine: string, key: string | null): Promise<void>
+}
+
+/** ctx.credentials 里本插件用到的部分。记录键是带品牌的字符串，这里只按字符串传，不引入凭据包的运行时。 */
+interface CredentialRecords {
+  readRecord(key: never): Promise<{ readonly kind: string; readonly key?: string } | undefined>
+  modifyRecord(key: never, mutate: (current: unknown) => Promise<{ kind: 'api-key'; key: string } | undefined>): Promise<unknown>
+  deleteRecord(key: never): Promise<void>
+}
+
+/** 记录键 `<scope>/<id>`，两段都要匹配 `^[a-z][a-z0-9-]*$`。 */
+function recordKey(engine: string): never {
+  if (!ENGINE_ID_PATTERN.test(engine)) throw new BadRequest('引擎 id 无效')
+  return `dsh-qqbot/tts-${engine}` as never
+}
+
+export function credentialKeyStore(credentials: CredentialRecords): KeyStore {
+  return {
+    async read(engine) {
+      const record = await credentials.readRecord(recordKey(engine))
+      return record?.kind === 'api-key' && typeof record.key === 'string' && record.key !== '' ? record.key : undefined
+    },
+    async write(engine, key) {
+      if (key === null) await credentials.deleteRecord(recordKey(engine))
+      else await credentials.modifyRecord(recordKey(engine), () => Promise.resolve({ kind: 'api-key', key }))
+    },
+  }
+}
+
+const NAME_LIMIT = 40
+const FIELD_LIMIT = 500
+const KEY_LIMIT = 1000
+
+function entryName(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.trim() === '' || value.length > NAME_LIMIT || /[\r\n]/.test(value)) {
+    throw new BadRequest(`${label}不能为空，不能换行，最多 ${NAME_LIMIT} 个字符`)
+  }
+  return value.trim()
+}
+
+function field(value: unknown, label: string, required: boolean): string {
+  if (value === undefined && !required) return ''
+  if (typeof value !== 'string' || value.length > FIELD_LIMIT || /[\r\n]/.test(value)) throw new BadRequest(`${label}不能换行，最多 ${FIELD_LIMIT} 个字符`)
+  if (required && value.trim() === '') throw new BadRequest(`${label}不能为空`)
+  return value.trim()
+}
+
+function oneOf<T extends string>(value: unknown, label: string, options: readonly T[]): T {
+  const found = options.find(option => option === value)
+  if (found === undefined) throw new BadRequest(`${label}无效`)
+  return found
+}
+
+export function validateVoiceSettings(value: unknown): VoiceSettings {
+  if (!isRecord(value)) throw new BadRequest('语音设置格式无效')
+  const { enabled, display, pregenerate, volume } = value
+  if (typeof enabled !== 'boolean' || typeof pregenerate !== 'boolean') throw new BadRequest('开关必须是开或关')
+  if (typeof volume !== 'number' || !Number.isFinite(volume) || volume < 0 || volume > 1) throw new BadRequest('音量必须在 0–1 之间')
+  return { enabled, display: oneOf(display, '显示方式', VOICE_DISPLAYS), pregenerate, volume }
+}
+
+function validateConfig(kind: VoiceEngine['kind'], value: unknown): EngineConfig {
+  if (!isRecord(value)) throw new BadRequest('连接设置格式无效')
+  const model = field(value['model'], '模型', false) || ENGINE_DEFAULTS[kind].model
+  if (kind === 'fish') return { baseUrl: '', model }
+  let baseUrl: string
+  try {
+    baseUrl = normalizeBaseUrl(field(value['baseUrl'], '地址', true))
+  } catch (error) {
+    throw new BadRequest(error instanceof Error ? error.message : String(error))
+  }
+  return { baseUrl, model: kind === 'gpt-sovits' ? '' : model }
+}
+
+function validateParams(kind: VoiceEngine['kind'], value: unknown): VoiceParams {
+  if (!isRecord(value)) throw new BadRequest('音色设置格式无效')
+  const label = kind === 'fish' ? '音色 ID' : kind === 'openai' ? '音色名称' : '参考音频路径'
+  const reference = field(value['reference'], label, true)
+  if (kind !== 'gpt-sovits') return { reference, promptText: '', promptLang: 'zh', textLang: 'zh' }
+  return {
+    reference,
+    promptText: field(value['promptText'], '参考音频的文字', false),
+    promptLang: oneOf(value['promptLang'], '参考音频的语言', SOVITS_LANGS),
+    textLang: oneOf(value['textLang'], '朗读语言', SOVITS_LANGS),
+  }
+}
+
+interface VoiceFile {
+  readonly settings: VoiceSettings
+  readonly engines: readonly VoiceEngine[]
+  readonly voices: readonly VoiceEntry[]
+}
+
+/** 读文件时逐条兜底：手改坏了一条，其他照常生效。 */
+function looseFile(value: unknown, warn: Warn): VoiceFile {
+  if (!isRecord(value)) return { settings: DEFAULT_VOICE_SETTINGS, engines: [], voices: [] }
+  let settings = DEFAULT_VOICE_SETTINGS
+  try { settings = validateVoiceSettings({ ...DEFAULT_VOICE_SETTINGS, ...isRecord(value['settings']) ? value['settings'] : {} }) } catch { /* 用默认值 */ }
+  const engines: VoiceEngine[] = []
+  for (const raw of Array.isArray(value['engines']) ? value['engines'] : []) {
+    try {
+      if (!isRecord(raw) || typeof raw['id'] !== 'string' || !ENGINE_ID_PATTERN.test(raw['id'])) throw new BadRequest('id 无效')
+      const kind = oneOf(raw['kind'], '引擎类型', ENGINE_KINDS)
+      engines.push({ id: raw['id'], name: entryName(raw['name'], '名称'), kind, config: validateConfig(kind, raw['config']) })
+    } catch (error) {
+      warn(`qqbot: voice.json 里有一个引擎读不出来，已跳过：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  const voices: VoiceEntry[] = []
+  for (const raw of Array.isArray(value['voices']) ? value['voices'] : []) {
+    try {
+      if (!isRecord(raw) || typeof raw['id'] !== 'string' || !VOICE_ID_PATTERN.test(raw['id'])) throw new BadRequest('id 无效')
+      const engine = engines.find(item => item.id === raw['engine'])
+      if (engine === undefined) throw new BadRequest('引擎不存在')
+      voices.push({ id: raw['id'], name: entryName(raw['name'], '名称'), engine: engine.id, params: validateParams(engine.kind, raw['params']) })
+    } catch (error) {
+      warn(`qqbot: voice.json 里有一个音色读不出来，已跳过：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  return { settings, engines, voices }
+}
+function freshId(prefix: 'e' | 'v', taken: readonly { readonly id: string }[]): string {
+  for (;;) {
+    const id = `${prefix}-${randomBytes(4).toString('hex')}`
+    if (!taken.some(item => item.id === id)) return id
+  }
+}
+
+export class VoiceStore {
+  private cache: VoiceFile | undefined
+
+  constructor(readonly dir: string, private readonly warn: Warn) {}
+
+  private get file(): string { return join(this.dir, 'voice.json') }
+
+  private get data(): VoiceFile {
+    this.cache ??= looseFile(readJson(this.file, this.warn), this.warn)
+    return this.cache
+  }
+
+  private write(next: VoiceFile): void {
+    writeJson(this.file, { version: 1, ...next })
+    this.cache = next
+  }
+
+  get settings(): VoiceSettings { return this.data.settings }
+  get engines(): readonly VoiceEngine[] { return this.data.engines }
+  get voices(): readonly VoiceEntry[] { return this.data.voices }
+
+  engine(id: string): VoiceEngine | undefined { return this.data.engines.find(item => item.id === id) }
+  voice(id: string): VoiceEntry | undefined { return this.data.voices.find(item => item.id === id) }
+
+  saveSettings(value: unknown): void {
+    this.write({ ...this.data, settings: validateVoiceSettings(value) })
+  }
+
+  /** 新建或修改引擎，返回 id。修改时不能换类型：音色参数按类型解释，换了就对不上。 */
+  saveEngine(value: unknown): VoiceEngine {
+    if (!isRecord(value)) throw new BadRequest('引擎格式无效')
+    const kind = oneOf(value['kind'], '引擎类型', ENGINE_KINDS)
+    const engineName = entryName(value['name'], '连接名称')
+    const config = validateConfig(kind, value['config'])
+    const { engines } = this.data
+    let id: string
+    if (value['id'] === undefined) {
+      id = freshId('e', engines)
+    } else {
+      const existing = typeof value['id'] === 'string' ? this.engine(value['id']) : undefined
+      if (existing === undefined) throw new Error('这个连接已经不在了，可能已在别处删除')
+      if (existing.kind !== kind) throw new BadRequest('不能改连接的类型，请新建一个')
+      id = existing.id
+    }
+    if (engines.some(item => item.id !== id && item.name === engineName)) throw new Error(`已经有叫"${engineName}"的连接，换个名称`)
+    const engine: VoiceEngine = { id, name: engineName, kind, config }
+    const index = engines.findIndex(item => item.id === id)
+    this.write({ ...this.data, engines: index < 0 ? [...engines, engine] : engines.with(index, engine) })
+    return engine
+  }
+
+  /** 还有音色用它时不能删，免得角色的音色悄悄失效。 */
+  removeEngine(id: string): void {
+    if (this.engine(id) === undefined) throw new Error('这个连接已经不在了')
+    const users = this.data.voices.filter(item => item.engine === id)
+    if (users.length > 0) throw new Error(`还有音色在用这个连接：${users.map(item => item.name).join('、')}，先删掉或改用别的连接`)
+    this.write({ ...this.data, engines: this.data.engines.filter(item => item.id !== id) })
+  }
+
+  /** 校验音色草稿，不保存。试听没保存的音色时也用它。 */
+  draftVoice(value: unknown): Omit<VoiceEntry, 'id'> & { readonly id?: string } {
+    if (!isRecord(value)) throw new BadRequest('音色格式无效')
+    const engine = typeof value['engine'] === 'string' ? this.engine(value['engine']) : undefined
+    if (engine === undefined) throw new BadRequest('先选一个连接')
+    const id = value['id']
+    if (id !== undefined && (typeof id !== 'string' || !VOICE_ID_PATTERN.test(id))) throw new BadRequest('音色 id 无效')
+    return { ...id === undefined ? {} : { id }, name: entryName(value['name'], '音色名称'), engine: engine.id, params: validateParams(engine.kind, value['params']) }
+  }
+
+  saveVoice(value: unknown): VoiceEntry {
+    const draft = this.draftVoice(value)
+    const { voices } = this.data
+    if (draft.id !== undefined && this.voice(draft.id) === undefined) throw new Error('这个音色已经不在了，可能已在别处删除')
+    const id = draft.id ?? freshId('v', voices)
+    if (voices.some(item => item.id !== id && item.name === draft.name)) throw new Error(`已经有叫"${draft.name}"的音色，换个名称`)
+    const voice: VoiceEntry = { ...draft, id }
+    const index = voices.findIndex(item => item.id === id)
+    this.write({ ...this.data, voices: index < 0 ? [...voices, voice] : voices.with(index, voice) })
+    return voice
+  }
+
+  /** 选了这个音色的角色之后显示文字；角色卡里的 voice 字段留着，同 id 的音色不会再生成。 */
+  removeVoice(id: string): void {
+    if (this.voice(id) === undefined) throw new Error('这个音色已经不在了')
+    this.write({ ...this.data, voices: this.data.voices.filter(item => item.id !== id) })
+  }
+}
+
+/** 编辑器要的全部数据。hasKey 逐个问凭据库，key 本身不出 host。 */
+export async function voiceView(store: VoiceStore, keys: KeyStore | undefined, saved?: string): Promise<VoiceView> {
+  const engines = await Promise.all(store.engines.map(async engine => ({
+    ...engine,
+    hasKey: keys === undefined || ENGINE_KEY[engine.kind] === 'none' ? false : await keys.read(engine.id).then(key => key !== undefined, () => false),
+  })))
+  return {
+    settings: store.settings,
+    engines,
+    voices: store.voices,
+    keyStore: keys !== undefined,
+    ...saved === undefined ? {} : { saved },
+  }
+}
+
+/** 执行一个操作，保存引擎或音色时返回 id。格式错误抛 BadRequest，操作失败抛 Error。 */
+export async function applyVoiceAction(store: VoiceStore, keys: KeyStore | undefined, body: unknown): Promise<string | undefined> {
+  if (!isRecord(body)) throw new BadRequest('请求格式无效')
+  const id = () => {
+    const value = body['id']
+    if (typeof value !== 'string' || value === '') throw new BadRequest('缺少 id')
+    return value
+  }
+  switch (body['action']) {
+    case 'settings.save':
+      store.saveSettings(body['settings'])
+      return
+    case 'engine.save': {
+      const draft = body['engine']
+      const apiKey = isRecord(draft) ? draft['apiKey'] : undefined
+      if (apiKey !== undefined && apiKey !== null && (typeof apiKey !== 'string' || apiKey.trim() === '' || apiKey.length > KEY_LIMIT || /\s/.test(apiKey.trim()))) {
+        throw new BadRequest('API key 格式不对')
+      }
+      if (apiKey !== undefined && keys === undefined) throw new Error('DSH 没有可用的凭据库，存不了 key')
+      // 先校验、再存 key、最后写连接：key 存失败时不留下一个没有 key 的新连接。
+      const engine = store.saveEngine(draft)
+      if (apiKey !== undefined && ENGINE_KEY[engine.kind] !== 'none') await keys!.write(engine.id, apiKey === null ? null : apiKey.trim())
+      return engine.id
+    }
+    case 'engine.remove': {
+      const engine = id()
+      store.removeEngine(engine)
+      // 连接已删，凭据库里的旧 key 删不掉也不影响使用。
+      try { await keys?.write(engine, null) } catch { /* 同上 */ }
+      return
+    }
+    case 'voice.save':
+      return store.saveVoice(body['voice']).id
+    case 'voice.remove':
+      store.removeVoice(id())
+      return
+    default:
+      throw new BadRequest('不认识的操作')
+  }
+}
+
+/** 合成过的句子留在内存里：同一个气泡反复点、换会话再回来都不用再花钱。重启后清空。 */
+export class AudioCache {
+  private readonly entries = new Map<string, Audio>()
+  private bytes = 0
+
+  constructor(private readonly maxEntries = 64, private readonly maxBytes = 32 * 1024 * 1024) {}
+
+  static key(engine: VoiceEngine, params: VoiceParams, text: string): string {
+    return createHash('sha256').update(JSON.stringify([engine.kind, engine.config, params, text])).digest('hex')
+  }
+
+  get(key: string): Audio | undefined {
+    const found = this.entries.get(key)
+    if (found !== undefined) { this.entries.delete(key); this.entries.set(key, found) }
+    return found
+  }
+
+  set(key: string, audio: Audio): void {
+    if (audio.bytes.length > this.maxBytes) return
+    const old = this.entries.get(key)
+    if (old !== undefined) { this.entries.delete(key); this.bytes -= old.bytes.length }
+    this.entries.set(key, audio)
+    this.bytes += audio.bytes.length
+    while (this.entries.size > this.maxEntries || this.bytes > this.maxBytes) {
+      const [oldest, entry] = this.entries.entries().next().value!
+      this.entries.delete(oldest)
+      this.bytes -= entry.bytes.length
+    }
+  }
+}
+
+/** 同时最多几个合成请求。浏览器端自己也排队，这里兜底，免得一个页面把本地服务压垮。 */
+const MAX_CONCURRENT = 3
+
+export class Speaker {
+  private running = 0
+
+  constructor(
+    private readonly store: VoiceStore,
+    private readonly keys: () => KeyStore | undefined,
+    private readonly cache = new AudioCache(),
+    private readonly fetchImpl?: Fetch,
+  ) {}
+
+  /**
+   * body：`{ voice: <id>, text }` 读已保存的音色；`{ draft: <音色草稿>, text }` 试听还没保存的音色。
+   * 格式错误抛 BadRequest，合成失败抛 SynthError。
+   */
+  async speak(body: unknown, signal?: AbortSignal): Promise<Audio> {
+    if (!isRecord(body)) throw new BadRequest('请求格式无效')
+    const text = body['text']
+    if (typeof text !== 'string' || text.trim() === '') throw new BadRequest('没有要朗读的文字')
+    if (text.length > SPEAK_TEXT_LIMIT) throw new BadRequest(`一次最多朗读 ${SPEAK_TEXT_LIMIT} 个字`)
+    let voice: Omit<VoiceEntry, 'id'>
+    if (body['draft'] !== undefined) {
+      voice = this.store.draftVoice(body['draft'])
+    } else {
+      const found = typeof body['voice'] === 'string' ? this.store.voice(body['voice']) : undefined
+      if (found === undefined) throw new SynthError('这个音色已经删掉了，在角色里重新选一个')
+      voice = found
+    }
+    const engine = this.store.engine(voice.engine)
+    if (engine === undefined) throw new SynthError('这个音色的连接已经删掉了')
+    const key = AudioCache.key(engine, voice.params, text.trim())
+    const cached = this.cache.get(key)
+    if (cached !== undefined) return cached
+    if (this.running >= MAX_CONCURRENT) throw new SynthError('正在生成的语音太多，稍后再试')
+    this.running++
+    try {
+      const keys = this.keys()
+      let apiKey: string | undefined
+      if (ENGINE_KEY[engine.kind] !== 'none' && keys !== undefined) {
+        try {
+          apiKey = await keys.read(engine.id)
+        } catch {
+          throw new SynthError('读不了 DSH 凭据库里的 key')
+        }
+      }
+      const audio = await synthesize({ engine, apiKey, params: voice.params, text: text.trim(), ...signal === undefined ? {} : { signal } }, this.fetchImpl)
+      this.cache.set(key, audio)
+      return audio
+    } finally {
+      this.running--
+    }
+  }
+}
+
+function json(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+  })
+}
+
+function fail(status: number, error: VoiceError['error'], message: string): Response {
+  return json(status, { error, message } satisfies VoiceError)
+}
+
+async function readBody(request: Request): Promise<unknown> {
+  try {
+    return await request.json()
+  } catch {
+    throw new BadRequest('请求不是有效的 JSON')
+  }
+}
+
+export function audioResponse(audio: Audio): Response {
+  return new Response(audio.bytes as Uint8Array<ArrayBuffer>, {
+    status: 200,
+    headers: { 'content-type': AUDIO_CONTENT_TYPES[audio.type], 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' },
+  })
+}
+
+export const inject = ['qqbot', 'connection']
+
+export function apply(ctx: Context): void {
+  const store = ctx.qqbot.voice
+  // 凭据库不注入、每次现取（和 DSH 的 session-controller 一样）：没有时照常能用不要 key 的本地服务。
+  const keys = (): KeyStore | undefined => {
+    const credentials = ctx.get('credentials' as never) as CredentialRecords | undefined
+    return credentials === undefined ? undefined : credentialKeyStore(credentials)
+  }
+  const speaker = new Speaker(store, keys)
+  ctx.effect(() => ctx.connection.fetch.register({
+    path: VOICE_PATH,
+    methods: ['GET', 'POST'],
+    requestBody: 'buffered',
+    fetch: async (request) => {
+      let saved: string | undefined
+      try {
+        if (request.method === 'POST') saved = await applyVoiceAction(store, keys(), await readBody(request))
+      } catch (error) {
+        if (error instanceof BadRequest) return fail(400, 'bad-request', error.message)
+        return fail(409, 'failed', error instanceof Error ? error.message : String(error))
+      }
+      return json(200, await voiceView(store, keys(), saved))
+    },
+  }), 'qqbot: voice route')
+  ctx.effect(() => ctx.connection.fetch.register({
+    path: SPEAK_PATH,
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: async (request) => {
+      try {
+        return audioResponse(await speaker.speak(await readBody(request), request.signal))
+      } catch (error) {
+        if (error instanceof BadRequest) return fail(400, 'bad-request', error.message)
+        if (error instanceof SynthError) return fail(502, 'failed', error.message)
+        if (request.signal.aborted) return fail(499, 'failed', '已取消')
+        ctx.logger.warn('qqbot voice: %s', error)
+        return fail(500, 'failed', '语音生成失败')
+      }
+    },
+  }), 'qqbot: speak route')
+}

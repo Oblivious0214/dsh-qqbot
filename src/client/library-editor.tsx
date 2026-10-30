@@ -1,7 +1,7 @@
 /**
- * 角色、破限预设和界面设置编辑器。同一份编辑器有两个位置：DSH 设置窗口里的"QQ Bot"页（左下角"更多"→ 设置），
+ * 角色、破限预设、界面和语音设置编辑器。同一份编辑器有两个位置：DSH 设置窗口里的"QQ Bot"页（左下角"更多"→ 设置），
  * 和提示词查看器"编辑"打开的弹窗（挂在全局常驻的 `shell.overlay`，定位到对应条目）。
- * 角色和预设来自 host 的 LIBRARY_PATH，保存后下一条消息起生效；界面设置和头像见 ui-editor.tsx。
+ * 角色和预设来自 host 的 LIBRARY_PATH，保存后下一条消息起生效；界面设置和头像见 ui-editor.tsx，语音见 voice-editor.tsx。
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
@@ -16,6 +16,8 @@ import {
 } from '../library-types.ts'
 import { RoleAvatarField, UiForm } from './ui-editor.tsx'
 import type { UiState } from './ui-state.ts'
+import { RoleVoiceField, VoicePage } from './voice-editor.tsx'
+import type { VoiceState } from './voice-state.ts'
 
 /** 所有样式都在这个根 class 下（CLAUDE.md 隔离原则第 3 条）。 */
 export const EDITOR_CLASS = 'dsh-qqbot-library'
@@ -56,7 +58,7 @@ export const EDITOR_CSS = `
 .${EDITOR_CLASS} .ql-background { height: 56px; max-width: 120px; border-radius: var(--dsw-radius-sm); object-fit: cover; }
 `
 
-export type EditorTab = 'roles' | 'presets' | 'ui'
+export type EditorTab = 'roles' | 'presets' | 'ui' | 'voice'
 
 /** 打开编辑器时要定位到的条目；id 为空时选第一个。 */
 export interface EditorTarget {
@@ -123,6 +125,7 @@ const BLANK_PRESET: LibraryPresetDraft = { name: '', head: '', mid: '', tail: ''
 interface FormProps {
   readonly view: LibraryView
   readonly ui: UiState
+  readonly voice: VoiceState
   readonly busy: boolean
   readonly onDirty: (dirty: boolean) => void
   /** 成功时返回操作后的数据，失败时为 undefined（错误已显示）。 */
@@ -130,11 +133,12 @@ interface FormProps {
 }
 
 /** 角色表单。role 为空表示新建；保存成功后由父组件换 key 重新挂载。 */
-function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRemoved }: FormProps & {
+function RoleForm({ view, ui, voice, busy, onDirty, run, role, template, onSaved, onRemoved, onManageVoices }: FormProps & {
   readonly role: LibraryRole | undefined
   readonly template: LibraryRoleDraft
   readonly onSaved: (id: string) => void
   readonly onRemoved: () => void
+  readonly onManageVoices: () => void
 }) {
   const create = role === undefined
   const [draft, setDraft] = useState<LibraryRoleDraft>(role ?? template)
@@ -184,6 +188,8 @@ function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRem
     <ChoiceField label="偏好范围" hint="同上。滑动只在全行程、下半程、上半程里生效。"
       choices={MOTION_RANGES} labels={MOTION_RANGE_LABELS} value={draft.motionRanges}
       onChange={(value) => { setDraft(({ motionRanges: _, ...rest }) => value === undefined ? rest : { ...rest, motionRanges: value }); onDirty(true) }} />
+    <RoleVoiceField voice={voice} value={draft.voice} onManage={onManageVoices}
+      onChange={(value) => { setDraft(({ voice: _, ...rest }) => value === undefined ? rest : { ...rest, voice: value }); onDirty(true) }} />
     {!create && <Field label="破限预设" hint="改了立即保存。">
       <select value={role.preset ?? ''} disabled={busy}
         onChange={(event) => { void run({ action: 'role.preset', id: role.id, ...event.target.value === '' ? {} : { preset: event.target.value } }) }}>
@@ -208,7 +214,7 @@ function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRem
     <div className="ql-note">
       {create
         ? `保存到 ${view.rolesDir}。`
-        : '只改名称、简介、设定和表情频率，角色文件里的其他字段（语音等）原样保留。删除角色时头像一起移到回收站。'}
+        : '角色文件里手写的其他字段原样保留。删除角色时头像一起移到回收站。'}
       {' '}保存后下一条消息起生效。正在用这个角色的会话，下一轮前缀缓存从角色设定开始失效。
     </div>
   </div>
@@ -278,7 +284,7 @@ function PresetForm({ view, busy, onDirty, run, preset, template, onSaved, onRem
 type Selection<T> = { readonly id: string } | { readonly draft: T }
 
 /** 编辑器内容和关闭前的检查：有未保存的改动时，guard 先显示确认，确认后才执行。 */
-function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: (next: () => void) => void; readonly content: ReactNode } {
+function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState): { readonly guard: (next: () => void) => void; readonly content: ReactNode } {
   const [view, setView] = useState<LibraryView | undefined>()
   const [loadError, setLoadError] = useState<string | undefined>()
   const [actionError, setActionError] = useState<string | undefined>()
@@ -327,8 +333,9 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
   const body = (() => {
     if (loadError !== undefined) return <div className="ql-state ql-warn">{loadError}</div>
     if (view === undefined) return <div className="ql-empty">加载中…</div>
-    const formProps = { view, ui, busy, onDirty: setDirty, run }
+    const formProps = { view, ui, voice, busy, onDirty: setDirty, run }
     if (tab === 'ui') return <div className="ql-main"><UiForm ui={ui} /></div>
+    if (tab === 'voice') return <VoicePage voice={voice} onDirty={setDirty} guard={guard} />
     if (tab === 'roles') {
       const selected = roleSel ?? (view.roles[0] === undefined ? { draft: BLANK_ROLE } : { id: view.roles[0].id })
       const role = 'id' in selected ? view.roles.find(r => r.id === selected.id) : undefined
@@ -347,7 +354,8 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
           : <RoleForm key={`${role?.id ?? 'new'}:${revision}`} {...formProps} role={role}
             template={'draft' in selected ? selected.draft : BLANK_ROLE}
             onSaved={(id) => { saved(() => { setRoleSel({ id }) }) }}
-            onRemoved={() => { saved(() => { setRoleSel(undefined) }) }} />}
+            onRemoved={() => { saved(() => { setRoleSel(undefined) }) }}
+            onManageVoices={() => { go(() => { setTab('voice') }) }} />}
       </div>
     }
     const selected = presetSel ?? { id: view.defaultPreset }
@@ -381,6 +389,8 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
           onClick={() => { if (tab !== 'presets') go(() => { setTab('presets') }) }}>破限预设</Button>
         <Button size="sm" variant={tab === 'ui' ? 'outline' : 'ghost'}
           onClick={() => { if (tab !== 'ui') go(() => { setTab('ui') }) }}>界面</Button>
+        <Button size="sm" variant={tab === 'voice' ? 'outline' : 'ghost'}
+          onClick={() => { if (tab !== 'voice') go(() => { setTab('voice') }) }}>语音</Button>
       </div>
       {pending !== undefined && <div className="ql-state ql-warn">
         <span>有没保存的改动。</span>
@@ -395,8 +405,10 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
 
 const DESCRIPTION = '只用于 QQ Bot 会话。也可以直接编辑文件，打开这里或执行 /role 时重新读取。'
 
-function LibraryDialog({ target, ui, onClose }: { readonly target: EditorTarget; readonly ui: UiState; readonly onClose: () => void }) {
-  const { guard, content } = useLibraryEditor(target, ui)
+function LibraryDialog({ target, ui, voice, onClose }: {
+  readonly target: EditorTarget; readonly ui: UiState; readonly voice: VoiceState; readonly onClose: () => void
+}) {
+  const { guard, content } = useLibraryEditor(target, ui, voice)
   return <Modal open onClose={() => { guard(onClose) }} title="QQ Bot 设置" closeLabel="关闭" className={EDITOR_CLASS} description={DESCRIPTION}>
     {content}
   </Modal>
@@ -404,6 +416,7 @@ function LibraryDialog({ target, ui, onClose }: { readonly target: EditorTarget;
 
 export interface LibrarySettingsInjected {
   readonly ui: UiState
+  readonly voice: VoiceState
   readonly startQqSession: () => void
 }
 
@@ -411,8 +424,8 @@ export interface LibrarySettingsInjected {
  * DSH 设置窗口里的"QQ Bot"页。设置窗口的关闭由 DSH 管，拦不住，所以这里关窗口会丢掉没保存的改动；
  * 页内切换标签和条目照常确认。
  */
-export function LibrarySettingsSection({ close, ui, startQqSession }: PropsRuntime<'settings.section'> & InjectFace<LibrarySettingsInjected>) {
-  const { content } = useLibraryEditor(ROLES, ui)
+export function LibrarySettingsSection({ close, ui, voice, startQqSession }: PropsRuntime<'settings.section'> & InjectFace<LibrarySettingsInjected>) {
+  const { content } = useLibraryEditor(ROLES, ui, voice)
   return <div className={`${EDITOR_CLASS} ql-section`}>
     <div className="ql-section-head">
       <p className="ql-note">{DESCRIPTION}</p>
@@ -428,11 +441,12 @@ export interface LibraryEditorInjected {
   readonly hooks: { readonly editorTarget: SnapshotStore<EditorTarget | null> }
   readonly closeEditor: () => void
   readonly ui: UiState
+  readonly voice: VoiceState
 }
 
 /** `shell.overlay` 里的常驻组件：没有打开时什么也不渲染。target 变化时换 key，重新加载。 */
-export function LibraryEditorHost({ useEditorTarget, closeEditor, ui }: InjectFace<LibraryEditorInjected>) {
+export function LibraryEditorHost({ useEditorTarget, closeEditor, ui, voice }: InjectFace<LibraryEditorInjected>) {
   const target = useEditorTarget(state => state)
   if (target === null) return null
-  return <LibraryDialog key={`${target.tab}:${target.id ?? ''}`} target={target} ui={ui} onClose={closeEditor} />
+  return <LibraryDialog key={`${target.tab}:${target.id ?? ''}`} target={target} ui={ui} voice={voice} onClose={closeEditor} />
 }

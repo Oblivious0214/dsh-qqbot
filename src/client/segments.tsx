@@ -11,6 +11,7 @@
  * - 历史消息直接全部显示；只有本页打开后生成的回复才按间隔逐段出现。计时在 reply-clock.ts，流式时第一段一闭合就显示。
  * - 其他插件通过 ctx.qqbotSegments（segments-service.ts）改写停留时间、收到段落显示的通知、暂停显示。
  * - 用户在逐段显示途中发了新消息，没显示的段落不再出现（和 QQ 里打断对方一样）。只在内存里记，刷新后完整显示。
+ * - 这一轮的角色选了音色、语音开着时，已经出现的段落显示成语音条（voice-cards.tsx）。
  */
 
 import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ComponentType, type CSSProperties } from 'react'
@@ -22,11 +23,21 @@ import type { FactoryComponentPropsOf, InjectFace, PropsRenderSlots, PropsRuntim
 import { Interruptions, chatActivity, submissionActivity } from '../vendor/dialogue-timing/interruptions.js'
 import { stripTimedReply, type TimedStream } from '../vendor/dialogue-timing/protocol.js'
 import { segmentDelay } from '../ui-types.ts'
+import { speechText } from '../voice-types.ts'
 import { decodeReply } from './decode.ts'
 import { imageUrl, REPLY_ATTRIBUTE, ROLE_ATTRIBUTE } from './qq-style.ts'
 import { ReplyClock } from './reply-clock.ts'
 import { SegmentsService } from './segments-service.ts'
 import type { SessionRole, UiState } from './ui-state.ts'
+import { useVoiceCards, type VoiceBubble } from './voice-cards.tsx'
+import type { VoicePlayer } from './voice-player.ts'
+import type { VoiceState } from './voice-state.ts'
+
+/** 语音条用到的共享状态，index.tsx 创建。 */
+export interface SegmentVoice {
+  readonly state: VoiceState
+  readonly player: VoicePlayer
+}
 
 type ViewProps = ChatNodeViewProps<'assistant-step'> & InjectFace<PresentationInjected>
 type NativeProps = ViewProps & Pick<PropsRenderSlots<'conversation.chat.reasoning.body' | 'conversation.chat.message.images'>, 'renderSlot'>
@@ -98,7 +109,7 @@ function avatarStyle(ui: UiState, role: SessionRole | undefined): CSSProperties 
   return vars as CSSProperties
 }
 
-function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState, Native: ComponentType<NativeProps>) {
+function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState, voice: SegmentVoice, Native: ComponentType<NativeProps>) {
   // 包装后拿不到原渲染器的子槽位，改用 DSH 默认的内容工厂（和 dsh-qq-skin 相同）。
   const renderSlotFor = (props: ViewProps): NativeProps['renderSlot'] => (key, owner) => {
     if (key === 'conversation.chat.reasoning.body') {
@@ -111,6 +122,8 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
   function QqbotSegments(props: ViewProps) {
     useSyncExternalStore(model.subscribe, model.getVersion)
     useSyncExternalStore(ui.subscribe, ui.getVersion)
+    useSyncExternalStore(voice.state.subscribe, voice.state.getVersion)
+    const root = useRef<HTMLDivElement>(null)
     const data = props.node.data
     const running = data.status === 'running'
     const role = ui.roleAt(props.sessionId, data.turn)
@@ -161,11 +174,32 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     const projected = frozen ?? blocks
     if (frozen === undefined) model.remember(displayKey, props.sessionId, projected)
     const node = projected === data.blocks ? props.node : { ...props.node, data: { ...data, blocks: projected } }
+
+    // 语音条：只给已经定下来的文字（闭合的段落，或生成结束的整条回复）。流式中没闭合的文字照常显示。
+    const playable = role === undefined || role === null ? undefined : voice.state.playable(role.voice)
+    const settled = stream !== null || !running
+    const items = useMemo((): readonly VoiceBubble[] => {
+      if (playable === undefined || !settled) return []
+      return projected.flatMap((block, index) => block.kind !== 'text' ? [] : [{
+        bubble: `${displayKey}:${index}`,
+        clip: (() => {
+          const text = speechText(block.text)
+          return text === '' ? undefined : { key: `${playable.revision}
+${text}`, voice: playable.voice, text }
+        })(),
+      }])
+    }, [playable?.voice, playable?.revision, settled, projected, displayKey])
+    const cards = useVoiceCards({
+      root, owner: displayKey, items, player: voice.player, display: voice.state.settings.display,
+      live: live.current || (final?.time ?? 0) > model.openedAt, pregenerate: voice.state.settings.pregenerate,
+    })
+
     const hasRole = role !== undefined && role !== null
     const salvaged = stream?.stages.some(stage => stage.salvaged === true) === true
-    return <div {...{ [REPLY_ATTRIBUTE]: '', ...hasRole ? { [ROLE_ATTRIBUTE]: '' } : {} }} style={avatarStyle(ui, role)}
+    return <div ref={root} {...{ [REPLY_ATTRIBUTE]: '', ...hasRole ? { [ROLE_ATTRIBUTE]: '' } : {} }} style={avatarStyle(ui, role)}
       title={salvaged ? '格式有误，已尽量显示文字' : undefined}>
       {createElement(Native, { ...props, node, renderSlot: renderSlotFor(props) })}
+      {cards}
     </div>
   }
 
@@ -194,7 +228,7 @@ function createInputObserver(model: SegmentModel, filter: QqbotSessionFilter) {
  * 包装 DSH 自带的 assistant-step 渲染器（按它声明的子槽位认出来），插件关闭时撤掉。
  * 只认自带的那一个，不去包装别的插件的包装，避免两个插件互相重包。
  */
-export function installSegments(ctx: Context, filter: QqbotSessionFilter, ui: UiState): void {
+export function installSegments(ctx: Context, filter: QqbotSessionFilter, ui: UiState, voice: SegmentVoice): void {
   const model = new SegmentModel(text => segmentDelay(text, ui.settings), (error) => { ctx.logger.warn('qqbot segments: %s', error) })
   ctx.effect(() => () => { model.dispose() }, 'qqbot: segment model')
   ctx.plugin(SegmentsService, { clock: model.clock })
@@ -220,7 +254,7 @@ export function installSegments(ctx: Context, filter: QqbotSessionFilter, ui: Ui
       const inject = candidate.inject as unknown as () => PresentationInjected
       remove = ctx.slots.register({
         name: 'conversation.chat.node', key: 'assistant-step', priority: -30, locale: 'chat', inject, registrant: 'dsh-qqbot',
-      }, createView(model, filter, ui, Native))
+      }, createView(model, filter, ui, voice, Native))
     }
     const unsubscribe = ctx.slots.subscribe('conversation.chat.node', refresh)
     refresh()

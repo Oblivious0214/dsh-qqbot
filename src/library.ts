@@ -27,6 +27,7 @@ export function libraryView(data: QqbotData, saved?: string): LibraryView {
         ...role.proactivity === undefined ? {} : { proactivity: role.proactivity },
         ...role.motionActions === undefined ? {} : { motionActions: role.motionActions },
         ...role.motionRanges === undefined ? {} : { motionRanges: role.motionRanges },
+        ...role.voice === undefined ? {} : { voice: role.voice },
         ...preset === undefined ? {} : { preset },
       }
     }),

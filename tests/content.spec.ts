@@ -11,7 +11,7 @@ import { assembleParts, renderRuntime } from '../src/prompt.ts'
 import { runRole } from '../src/role-command.ts'
 import { parseRole, RoleLibrary } from '../src/roles.ts'
 
-const ROLE_A = '---\nid: alice\nname: 爱丽丝\ndescription: 同居室友\nvoiceId: "v-1"\nmemeFrequency: high\n---\n\n爱丽丝的设定。\n'
+const ROLE_A = '---\nid: alice\nname: 爱丽丝\ndescription: 同居室友\nvoice: v-0000000a\nmemeFrequency: high\n---\n\n爱丽丝的设定。\n'
 const ROLE_B = '---\nname: 小B\n---\nB 的设定。'
 
 function temp(): string {
@@ -37,9 +37,10 @@ describe('role files', () => {
   it('parses the dsh-persona-switcher format', () => {
     expect(parseRole(ROLE_A, 'x')).toEqual({
       id: 'alice', name: '爱丽丝', description: '同居室友', persona: '爱丽丝的设定。',
-      memeFrequency: 'high', voiceId: 'v-1', voicePreviewText: '',
+      memeFrequency: 'high', voice: 'v-0000000a',
     })
     expect(parseRole('---\nmemeFrequency: often\n---\n正文', 'x')?.memeFrequency).toBeUndefined()
+    expect(parseRole('---\nvoice: "v-1"\n---\n正文', 'x')?.voice).toBeUndefined()
     expect(parseRole(ROLE_B, 'bee')).toMatchObject({ id: 'bee', name: '小B', persona: 'B 的设定。' })
     expect(parseRole('---\nid: empty\n---\n  \n', 'x')).toBeUndefined()
     expect(parseRole('﻿---\r\nid: crlf\r\n---\r\n正文\r\n', 'x')).toMatchObject({ id: 'crlf', persona: '正文' })

@@ -188,7 +188,7 @@ export function uiView(data: QqbotData, ui: UiStore, sessionId: string | undefin
     // 名称按角色库现读，角色改名后旧消息也显示新名字的首字。
     const show = (id: string | null | undefined): UiRole => {
       const role = id == null ? undefined : data.roles.get(id)
-      return role === undefined ? null : { id: role.id, name: role.name }
+      return role === undefined ? null : { id: role.id, name: role.name, ...role.voice === undefined ? {} : { voice: role.voice } }
     }
     session = {
       role: show(data.roleIdFor({ id: sessionId })),

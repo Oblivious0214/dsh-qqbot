@@ -13,6 +13,7 @@
 
 import { IMAGE_PATH, type UiSettings } from '../ui-types.ts'
 import { buildTokenOverrides } from './palettes.ts'
+import { VOICE_HIDDEN_ATTRIBUTE, VOICE_HOST_ATTRIBUTE } from './voice-cards.tsx'
 
 /** 标在 qqbot 会话聊天区根节点（`[data-conversation-session]`）上的属性。 */
 export const MARK_ATTRIBUTE = 'data-qqbot'
@@ -94,6 +95,25 @@ ${REPLY}[${ROLE_ATTRIBUTE}] ${BUBBLE_PATH}::before {
 }
 `
 
+/** 语音条：外层是一个普通气泡（BUBBLE），里面一个按钮。外观迁移自 dsh-qq-skin 的 QQ_FISH_VOICE_CSS。 */
+const VOICE_CSS = `
+${REPLY} [${VOICE_HIDDEN_ATTRIBUTE}] { display: none !important; }
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] > button {
+  display: inline-flex; align-items: center; gap: 12px; box-sizing: border-box; max-width: 100%;
+  min-height: 24px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] > button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 4px; }
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-wave] { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 22px; }
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-wave] i { width: 3px; height: 12px; border-radius: 2px; background: currentColor; }
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-wave] i:nth-child(2n) { height: 20px; }
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-duration] { margin-left: auto; white-space: nowrap; color: var(--dsw-alias-label-secondary); }
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-error] { margin-top: 4px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+@media (prefers-reduced-motion: no-preference) {
+  ${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-state='playing'] [data-wave] i { animation: qqbot-voice-wave 0.7s ease-in-out infinite alternate; }
+}
+@keyframes qqbot-voice-wave { to { transform: scaleY(0.45); } }
+`
+
 const BUBBLE_TAIL_CSS = `
 ${Q} [class*='_bubble_']::after {
   content: '';
@@ -133,7 +153,7 @@ ${BUBBLE} > :last-child { margin-bottom: 0; }
 }
 @keyframes qqbot-bubble-arrive { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 ${settings.avatars ? AVATAR_CSS : ''}
-/* 用户气泡：QQ 蓝底，右上小圆角。 */
+${VOICE_CSS}/* 用户气泡：QQ 蓝底，右上小圆角。 */
 ${Q} [class*='_bubble_'] {
   position: relative;
   border-radius: 16px 6px 16px 16px;

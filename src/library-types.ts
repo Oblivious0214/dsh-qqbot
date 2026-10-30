@@ -61,6 +61,8 @@ export interface LibraryRole {
   /** 偏好的设备动作和范围；没写时为空。 */
   readonly motionActions?: readonly MotionAction[]
   readonly motionRanges?: readonly MotionRange[]
+  /** 音色的内部键（语音设置里的音色）；没选时为空。 */
+  readonly voice?: string
   /** 单独选的破限预设；跟随默认时为空。 */
   readonly preset?: string
 }
@@ -96,6 +98,7 @@ export interface LibraryRoleDraft {
   readonly proactivity?: RoleProactivity
   readonly motionActions?: readonly MotionAction[]
   readonly motionRanges?: readonly MotionRange[]
+  readonly voice?: string
 }
 
 /** 角色和预设：新建不带 id（服务端生成），修改时带原 id；名称不能重复。 */

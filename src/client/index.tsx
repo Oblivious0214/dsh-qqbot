@@ -1,7 +1,8 @@
 /**
  * dsh-qqbot 浏览器端：给 qqbot 会话根节点加 data-qqbot，QQ 样式（qq-style.ts）只写在它下面；
  * 侧边栏底部（左下角"更多"上面）放"新建 QQ 会话"按钮，DSH 设置窗口里加"QQ Bot"页（不提供"设为默认"），
- * 在 qqbot 会话标题栏放提示词查看器，新会话页和输入栏放角色切换（role-chip.tsx），编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复。
+ * 在 qqbot 会话标题栏放提示词查看器，新会话页和输入栏放角色切换（role-chip.tsx），编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复，
+ * 角色选了音色时显示成语音条。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -25,6 +26,8 @@ import { buildQqCss, MARK_ATTRIBUTE } from './qq-style.ts'
 import { HeroRoleChip, InputRoleChip, ROLE_CHIP_CLASS, ROLE_CHIP_CSS, type RoleChipInjected } from './role-chip.tsx'
 import { installSegments } from './segments.tsx'
 import { UiState } from './ui-state.ts'
+import { VoicePlayer } from './voice-player.ts'
+import { VoiceState } from './voice-state.ts'
 
 export { MARK_ATTRIBUTE, PRESET_ID }
 
@@ -76,6 +79,12 @@ export function apply(ctx: Context): void {
   ctx.effect(() => () => { ui.dispose() }, 'qqbot: ui state')
   void ui.reload().catch(() => {})
 
+  // 语音设置和播放器；读不到设置时所有回复显示文字。插件关闭时停下播放、释放音频。
+  const voiceState = new VoiceState()
+  const player = new VoicePlayer(() => voiceState.settings.volume)
+  ctx.effect(() => () => { player.dispose(); voiceState.dispose() }, 'qqbot: voice')
+  void voiceState.reload().catch(() => {})
+
   // QQ 样式：规则都在 [data-qqbot] 下，设置变了整份重写。插件关闭时移除。
   ctx.effect(() => {
     const style = document.createElement('style')
@@ -95,7 +104,7 @@ export function apply(ctx: Context): void {
   installSegments(ctx, {
     subscribe: listener => ctx.sessions.list.subscribe(listener),
     isQqbot: sessionId => presetOf(sessionId) === PRESET_ID,
-  }, ui)
+  }, ui, { state: voiceState, player })
 
   ctx.effect(() => {
     const observer = new MutationObserver(sync)
@@ -123,7 +132,7 @@ export function apply(ctx: Context): void {
     id: 'qqbot',
     order: 100,
     label: () => 'QQ Bot',
-    inject: (): LibrarySettingsInjected => ({ ui, startQqSession }),
+    inject: (): LibrarySettingsInjected => ({ ui, voice: voiceState, startQqSession }),
   }, LibrarySettingsSection))
 
   // 提示词查看器的"编辑"打开编辑器弹窗；查看器关闭后它还要留着，所以挂在常驻的 shell.overlay。
@@ -134,7 +143,7 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'qqbot-library-editor',
-    inject: (): LibraryEditorInjected => ({ hooks: { editorTarget }, closeEditor, ui }),
+    inject: (): LibraryEditorInjected => ({ hooks: { editorTarget }, closeEditor, ui, voice: voiceState }),
   }, LibraryEditorHost))
 
   // 查看器、编辑器、裁剪弹窗和底部按钮的样式分别在 ROOT_CLASS、EDITOR_CLASS、CROPPER_CLASS、FOOTER_CLASS 下；插件关闭时移除。

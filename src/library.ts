@@ -11,6 +11,8 @@ import { MEME_TOOL } from './format.ts'
 import { LIBRARY_PATH, type LibraryError, type LibraryView } from './library-types.ts'
 import { isRecord } from './storage.ts'
 import type { UiStore } from './ui.ts'
+import { CONFIG_MAX_BYTES, CONFIG_PATH } from './config-types.ts'
+import { importConfiguration, previewConfiguration } from './config-import.ts'
 
 export const name = 'qqbot-library'
 
@@ -135,6 +137,28 @@ export const inject = ['qqbot', 'connection']
 
 export function apply(ctx: Context): void {
   const data = ctx.qqbot.content
+  ctx.effect(() => ctx.connection.fetch.register({
+    path: CONFIG_PATH,
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: async request => {
+      const raw = await request.text()
+      if (Buffer.byteLength(raw) > CONFIG_MAX_BYTES + 4096) return fail(413, 'bad-request', '配置文件不能超过 2 MB')
+      let body: unknown
+      try { body = JSON.parse(raw) } catch { return fail(400, 'bad-request', '配置文件不是有效的 JSON') }
+      if (!isRecord(body) || !['preview', 'import'].includes(String(body['action']))) return fail(400, 'bad-request', '配置导入请求无效')
+      try {
+        if (body['action'] === 'preview') return json(200, { preview: previewConfiguration(data, body['config'], body['options']) })
+        const imported = importConfiguration(data, body['config'], body['options'], body['revision'])
+        return json(200, { imported, library: libraryView(data, undefined, {
+          meme: ctx.get('tools')?.get(MEME_TOOL) !== undefined,
+          toy: ctx.qqbot.store.snapshot().extensions.some(entry => entry.name === 'toy'),
+        }) })
+      } catch (error) {
+        return fail(error instanceof TypeError ? 400 : 409, error instanceof TypeError ? 'bad-request' : 'failed', error instanceof Error ? error.message : String(error))
+      }
+    },
+  }), 'qqbot: config import route')
   ctx.effect(() => ctx.connection.fetch.register({
     path: LIBRARY_PATH,
     methods: ['GET', 'POST'],

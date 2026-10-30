@@ -23,6 +23,7 @@ import { MemeFields } from './meme-fields.tsx'
 import { ActionDialog } from './action-dialog.tsx'
 import { RoleToyPrompts } from './role-toy-prompts.tsx'
 import type { UiExtensions } from './ui-extensions.tsx'
+import { ConfigImport } from './config-import.tsx'
 
 /** 所有样式都在这个根 class 下（CLAUDE.md 隔离原则第 3 条）。 */
 export const EDITOR_CLASS = 'dsh-qqbot-library'
@@ -33,6 +34,7 @@ ${VOICE_EDITOR_CSS}
 .${EDITOR_CLASS} .ql-modal-content, .${EDITOR_CLASS} .ql-modal-content > :last-child { min-height: 0; }
 .${EDITOR_CLASS} .ql-body { display: flex; flex-direction: column; gap: 10px; }
 .${EDITOR_CLASS} .ql-tabs { display: flex; gap: 6px; }
+.${EDITOR_CLASS} .ql-import-button { margin-left: auto; }
 .${EDITOR_CLASS} .ql-main { display: flex; gap: 12px; height: 64vh; min-height: 320px; }
 .${EDITOR_CLASS} .ql-list { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; overflow: auto; border-right: 0.5px solid var(--dsw-alias-border-l2); padding-right: 8px; }
 .${EDITOR_CLASS} .ql-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 8px; border: none; border-radius: var(--dsw-radius-sm); background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
@@ -400,6 +402,8 @@ function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, 
   // 有未保存的改动时，切换和关闭要先确认。pending 是确认后要做的事。
   const [dirty, setDirty] = useState(false)
   const [pending, setPending] = useState<(() => void) | undefined>()
+  const [importOpen, setImportOpen] = useState(false)
+  const [importNotice, setImportNotice] = useState('')
   // 保存后加一，表单换 key 重新挂载，读到服务端规范化后的内容。
   const [revision, setRevision] = useState(0)
 
@@ -430,7 +434,7 @@ function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, 
   }, [ui])
 
   const guard = (next: () => void) => {
-    if (submitting.current || voiceBusy || uiBusy || pending !== undefined) return
+    if (submitting.current || voiceBusy || uiBusy || pending !== undefined || importOpen) return
     if (dirty) setPending(() => next)
     else next()
   }
@@ -512,8 +516,18 @@ function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, 
           onClick={() => { if (tab !== 'ui') go(() => { setTab('ui') }) }}>界面</Button>
         <Button size="sm" variant={tab === 'voice' ? 'outline' : 'ghost'}
           onClick={() => { if (tab !== 'voice') go(() => { setTab('voice') }) }}>语音</Button>
+        <Button size="sm" variant="outline" className="ql-import-button" disabled={view === undefined || busy || voiceBusy || uiBusy}
+          onClick={() => { go(() => { setImportNotice(''); setImportOpen(true) }) }}>导入配置</Button>
       </div>
+      {importNotice && <div className="ql-state" role="status">{importNotice}</div>}
       {body}
+      {importOpen && <ConfigImport onClose={() => { setImportOpen(false) }} onImported={(next, result) => {
+        setView(next)
+        ui.forgetRoles()
+        setRevision(n => n + 1)
+        setImportOpen(false)
+        setImportNotice(`已导入 ${result.presets} 份预设、${result.roles} 个角色，跳过 ${result.skipped} 项`)
+      }} />}
       {pending !== undefined && <ActionDialog title="放弃未保存的改动？" cancelLabel="继续编辑" confirmLabel="放弃改动"
         onCancel={() => { setPending(undefined) }}
         onConfirm={() => { const next = pending; setPending(undefined); setDirty(false); next() }}>

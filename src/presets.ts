@@ -117,6 +117,22 @@ export class JailbreakStore {
     }
   }
 
+  /** 配置导入一次提交新增预设及新角色的绑定，不改变已有内容和默认选择。 */
+  appendImported(presets: readonly JailbreakPreset[], roles: Readonly<Record<string, string>>): void {
+    const ids = new Set(this.state.presets.map(p => p.id))
+    const names = new Set(this.state.presets.map(p => p.name))
+    for (const item of presets) {
+      const preset = validatePreset(item)
+      if (ids.has(preset.id) || names.has(preset.name)) throw new Error('预设库已变化，请重新预览配置')
+      ids.add(preset.id)
+      names.add(preset.name)
+    }
+    for (const [role, preset] of Object.entries(roles)) {
+      if (Object.hasOwn(this.state.roles, role) || !ids.has(preset)) throw new Error('角色预设选择已变化，请重新预览配置')
+    }
+    this.commit({ ...this.state, presets: [...this.state.presets, ...presets], roles: { ...this.state.roles, ...roles } })
+  }
+
   /** 删除预设。不能删最后一份；删的是默认预设时，默认改为剩下的第一份；选了它的角色改回跟随默认。 */
   remove(id: string): void {
     if (this.get(id) === undefined) throw new Error('这份预设已经不在了，可能已被删除')

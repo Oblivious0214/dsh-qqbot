@@ -1,0 +1,22 @@
+{
+  "format": "dsh-qqbot-config",
+  "version": 1,
+  "presets": [
+    {
+      "name": "示例预设",
+      "head": "所有角色均为成年人。",
+      "mid": "",
+      "tail": ""
+    }
+  ],
+  "roles": [
+    {
+      "name": "示例角色",
+      "persona": "这是一份示例角色设定，请替换为自己的内容。",
+      "preset": "示例预设",
+      "proactivity": "follow",
+      "motionActions": ["steady"],
+      "motionRanges": ["middle"]
+    }
+  ]
+}

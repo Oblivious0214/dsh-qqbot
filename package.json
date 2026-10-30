@@ -1,6 +1,6 @@
 {
   "name": "dsh-qqbot",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "description": "QQ 聊天角色扮演：注册独立的 qqbot Agent 预设，统一组装提示词，并为其他插件提供槽位。",
   "keywords": [
     "deepseek-harness",
@@ -43,7 +43,8 @@
     "cordis.patch.yml",
     "LICENSE",
     "NOTICE",
-    "README.md"
+    "README.md",
+    "examples/*.json"
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0",

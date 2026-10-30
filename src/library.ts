@@ -14,7 +14,7 @@ import type { UiStore } from './ui.ts'
 export const name = 'qqbot-library'
 
 /** 编辑界面需要的全部数据。顺带重新扫描角色库，用户直接改过的文件由此生效。 */
-export function libraryView(data: QqbotData): LibraryView {
+export function libraryView(data: QqbotData, saved?: string): LibraryView {
   data.roles.reload()
   const defaultRole = data.bindings.defaultRole
   return {
@@ -30,6 +30,7 @@ export function libraryView(data: QqbotData): LibraryView {
     ...defaultRole === undefined ? {} : { defaultRole },
     presets: data.presets.list(),
     defaultPreset: data.presets.defaultId,
+    ...saved === undefined ? {} : { saved },
   }
 }
 
@@ -57,16 +58,18 @@ function flag(body: Record<string, unknown>, key: string): boolean {
 
 function requireRole(data: QqbotData, id: string): void {
   data.roles.reload()
-  if (data.roles.get(id) === undefined) throw new Error(`没有 id 为 "${id}" 的角色`)
+  if (data.roles.get(id) === undefined) throw new Error('这个角色已经不在角色库里，可能已在文件里删除')
 }
 
-/** 执行一个操作。格式错误抛 BadRequest，操作失败（重名、找不到、写不了盘）抛 Error。 */
-export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore): void {
+/**
+ * 执行一个操作。格式错误抛 BadRequest，操作失败（重名、找不到、写不了盘）抛 Error。
+ * 保存角色或预设时返回保存的 id。
+ */
+export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore): string | undefined {
   if (!isRecord(body)) throw new BadRequest('请求格式无效')
   switch (body['action']) {
     case 'role.save':
-      data.roles.save(body['role'], flag(body, 'create'))
-      return
+      return data.roles.save(body['role'], flag(body, 'create')).id
     case 'role.remove':
       // 会话绑定、默认角色和预设选择都留着：角色卡放回来就恢复。没有角色的会话按无角色运行。
       // 头像跟着移到回收站：之后新建同 id 的角色不会继承旧头像。
@@ -92,7 +95,7 @@ export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore)
       if (create && exists) throw new Error(`已经有 id 为 "${id}" 的预设`)
       if (!create && !exists) throw new Error(`没有 id 为 "${id ?? ''}" 的预设`)
       data.presets.save(preset)
-      return
+      return id
     }
     case 'preset.remove':
       data.presets.remove(text(body, 'id'))
@@ -125,6 +128,7 @@ export function apply(ctx: Context): void {
     methods: ['GET', 'POST'],
     requestBody: 'buffered',
     fetch: async (request) => {
+      let saved: string | undefined
       if (request.method === 'POST') {
         let body: unknown
         try {
@@ -133,13 +137,13 @@ export function apply(ctx: Context): void {
           return fail(400, 'bad-request', '请求不是有效的 JSON')
         }
         try {
-          applyLibraryAction(data, body, ctx.qqbot.ui)
+          saved = applyLibraryAction(data, body, ctx.qqbot.ui)
         } catch (error) {
           if (error instanceof BadRequest) return fail(400, 'bad-request', error.message)
           return fail(409, 'failed', error instanceof Error ? error.message : String(error))
         }
       }
-      return json(200, libraryView(data))
+      return json(200, libraryView(data, saved))
     },
   }), 'qqbot: library route')
 }

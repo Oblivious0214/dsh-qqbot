@@ -65,7 +65,7 @@ describe('ui settings', () => {
     expect(uiView(data, ui, 'session-1').session?.role).toBeNull()
     applyUiAction(data, ui, { action: 'session.role', session: 'session-1', role: 'alice' })
     expect(uiView(data, ui, 'session-1').session?.role).toEqual({ id: 'alice', name: '爱丽丝' })
-    expect(() => applyUiAction(data, ui, { action: 'session.role', session: 'session-1', role: 'bob' })).toThrow('没有')
+    expect(() => applyUiAction(data, ui, { action: 'session.role', session: 'session-1', role: 'bob' })).toThrow('不在角色库')
     expect(() => applyUiAction(data, ui, { action: 'session.role', session: '__proto__', role: null })).toThrow(BadRequest)
     expect(() => applyUiAction(data, ui, { action: 'session.role', session: 1, role: null })).toThrow(BadRequest)
     expect(data.bindings.get('session-1')).toBe('alice')
@@ -152,7 +152,7 @@ describe('images', () => {
 
   it('stores one avatar per role and serves it', async () => {
     const { dir, data, ui } = setup()
-    expect(() => applyUiAction(data, ui, { action: 'avatar.set', role: 'bob', data: dataUrl('png', PNG) })).toThrow('没有')
+    expect(() => applyUiAction(data, ui, { action: 'avatar.set', role: 'bob', data: dataUrl('png', PNG) })).toThrow('不在角色库')
     expect(() => applyUiAction(data, ui, { action: 'avatar.set', role: '../x', data: dataUrl('png', PNG) })).toThrow(BadRequest)
     applyUiAction(data, ui, { action: 'avatar.set', role: 'alice', data: dataUrl('png', PNG) })
     applyUiAction(data, ui, { action: 'avatar.set', role: 'alice', data: dataUrl('jpeg', JPEG) })

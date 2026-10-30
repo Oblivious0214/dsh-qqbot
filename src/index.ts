@@ -46,9 +46,10 @@ export class QqbotService extends Service implements QqbotRegistry {
     const dir = dataDir(dshHome())
     this.ui = new ui.UiStore(dir, warn)
     this.content = new QqbotData(new RoleLibrary(join(dir, 'roles'), warn), SessionBindings.at(dir, warn), JailbreakStore.at(dir, warn), warn)
-    // 当前角色 id 是会话中途会变的运行时状态，放 context 不放 section（CLAUDE.md 提示词规则）。
+    // 当前角色是会话中途会变的运行时状态，放 context 不放 section（CLAUDE.md 提示词规则）。
+    // 写名称不写 id：id 是自动生成的内部键，对模型没有意义。改名也会让这一行变。
     // 换角色时这一行跟着变，DSH 会追加一条新的 context 快照，模型从中能看到换了人。
-    this.store.runtime('role', session => this.content.roleIdFor(session) ?? '', 'dsh-qqbot')
+    this.store.runtime('role', session => this.content.roleFor(session)?.name ?? '', 'dsh-qqbot')
   }
 
   extension(entry: QqbotExtensionEntry): () => void {

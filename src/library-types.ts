@@ -21,6 +21,7 @@ export const MEME_FREQUENCY_LABELS: Record<MemeFrequency, string> = {
 }
 
 export interface LibraryRole {
+  /** 内部键，自动生成，界面上不显示。 */
   readonly id: string
   readonly name: string
   readonly description: string
@@ -47,17 +48,20 @@ export interface LibraryView {
   readonly defaultRole?: string
   readonly presets: readonly LibraryPreset[]
   readonly defaultPreset: string
+  /** role.save 和 preset.save 成功后，保存的条目 id（新建角色的 id 由服务端生成）。 */
+  readonly saved?: string
 }
 
+/** 新建时不带 id，由服务端生成；修改时带上原 id。 */
 export interface LibraryRoleDraft {
-  readonly id: string
+  readonly id?: string
   readonly name: string
   readonly description: string
   readonly persona: string
   readonly memeFrequency?: MemeFrequency
 }
 
-/** create 为真时 id 不能已存在，防止新建时覆盖同名条目；为假时必须已存在。 */
+/** 预设：create 为真时 id 不能已存在，防止新建时覆盖同名条目；为假时必须已存在。角色：新建不带 id，名称不能重复。 */
 export type LibraryAction =
   | { readonly action: 'role.save'; readonly create: boolean; readonly role: LibraryRoleDraft }
   | { readonly action: 'role.remove'; readonly id: string }

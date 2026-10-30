@@ -199,30 +199,40 @@ describe('/role', () => {
   it('switches, clears and reports state', () => {
     const { content } = setup()
     expect(runRole(content, s1, '')).toMatchObject({ kind: 'success', text: expect.stringContaining('当前角色：无') })
-    expect(runRole(content, s1, ' alice')).toMatchObject({ kind: 'success', text: expect.stringContaining('已切换到 alice（爱丽丝）') })
+    expect(runRole(content, s1, ' 爱丽丝')).toMatchObject({ kind: 'success', text: expect.stringContaining('已切换到 爱丽丝') })
     expect(content.personaFor(s1)).toBe('爱丽丝的设定。')
+    // 也认 id，给直接改文件的用户用。
     expect(runRole(content, s1, ' alice').text).toContain('已经是')
-    expect(runRole(content, s1, ' none').text).toContain('已取消角色 alice')
+    expect(runRole(content, s1, ' none').text).toContain('已取消角色 爱丽丝')
     expect(content.bindings.get('s1')).toBe(NO_ROLE)
   })
 
   it('rejects unknown roles and bad syntax without changing anything', () => {
     const { content } = setup()
-    expect(runRole(content, s1, ' nobody')).toMatchObject({ kind: 'error', text: expect.stringContaining('alice') })
-    expect(runRole(content, s1, ' alice extra').kind).toBe('error')
+    expect(runRole(content, s1, ' nobody')).toMatchObject({ kind: 'error', text: expect.stringContaining('爱丽丝') })
+    expect(runRole(content, s1, ' nobody').text).not.toContain('alice')
+    expect(runRole(content, s1, ' 爱丽丝 extra').kind).toBe('error')
     expect(content.bindings.get('s1')).toBeUndefined()
+  })
+
+  it('takes the whole input as the name, spaces included', () => {
+    const { dir, content } = setup()
+    writeRole(join(dir, 'roles'), 'c.md', '---\nname: Miss Kitty\n---\n猫。')
+    expect(runRole(content, s1, ' Miss Kitty').text).toContain('已切换到 Miss Kitty')
+    expect(runRole(content, s1, 'default Miss Kitty').text).toContain('默认使用 Miss Kitty')
+    expect(content.bindings.defaultRole).toBe('c')
   })
 
   it('picks up role files edited on disk', () => {
     const { dir, content } = setup()
     writeRole(join(dir, 'roles'), 'bee.md', ROLE_B)
-    expect(runRole(content, s1, ' bee').kind).toBe('success')
+    expect(runRole(content, s1, ' 小B').kind).toBe('success')
     expect(content.personaFor(s1)).toBe('B 的设定。')
   })
 
   it('sets and clears the new-session default', () => {
     const { content } = setup()
-    expect(runRole(content, s1, ' default alice').text).toContain('默认使用 alice')
+    expect(runRole(content, s1, ' default 爱丽丝').text).toContain('默认使用 爱丽丝')
     expect(content.bindings.defaultRole).toBe('alice')
     expect(runRole(content, s1, ' default nobody').kind).toBe('error')
     runRole(content, s1, ' default none')
@@ -249,7 +259,7 @@ describe('host service with data', () => {
       // 角色卡写了 high；只有 send_meme 在场时才有表情规则。
       expect(assembleParts(content, store, { id: 's1' }, { meme: true }).find(p => p.name === 'qqbot:format-meme')?.text)
         .toContain('表情频率：高')
-      expect(renderRuntime(store, { id: 's1' })).toBe('role: alice')
+      expect(renderRuntime(store, { id: 's1' })).toBe('role: 爱丽丝')
       expect(renderRuntime(store, { id: 's2' })).toBe('')
     } finally {
       process.env['DSH_HOME'] = previous

@@ -95,7 +95,7 @@ function Field({ label, hint, children }: { readonly label: string; readonly hin
   </label>
 }
 
-const BLANK_ROLE: LibraryRoleDraft = { id: '', name: '', description: '', persona: '' }
+const BLANK_ROLE: LibraryRoleDraft = { name: '', description: '', persona: '' }
 const BLANK_PRESET: LibraryPreset = { id: '', name: '', head: '', mid: '', tail: '' }
 
 interface FormProps {
@@ -103,7 +103,8 @@ interface FormProps {
   readonly ui: UiState
   readonly busy: boolean
   readonly onDirty: (dirty: boolean) => void
-  readonly run: (action: LibraryAction) => Promise<boolean>
+  /** 成功时返回操作后的数据，失败时为 undefined（错误已显示）。 */
+  readonly run: (action: LibraryAction) => Promise<LibraryView | undefined>
 }
 
 /** 角色表单。role 为空表示新建；保存成功后由父组件换 key 重新挂载。 */
@@ -118,17 +119,15 @@ function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRem
   const [confirming, setConfirming] = useState(false)
   const edit = (patch: Partial<LibraryRoleDraft>) => { setDraft(d => ({ ...d, ...patch })); onDirty(true) }
   const save = async () => {
-    if (await run({ action: 'role.save', create, role: draft })) onSaved(draft.id)
+    // 新建时 id 由服务端生成，从返回值里拿。
+    const saved = (await run({ action: 'role.save', create, role: draft }))?.saved
+    if (saved !== undefined) onSaved(saved)
   }
   const isDefault = !create && view.defaultRole === role.id
 
   return <div className="ql-form">
-    <Field label="id" hint={create ? '小写字母、数字和连字符。保存后不能改：会话和预设选择都按 id 记录。' : '保存后不能改。'}>
-      <input value={draft.id} disabled={!create} data-modal-autofocus={create ? '' : undefined}
-        onChange={(event) => { edit({ id: event.target.value.trim().toLowerCase() }) }} />
-    </Field>
-    <Field label="名称">
-      <input value={draft.name} onChange={(event) => { edit({ name: event.target.value }) }} />
+    <Field label="名称" hint="不能和别的角色重名。">
+      <input value={draft.name} data-modal-autofocus={create ? '' : undefined} onChange={(event) => { edit({ name: event.target.value }) }} />
     </Field>
     <RoleAvatarField ui={ui} role={role} />
     <Field label="简介" hint="只在角色列表和 /role 里显示，不进提示词。">
@@ -170,7 +169,7 @@ function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRem
     </div>}
     <div className="ql-note">
       {create
-        ? `保存为 ${view.rolesDir} 下的 ${draft.id === '' ? '<id>' : draft.id}/ROLE.md。`
+        ? `保存到 ${view.rolesDir}。`
         : '只改名称、简介、设定和表情频率，角色文件里的其他字段（语音等）原样保留。删除角色时头像一起移到回收站。'}
       {' '}保存后下一条消息起生效。正在用这个角色的会话，下一轮前缀缓存从角色设定开始失效。
     </div>
@@ -265,17 +264,18 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
     return () => { abort.abort() }
   }, [])
 
-  const run = useCallback(async (action: LibraryAction): Promise<boolean> => {
+  const run = useCallback(async (action: LibraryAction): Promise<LibraryView | undefined> => {
     setBusy(true)
     setActionError(undefined)
     try {
-      setView(await request(action))
+      const next = await request(action)
+      setView(next)
       // 名称变了头像首字跟着变，删了角色要去掉头像，改了默认角色时还没开始的会话跟着变：让各会话重读当前角色。
       if (action.action === 'role.save' || action.action === 'role.remove' || action.action === 'role.default') ui.forgetRoles()
-      return true
+      return next
     } catch (error) {
       setActionError(messageOf(error))
-      return false
+      return undefined
     } finally {
       setBusy(false)
     }
@@ -307,7 +307,7 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
           </button>)}
         </div>
         {'id' in selected && role === undefined
-          ? <div className="ql-empty">没有 id 为 {selected.id} 的角色，可能已在文件里删除。</div>
+          ? <div className="ql-empty">这个角色已经不在角色库里，可能已在文件里删除。</div>
           : <RoleForm key={`${role?.id ?? 'new'}:${revision}`} {...formProps} role={role}
             template={'draft' in selected ? selected.draft : BLANK_ROLE}
             onSaved={(id) => { saved(() => { setRoleSel({ id }) }) }}

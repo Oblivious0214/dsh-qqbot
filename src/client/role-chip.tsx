@@ -85,7 +85,7 @@ function RoleChip({ place, sessionId, ui, openEditor }: { readonly place: Place;
     ...(view?.roster ?? []).map(role => ({
       id: role.id,
       label: <span className={`${ROLE_CHIP_CLASS}-item`}>
-        <span>{role.name === role.id ? role.id : `${role.name}（${role.id}）`}</span>
+        <span>{role.name}</span>
         {role.description !== '' && <span>{role.description}</span>}
       </span>,
     })),

@@ -45,12 +45,27 @@ describe('role files written by the editor', () => {
     expect(parseRole(renderRole(draft, '只有正文。'), 'alice')).toMatchObject({ id: 'alice', name: '爱丽丝', persona: '爱丽丝的设定。' })
   })
 
+  it('makes up the id of a new role and refuses a second role with the same name', () => {
+    const { dir, data: d } = data()
+    const { id: _, ...noId } = draft
+    const id = applyLibraryAction(d, { action: 'role.save', create: true, role: noId })
+    expect(id).toMatch(/^r-[0-9a-f]{8}$/)
+    expect(readFileSync(join(dir, 'roles', id!, 'ROLE.md'), 'utf8')).toContain(`id: ${id}`)
+    expect(libraryView(d, id).saved).toBe(id)
+    expect(() => applyLibraryAction(d, { action: 'role.save', create: true, role: { ...noId, persona: '另一个。' } })).toThrow('已经有叫"爱丽丝"的角色')
+    // 改自己时名称不算重复；改成别人的名称不行。
+    applyLibraryAction(d, { action: 'role.save', create: false, role: { ...noId, id, persona: '新设定。' } })
+    const other = applyLibraryAction(d, { action: 'role.save', create: true, role: { ...noId, name: '鲍勃' } })
+    expect(() => applyLibraryAction(d, { action: 'role.save', create: false, role: { ...noId, id: other } })).toThrow('已经有叫')
+    expect(d.roles.list().map(role => role.name).sort()).toEqual(['爱丽丝', '鲍勃'].sort())
+  })
+
   it('creates <id>/ROLE.md and refuses duplicates either way', () => {
     const { dir, data: d } = data()
     d.roles.save(draft, true)
     expect(existsSync(join(dir, 'roles', 'alice', 'ROLE.md'))).toBe(true)
-    expect(() => d.roles.save(draft, true)).toThrow('已经有')
-    expect(() => d.roles.save({ ...draft, id: 'bob' }, false)).toThrow('没有')
+    expect(() => d.roles.save(draft, true)).toThrow('已经存在')
+    expect(() => d.roles.save({ ...draft, id: 'bob' }, false)).toThrow('不在角色库')
     expect(() => d.roles.save({ ...draft, name: 'a\nb' }, false)).toThrow('不能换行')
   })
 
@@ -92,7 +107,7 @@ describe('library actions', () => {
     expect(() => applyLibraryAction(d, { action: 'preset.save', create: true, preset })).toThrow('已经有')
     expect(() => applyLibraryAction(d, { action: 'preset.save', create: false, preset: { ...preset, id: 'nope' } })).toThrow('没有')
     applyLibraryAction(d, { action: 'role.save', create: true, role: draft })
-    expect(() => applyLibraryAction(d, { action: 'role.preset', id: 'bob', preset: 'soft' })).toThrow('没有 id 为 "bob" 的角色')
+    expect(() => applyLibraryAction(d, { action: 'role.preset', id: 'bob', preset: 'soft' })).toThrow('不在角色库')
     applyLibraryAction(d, { action: 'role.preset', id: 'alice', preset: 'soft' })
     applyLibraryAction(d, { action: 'role.default', id: 'alice' })
     const view = libraryView(d)

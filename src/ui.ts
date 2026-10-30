@@ -214,7 +214,7 @@ export function applyUiAction(data: QqbotData, ui: UiStore, body: unknown): void
     const id = body['role']
     if (typeof id !== 'string' || !ROLE_ID_PATTERN.test(id)) throw new BadRequest('角色 id 无效')
     data.roles.reload()
-    if (data.roles.get(id) === undefined) throw new Error(`没有 id 为 "${id}" 的角色`)
+    if (data.roles.get(id) === undefined) throw new Error('这个角色已经不在角色库里，可能已在文件里删除')
     return id
   }
   switch (body['action']) {

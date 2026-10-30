@@ -1,6 +1,6 @@
 {
   "name": "dsh-qqbot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "QQ 聊天角色扮演：注册独立的 qqbot Agent 预设，统一组装提示词，并为其他插件提供槽位。",
   "keywords": [
     "deepseek-harness",

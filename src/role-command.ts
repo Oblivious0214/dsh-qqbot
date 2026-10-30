@@ -40,7 +40,7 @@ export function overview(data: QqbotData, session: QqbotSession): string {
   const fallback = fallbackId === undefined ? '无' : data.roles.get(fallbackId)?.name ?? '已不在角色库'
   return [
     `当前角色：${current}`,
-    `破限预设：${preset.name}（${preset.id}）`,
+    `破限预设：${preset.name}`,
     `新会话默认角色：${fallback}`,
     '',
     roster(data, role?.id),

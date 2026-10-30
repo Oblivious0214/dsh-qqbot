@@ -70,7 +70,7 @@ describe('jailbreak presets', () => {
   it('resolves role choice, then default, and survives a reload', () => {
     const dir = temp()
     const store = JailbreakStore.at(dir, () => {})
-    store.save({ id: 'soft', name: '温和', head: 'H', mid: 'M', tail: 'T' })
+    store.save({ id: 'soft', name: '温和', head: 'H', mid: 'M', tail: 'T' }, true)
     store.assign('alice', 'soft')
     expect(store.forRole('alice').id).toBe('soft')
     expect(store.forRole('bee').id).toBe('default')
@@ -80,14 +80,14 @@ describe('jailbreak presets', () => {
 
   it('removing a preset moves its roles and the default back, but keeps at least one', () => {
     const store = JailbreakStore.at(temp(), () => {})
-    store.save({ id: 'soft', name: '温和', head: '', mid: '', tail: '' })
+    store.save({ id: 'soft', name: '温和', head: '', mid: '', tail: '' }, true)
     store.assign('alice', 'soft')
     store.setDefault('soft')
     store.remove('soft')
     expect(store.defaultId).toBe('default')
     expect(store.roleChoice('alice')).toBeUndefined()
     expect(() => store.remove('default')).toThrow(/至少/)
-    expect(() => store.save({ id: 'Bad', name: 'x', head: '', mid: '', tail: '' })).toThrow(/id/)
+    expect(() => store.save({ id: 'Bad', name: 'x', head: '', mid: '', tail: '' }, true)).toThrow(/id/)
   })
 
   it('loads tolerantly and quarantines a corrupt file', () => {
@@ -180,7 +180,7 @@ describe('session binding', () => {
     const dir = temp()
     writeRole(join(dir, 'roles'), 'alice', ROLE_A)
     const content = data(dir)
-    content.presets.save({ id: 'soft', name: '温和', head: 'SOFT', mid: '', tail: '' })
+    content.presets.save({ id: 'soft', name: '温和', head: 'SOFT', mid: '', tail: '' }, true)
     content.presets.assign('alice', 'soft')
     content.bindings.set('s1', 'alice')
     expect(content.jailbreakFor({ id: 's1' }).id).toBe('soft')

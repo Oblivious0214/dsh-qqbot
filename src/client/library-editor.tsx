@@ -11,7 +11,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
   DEFAULT_MEME_FREQUENCY, LIBRARY_PATH, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS,
-  type LibraryAction, type LibraryPreset, type LibraryRole, type LibraryRoleDraft, type LibraryView,
+  type LibraryAction, type LibraryPreset, type LibraryPresetDraft, type LibraryRole, type LibraryRoleDraft, type LibraryView,
 } from '../library-types.ts'
 import { RoleAvatarField, UiForm } from './ui-editor.tsx'
 import type { UiState } from './ui-state.ts'
@@ -79,12 +79,12 @@ async function request(action?: LibraryAction, signal?: AbortSignal): Promise<Li
 
 const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error)
 
-/** 复制或新建时找一个没用过的 id。 */
-function uniqueId(base: string, taken: readonly { readonly id: string }[]): string {
-  const ids = new Set(taken.map(item => item.id))
-  const stem = base.slice(0, 56).replace(/-+$/, '') || 'preset'
-  if (!ids.has(stem)) return stem
-  for (let n = 2; ; n++) if (!ids.has(`${stem}-${n}`)) return `${stem}-${n}`
+/** 复制时找一个没用过的名称：名称不能重复。 */
+function uniqueName(base: string, taken: readonly { readonly name: string }[]): string {
+  const names = new Set(taken.map(item => item.name))
+  const stem = base.slice(0, 60)
+  if (!names.has(stem)) return stem
+  for (let n = 2; ; n++) if (!names.has(`${stem} ${n}`)) return `${stem} ${n}`
 }
 
 function Field({ label, hint, children }: { readonly label: string; readonly hint?: string; readonly children: ReactNode }) {
@@ -96,7 +96,7 @@ function Field({ label, hint, children }: { readonly label: string; readonly hin
 }
 
 const BLANK_ROLE: LibraryRoleDraft = { name: '', description: '', persona: '' }
-const BLANK_PRESET: LibraryPreset = { id: '', name: '', head: '', mid: '', tail: '' }
+const BLANK_PRESET: LibraryPresetDraft = { name: '', head: '', mid: '', tail: '' }
 
 interface FormProps {
   readonly view: LibraryView
@@ -150,7 +150,7 @@ function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRem
       <select value={role.preset ?? ''} disabled={busy}
         onChange={(event) => { void run({ action: 'role.preset', id: role.id, ...event.target.value === '' ? {} : { preset: event.target.value } }) }}>
         <option value="">跟随默认（{view.presets.find(p => p.id === view.defaultPreset)?.name ?? view.defaultPreset}）</option>
-        {view.presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}（{preset.id}）</option>)}
+        {view.presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
       </select>
     </Field>}
     <div className="ql-actions">
@@ -179,28 +179,26 @@ function RoleForm({ view, ui, busy, onDirty, run, role, template, onSaved, onRem
 /** 破限预设表单。preset 为空表示新建（template 是空白或复制来源）。 */
 function PresetForm({ view, busy, onDirty, run, preset, template, onSaved, onRemoved, onCopy }: FormProps & {
   readonly preset: LibraryPreset | undefined
-  readonly template: LibraryPreset
+  readonly template: LibraryPresetDraft
   readonly onSaved: (id: string) => void
   readonly onRemoved: () => void
-  readonly onCopy: (draft: LibraryPreset) => void
+  readonly onCopy: (draft: LibraryPresetDraft) => void
 }) {
   const create = preset === undefined
-  const [draft, setDraft] = useState<LibraryPreset>(preset ?? template)
+  const [draft, setDraft] = useState<LibraryPresetDraft>(preset ?? template)
   const [confirming, setConfirming] = useState(false)
-  const edit = (patch: Partial<LibraryPreset>) => { setDraft(d => ({ ...d, ...patch })); onDirty(true) }
+  const edit = (patch: Partial<LibraryPresetDraft>) => { setDraft(d => ({ ...d, ...patch })); onDirty(true) }
   const save = async () => {
-    if (await run({ action: 'preset.save', create, preset: draft })) onSaved(draft.id)
+    // 新建时 id 由服务端生成，从返回值里拿。
+    const saved = (await run({ action: 'preset.save', create, preset: draft }))?.saved
+    if (saved !== undefined) onSaved(saved)
   }
   const isDefault = !create && view.defaultPreset === preset.id
   const users = create ? [] : view.roles.filter(role => (role.preset ?? view.defaultPreset) === preset.id)
 
   return <div className="ql-form">
-    <Field label="id" hint={create ? '小写字母、数字和连字符。保存后不能改。' : '保存后不能改。'}>
-      <input value={draft.id} disabled={!create} data-modal-autofocus={create ? '' : undefined}
-        onChange={(event) => { edit({ id: event.target.value.trim().toLowerCase() }) }} />
-    </Field>
-    <Field label="名称">
-      <input value={draft.name} onChange={(event) => { edit({ name: event.target.value }) }} />
+    <Field label="名称" hint="不能和别的预设重名。">
+      <input value={draft.name} data-modal-autofocus={create ? '' : undefined} onChange={(event) => { edit({ name: event.target.value }) }} />
     </Field>
     <Field label="开头" hint="放在系统提示词最前面，角色设定之前。">
       <textarea rows={6} value={draft.head} onChange={(event) => { edit({ head: event.target.value }) }} />
@@ -218,7 +216,7 @@ function PresetForm({ view, busy, onDirty, run, preset, template, onSaved, onRem
     <div className="ql-actions">
       <Button size="sm" variant="primary" disabled={busy} onClick={() => { void save() }}>{create ? '创建预设' : '保存'}</Button>
       <Button size="sm" variant="outline" disabled={busy}
-        onClick={() => { onCopy({ ...draft, id: uniqueId(`${draft.id || 'preset'}-copy`, view.presets), name: `${draft.name || '预设'} 副本` }) }}>
+        onClick={() => { const { id: _, ...copy } = draft; onCopy({ ...copy, name: uniqueName(`${draft.name || '预设'} 副本`, view.presets) }) }}>
         复制为新预设
       </Button>
       {!create && !isDefault && <Button size="sm" variant="outline" disabled={busy}
@@ -250,7 +248,7 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
   const [tab, setTab] = useState<EditorTab>(target.tab)
   const [roleSel, setRoleSel] = useState<Selection<LibraryRoleDraft> | undefined>(
     target.tab === 'roles' && target.id !== undefined ? { id: target.id } : undefined)
-  const [presetSel, setPresetSel] = useState<Selection<LibraryPreset> | undefined>(
+  const [presetSel, setPresetSel] = useState<Selection<LibraryPresetDraft> | undefined>(
     target.tab === 'presets' && target.id !== undefined ? { id: target.id } : undefined)
   // 有未保存的改动时，切换和关闭要先确认。pending 是确认后要做的事。
   const [dirty, setDirty] = useState(false)
@@ -316,7 +314,8 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
     }
     const selected = presetSel ?? { id: view.defaultPreset }
     const preset = 'id' in selected ? view.presets.find(p => p.id === selected.id) : undefined
-    const draftKey = 'draft' in selected ? `new:${selected.draft.id}` : preset?.id ?? 'missing'
+    // 新草稿按名称区分：复制出来的草稿名称不同，表单会重新挂载。
+    const draftKey = 'draft' in selected ? `new:${selected.draft.name}` : preset?.id ?? 'missing'
     return <div className="ql-main">
       <div className="ql-list">
         <Button size="sm" variant="outline" onClick={() => { go(() => { setPresetSel({ draft: BLANK_PRESET }) }) }}>新建预设</Button>
@@ -327,7 +326,7 @@ function useLibraryEditor(target: EditorTarget, ui: UiState): { readonly guard: 
         </button>)}
       </div>
       {'id' in selected && preset === undefined
-        ? <div className="ql-empty">没有 id 为 {selected.id} 的预设，可能已在文件里删除。</div>
+        ? <div className="ql-empty">这份预设已经不在了，可能已被删除。</div>
         : <PresetForm key={`${draftKey}:${revision}`} {...formProps} preset={preset}
           template={'draft' in selected ? selected.draft : BLANK_PRESET}
           onSaved={(id) => { saved(() => { setPresetSel({ id }) }) }}

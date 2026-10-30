@@ -88,14 +88,7 @@ export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore)
       return
     }
     case 'preset.save': {
-      const create = flag(body, 'create')
-      const preset = body['preset']
-      const id = isRecord(preset) && typeof preset['id'] === 'string' ? preset['id'] : undefined
-      const exists = id !== undefined && data.presets.get(id) !== undefined
-      if (create && exists) throw new Error(`已经有 id 为 "${id}" 的预设`)
-      if (!create && !exists) throw new Error(`没有 id 为 "${id ?? ''}" 的预设`)
-      data.presets.save(preset)
-      return id
+      return data.presets.save(body['preset'], flag(body, 'create')).id
     }
     case 'preset.remove':
       data.presets.remove(text(body, 'id'))

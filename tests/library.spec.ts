@@ -100,12 +100,23 @@ describe('role files written by the editor', () => {
 })
 
 describe('library actions', () => {
+  it('makes up the id of a new preset and refuses a second preset with the same name', () => {
+    const { data: d } = data()
+    const id = applyLibraryAction(d, { action: 'preset.save', create: true, preset: { name: '温和', head: 'H', mid: '', tail: '' } })
+    expect(id).toMatch(/^p-[0-9a-f]{8}$/)
+    expect(d.presets.get(id!)?.head).toBe('H')
+    expect(() => applyLibraryAction(d, { action: 'preset.save', create: true, preset: { name: '温和', head: '', mid: '', tail: '' } })).toThrow('已经有叫"温和"的预设')
+    expect(() => applyLibraryAction(d, { action: 'preset.save', create: false, preset: { id, name: '默认', head: '', mid: '', tail: '' } })).toThrow('已经有叫')
+    applyLibraryAction(d, { action: 'preset.save', create: false, preset: { id, name: '温和', head: 'H2', mid: '', tail: '' } })
+    expect(d.presets.get(id!)?.head).toBe('H2')
+  })
+
   it('saves presets with create/overwrite checks and assigns them to roles', () => {
     const { data: d } = data()
     const preset = { id: 'soft', name: '温和', head: 'H', mid: '', tail: 'T' }
     applyLibraryAction(d, { action: 'preset.save', create: true, preset })
-    expect(() => applyLibraryAction(d, { action: 'preset.save', create: true, preset })).toThrow('已经有')
-    expect(() => applyLibraryAction(d, { action: 'preset.save', create: false, preset: { ...preset, id: 'nope' } })).toThrow('没有')
+    expect(() => applyLibraryAction(d, { action: 'preset.save', create: true, preset })).toThrow('已经存在')
+    expect(() => applyLibraryAction(d, { action: 'preset.save', create: false, preset: { ...preset, id: 'nope' } })).toThrow('不在了')
     applyLibraryAction(d, { action: 'role.save', create: true, role: draft })
     expect(() => applyLibraryAction(d, { action: 'role.preset', id: 'bob', preset: 'soft' })).toThrow('不在角色库')
     applyLibraryAction(d, { action: 'role.preset', id: 'alice', preset: 'soft' })

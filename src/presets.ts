@@ -1,8 +1,10 @@
 /**
  * 破限预设存储：`<数据目录>/presets.json`。插件只存储和插入，文本由用户完全编辑（架构文档第 4 节）。
  * 文件不存在时用内置默认预设，第一次修改时才写盘。
+ * id 是内部键（默认预设、角色的单独选择都按它记），界面上不显示：编辑器新建时自动生成，用户只按名称认预设。
  */
 
+import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { isRecord, readJson, writeJson, type Warn } from './storage.ts'
 
@@ -37,16 +39,21 @@ interface PresetFile {
   readonly roles: Readonly<Record<string, string>>
 }
 
-/** 校验一份预设；不合规时抛出可以直接展示给用户的错误。 */
-export function validatePreset(value: unknown): JailbreakPreset {
+/** 编辑界面提交的预设。修改时带 id；新建时不带，由 save() 生成。 */
+export type PresetDraft = Omit<JailbreakPreset, 'id'> & { readonly id?: string }
+
+/** 校验一份预设；不合规时抛出可以直接展示给用户的错误。id 是内部键，用户看不到，只在格式不对时报"无效"。 */
+export function validatePreset(value: unknown): JailbreakPreset
+export function validatePreset(value: unknown, optionalId: true): PresetDraft
+export function validatePreset(value: unknown, optionalId = false): PresetDraft {
   if (!isRecord(value)) throw new TypeError('破限预设格式无效')
   const { id, name, head, mid, tail } = value
-  if (typeof id !== 'string' || !PRESET_ID_PATTERN.test(id)) throw new TypeError('预设 id 只能用小写字母、数字和连字符，最多 64 个字符')
+  if (!(optionalId && id === undefined) && (typeof id !== 'string' || !PRESET_ID_PATTERN.test(id))) throw new TypeError('预设 id 无效')
   if (typeof name !== 'string' || name.trim() === '' || name.length > NAME_LIMIT) throw new TypeError(`预设名称不能为空，最多 ${NAME_LIMIT} 个字符`)
   for (const [label, text] of [['开头', head], ['中间', mid], ['结尾', tail]] as const) {
     if (typeof text !== 'string' || text.length > TEXT_LIMIT) throw new TypeError(`预设${label}段必须是文本，最多 ${TEXT_LIMIT} 个字符`)
   }
-  return { id, name: name.trim(), head: head as string, mid: mid as string, tail: tail as string }
+  return { ...id === undefined ? {} : { id: id as string }, name: name.trim(), head: head as string, mid: mid as string, tail: tail as string }
 }
 
 export class JailbreakStore {
@@ -83,19 +90,36 @@ export class JailbreakStore {
     return this.state.roles[roleId]
   }
 
-  /** 新建或覆盖一份预设。 */
-  save(value: unknown): JailbreakPreset {
-    const preset = validatePreset(value)
-    const presets = this.state.presets.some(p => p.id === preset.id)
-      ? this.state.presets.map(p => p.id === preset.id ? preset : p)
+  /**
+   * 新建或修改一份预设。新建时编辑器不带 id，生成 `p-<8 位十六进制>`；带了 id（测试等内部调用）时不能已存在。
+   * 修改时 id 必须已存在。名称不能和别的预设重复：用户只按名称认预设。
+   */
+  save(value: unknown, create: boolean): JailbreakPreset {
+    const draft = validatePreset(value, true)
+    if (!create && draft.id === undefined) throw new TypeError('缺少预设 id')
+    const id = draft.id ?? this.freshId()
+    const exists = this.get(id) !== undefined
+    if (create && exists) throw new Error('这份预设已经存在')
+    if (!create && !exists) throw new Error('这份预设已经不在了，可能已被删除')
+    if (this.state.presets.some(p => p.id !== id && p.name === draft.name)) throw new Error(`已经有叫"${draft.name}"的预设，换个名称`)
+    const preset: JailbreakPreset = { ...draft, id }
+    const presets = exists
+      ? this.state.presets.map(p => p.id === id ? preset : p)
       : [...this.state.presets, preset]
     this.commit({ ...this.state, presets })
     return preset
   }
 
+  private freshId(): string {
+    for (;;) {
+      const id = `p-${randomBytes(4).toString('hex')}`
+      if (this.get(id) === undefined) return id
+    }
+  }
+
   /** 删除预设。不能删最后一份；删的是默认预设时，默认改为剩下的第一份；选了它的角色改回跟随默认。 */
   remove(id: string): void {
-    if (this.get(id) === undefined) throw new Error(`没有 id 为 "${id}" 的预设`)
+    if (this.get(id) === undefined) throw new Error('这份预设已经不在了，可能已被删除')
     const presets = this.state.presets.filter(p => p.id !== id)
     if (presets.length === 0) throw new Error('至少要保留一份预设')
     const roles = Object.fromEntries(Object.entries(this.state.roles).filter(([, preset]) => preset !== id))
@@ -103,13 +127,13 @@ export class JailbreakStore {
   }
 
   setDefault(id: string): void {
-    if (this.get(id) === undefined) throw new Error(`没有 id 为 "${id}" 的预设`)
+    if (this.get(id) === undefined) throw new Error('这份预设已经不在了，可能已被删除')
     this.commit({ ...this.state, default: id })
   }
 
   /** 为角色选择预设；presetId 为空表示跟随默认。 */
   assign(roleId: string, presetId: string | undefined): void {
-    if (presetId !== undefined && this.get(presetId) === undefined) throw new Error(`没有 id 为 "${presetId}" 的预设`)
+    if (presetId !== undefined && this.get(presetId) === undefined) throw new Error('这份预设已经不在了，可能已被删除')
     const roles = { ...this.state.roles }
     if (presetId === undefined) delete roles[roleId]
     else roles[roleId] = presetId

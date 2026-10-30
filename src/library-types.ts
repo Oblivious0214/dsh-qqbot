@@ -33,6 +33,7 @@ export interface LibraryRole {
 }
 
 export interface LibraryPreset {
+  /** 内部键，自动生成，界面上不显示。 */
   readonly id: string
   readonly name: string
   readonly head: string
@@ -61,7 +62,7 @@ export interface LibraryRoleDraft {
   readonly memeFrequency?: MemeFrequency
 }
 
-/** 预设：create 为真时 id 不能已存在，防止新建时覆盖同名条目；为假时必须已存在。角色：新建不带 id，名称不能重复。 */
+/** 角色和预设：新建不带 id（服务端生成），修改时带原 id；名称不能重复。 */
 export type LibraryAction =
   | { readonly action: 'role.save'; readonly create: boolean; readonly role: LibraryRoleDraft }
   | { readonly action: 'role.remove'; readonly id: string }
@@ -69,9 +70,12 @@ export type LibraryAction =
   | { readonly action: 'role.default'; readonly id?: string }
   /** preset 为空表示跟随默认预设。 */
   | { readonly action: 'role.preset'; readonly id: string; readonly preset?: string }
-  | { readonly action: 'preset.save'; readonly create: boolean; readonly preset: LibraryPreset }
+  | { readonly action: 'preset.save'; readonly create: boolean; readonly preset: LibraryPresetDraft }
   | { readonly action: 'preset.remove'; readonly id: string }
   | { readonly action: 'preset.default'; readonly id: string }
+
+/** 新建时不带 id，由服务端生成；修改时带上原 id。 */
+export type LibraryPresetDraft = Omit<LibraryPreset, 'id'> & { readonly id?: string }
 
 export interface LibraryError {
   readonly error: 'bad-request' | 'failed'

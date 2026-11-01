@@ -2,7 +2,8 @@
 
 像 QQ 里一样和 AI 聊天：可配置人设、表情包、发语音。兼容 DSH 正常用途，不混淆工作区／界面。以前用 QQ 小号养鱼，动不动就被电鱼（封小号），搬到 DSH 上就不怕了。
 
-配置交流欢迎加群639395026
+DSH养鱼交流欢迎加群639395026
+DSH草鱼交流欢迎加群691443603
 
 <p align="center"><img src="docs/images/chat-preview-devices.png" alt="QQ Bot 电脑端与手机端聊天效果" width="900"></p>
 
@@ -22,7 +23,7 @@
 <tr>
 <td>
 <p>QQ Bot 由<strong>抚物工作室</strong>开发，推荐搭配我们自己的<strong>抚物联动杯</strong>。</p>
-<p>支持 AI 对话、视频和游戏联动，电脑和手机都能用。欢迎加群691443603了解</p>
+<p>支持 AI 对话、视频和游戏联动，电脑和手机都能用。</p>
 <p><strong><a href="https://c.tb.cn/h.jU11PcxxOvQ1F3G?tk=IoorTANS3Nc">前往淘宝购买</a></strong>，或在淘宝搜索 <strong>「抚物工作室」</strong>。</p>
 <p>🍚 <strong>大肥鱼的白饭补给</strong>：下单前找客服报口令 <strong>「大肥鱼」</strong>，享购买优惠。</p>
 </td>

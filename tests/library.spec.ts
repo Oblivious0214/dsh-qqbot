@@ -261,10 +261,6 @@ describe('library route', () => {
 
   it('reports only currently registered optional capabilities, including disposal', async () => {
     const { call, fiber, root, routes } = await mount()
-    expect((await call()).body.features).toEqual({ meme: false, toy: false })
-    await routes.get('/api/qqbot/toy/state')!.fetch(new Request('http://localhost/api/qqbot/toy/state', {
-      method: 'POST', body: JSON.stringify({ action: 'module.enable', enabled: true }),
-    }))
     expect((await call()).body.features).toEqual({ meme: false, toy: true })
     let meme = true
     root.provide('tools', { get: (name: string) => name === 'send_meme' && meme ? {} : undefined })

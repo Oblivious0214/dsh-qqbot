@@ -1,6 +1,6 @@
 {
   "name": "dsh-qqbot",
-  "version": "0.36.0",
+  "version": "0.36.2",
   "description": "QQ 聊天角色扮演：独立预设、角色、记忆、语音与可单独关闭的设备联动。",
   "keywords": [
     "deepseek-harness",

@@ -10,6 +10,7 @@ import type {} from '../index.ts'
 import { dataDir } from '../storage.ts'
 import { QuickReplySettings } from './quick-settings.ts'
 import { QUICK_REPLY_PROMPT } from './prompts.ts'
+import { presetForAgent } from '../agent-preset.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -32,7 +33,7 @@ export function apply(ctx: Context): void {
     now: Date.now,
     availability: id => {
       const agent = find(id)
-      return { allowed: agent !== undefined && ctx.agentPresets.presetForSession(agent.session) === 'qqbot'
+      return { allowed: agent !== undefined && presetForAgent(ctx.agentPresets, agent) === 'qqbot'
         && agent.session.header.origin !== 'subagent' && !workspace.archivedSessionIds.includes(id),
       busy: agent === undefined || agent.status !== 'idle' || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0,
       started: agent !== undefined && ctx.agents.turnBoundaryOf(agent.session).lastTurn > 0 }
@@ -86,7 +87,7 @@ export function apply(ctx: Context): void {
         const session = body['session']
         if (['quick.get', 'quick.set', 'quick.mode.set', 'quick.prompt.get', 'quick.prompt.set', 'quick.prompt.reset', 'prompt.get', 'prompt.set', 'prompt.reset'].includes(String(body['action']))) {
           const agent = find(session)
-          if (!agent || ctx.agentPresets.presetForSession(agent.session) !== 'qqbot'
+          if (!agent || presetForAgent(ctx.agentPresets, agent) !== 'qqbot'
             || agent.session.header.origin === 'subagent' || workspace.archivedSessionIds.includes(session)) throw new Error('请在未归档的 QQ Bot 对话中设置。')
           if (body['action'] === 'prompt.get') return Response.json(prompts.get(session))
           if (body['action'] === 'prompt.set') return Response.json(prompts.set(session, body['prompt']))

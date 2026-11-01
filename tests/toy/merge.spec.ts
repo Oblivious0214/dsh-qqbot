@@ -34,12 +34,14 @@ async function mount(legacy = false) {
 }
 
 describe('single package linkage', () => {
-  it('starts disabled with both annotations hidden, including after full cleanup', () => {
-    const host = new ToyHost(mkdtempSync(join(process.env['DSH_HOME']!, 'display-default-')), () => {})
-    expect(host.settings.value).toMatchObject({ enabled: false, display: { actions: false, countdown: false } })
-    host.apply({ action: 'module.enable', enabled: true })
+  it('starts enabled and unauthorized with both annotations hidden, including after full cleanup', () => {
+    const dir = mkdtempSync(join(process.env['DSH_HOME']!, 'display-default-'))
+    const host = new ToyHost(dir, () => {})
+    expect(host.settings.value).toMatchObject({ enabled: true, authorized: false, display: { actions: false, countdown: false } })
+    host.apply({ action: 'module.enable', enabled: false })
+    expect(new ToyHost(dir, () => {}).settings.value.enabled).toBe(false)
     host.reset()
-    expect(host.settings.value).toMatchObject({ enabled: false, display: { actions: false, countdown: false } })
+    expect(host.settings.value).toMatchObject({ enabled: true, authorized: false, display: { actions: false, countdown: false } })
   })
 
   it.each([{ actions: false, countdown: true }, { actions: false, countdown: false }])('preserves independent annotation choices through enable transitions and reload: %j', display => {

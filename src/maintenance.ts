@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from './index.ts'
+import { presetForAgent } from './agent-preset.ts'
 import { MAINTENANCE_PATH, type CleanupKind, type MaintenanceView } from './maintenance-types.ts'
 import { isRecord, readJson, writeJson } from './storage.ts'
 
@@ -104,7 +105,7 @@ export function apply(ctx: Context): void {
         if (!isRecord(body) || !['cache', 'all'].includes(String(body['action']))) return Response.json({ message: '清理请求无效。' }, { status: 400 })
         if (body['action'] === 'all') {
           const agents = ctx.get('agents'), presets = ctx.get('agentPresets')
-          if (agents && presets && agents.list().some(agent => presets.presetForSession(agent.session) === 'qqbot' && agent.status !== 'idle')) {
+          if (agents && presets && agents.list().some(agent => presetForAgent(presets, agent) === 'qqbot' && agent.status !== 'idle')) {
             throw new Error('QQ Bot 还有正在进行的回复，请先停止回复再清理全部数据。')
           }
         }

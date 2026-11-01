@@ -65,17 +65,20 @@ describe('buildPromptView', () => {
 describe('prompt view route', () => {
   type Route = { path: string; fetch: (request: Request) => Promise<Response> }
 
-  async function mount(presets: Record<string, string>, tools?: string[]) {
+  async function mount(presets: Record<string, string>, tools?: string[], hostVersion = 'current') {
     const root = new Context()
     if (tools !== undefined) root.provide('tools', { get: (name: string) => tools.includes(name) ? {} : undefined })
     const routes = new Map<string, Route>()
     const agents = new Map(Object.keys(presets).map(id => [id, {
       id,
+      ctx: { id },
       session: { id, requestHeader: () => ({ tools: [{ name: 'working_directory', description: 'd', parameters: {} }] }) },
     }]))
     root.provide('connection', { fetch: { register: (route: Route) => { routes.set(route.path, route); return () => { routes.delete(route.path) } } } })
     root.provide('agents', { get: (id: string) => agents.get(id) })
-    root.provide('agentPresets', { presetForSession: (s: { id: string }) => presets[s.id] ?? null })
+    root.provide('agentPresets', hostVersion === 'current'
+      ? { presetForSession: (s: { id: string }) => presets[s.id] ?? null }
+      : { composedPreset: (ctx: { id: string }) => presets[ctx.id] })
     const fiber = await root.plugin(host)
     const get = async (query: string) => {
       const response = await routes.get(PROMPT_VIEW_PATH)!.fetch(new Request(`http://127.0.0.1${PROMPT_VIEW_PATH}${query}`))
@@ -84,8 +87,8 @@ describe('prompt view route', () => {
     return { root, routes, get, agents, fiber }
   }
 
-  it('answers only for live qqbot sessions', async () => {
-    const { get } = await mount({ q: 'qqbot', s: 'standard' })
+  it.each(['current', 'older'])('%s: answers only for live qqbot sessions', async hostVersion => {
+    const { get, fiber } = await mount({ q: 'qqbot', s: 'standard' }, undefined, hostVersion)
     expect((await get('')).status).toBe(400)
     expect((await get('?session=missing')).body.error).toBe('not-loaded')
     expect((await get('?session=s')).status).toBe(404)
@@ -93,6 +96,7 @@ describe('prompt view route', () => {
     expect(ok.status).toBe(200)
     expect(ok.body.tools.map(t => t.name)).toEqual(['working_directory'])
     expect(ok.body.system.parts[0]?.text).toBe(DEFAULT_JAILBREAK.head)
+    await fiber.dispose()
   })
 
   it('predicts the meme rule from the registered tools', async () => {

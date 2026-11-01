@@ -15,7 +15,7 @@ import { isRecord, readJson, writeJson, type Warn } from './storage.ts'
 import { CLIMAX_PROMPT_KEYS, DEFAULT_CLIMAX_PROMPTS, MAX_CLIMAX_PROMPT_LENGTH, type ClimaxPrompts } from './climax-prompt.ts'
 
 export function defaultSettings(): ToySettings {
-  return { enabled: false, authorized: false, display: { actions: false, countdown: false }, motion: defaultMotion(), behavior: DEFAULT_BEHAVIOR, hotkey: NO_HOTKEY }
+  return { enabled: true, authorized: false, display: { actions: false, countdown: false }, motion: defaultMotion(), behavior: DEFAULT_BEHAVIOR, hotkey: NO_HOTKEY }
 }
 
 /** 只留和默认不同的档。没有这个字段时全用默认。 */

@@ -12,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { NO_ROLE } from './bindings.ts'
+import { presetForAgent } from './agent-preset.ts'
 import type { QqbotData } from './content.ts'
 import type {} from './index.ts'
 import { ROLE_ID_PATTERN } from './roles.ts'
@@ -329,7 +330,7 @@ export function apply(ctx: Context): void {
           if (isRecord(body) && body['action'] === 'session.role') {
             const id = body['session']
             const agent = typeof id === 'string' ? ctx.agents.get(id as Parameters<typeof ctx.agents.get>[0]) : undefined
-            if (!agent || ctx.agentPresets.presetForSession(agent.session) !== 'qqbot') throw new Error('请在 QQ Bot 对话中选择角色。')
+            if (!agent || presetForAgent(ctx.agentPresets, agent) !== 'qqbot') throw new Error('请在 QQ Bot 对话中选择角色。')
             if (ctx.agents.turnBoundaryOf(agent.session).lastTurn > 0 || agent.status !== 'idle'
               || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0) throw new Error('对话开始后不能切换角色，请新建对话选择角色。')
           }

@@ -14,6 +14,7 @@ import type {} from './index.ts'
 import { CONTEXT_NAME, SECTION_NAME } from './order.ts'
 import type {} from '@deepseek-ai/dsh-tools'
 import { MEME_TOOL } from './format.ts'
+import { presetForAgent } from './agent-preset.ts'
 import { assembleParts, PART_SEPARATOR, type PromptFeatures } from './prompt.ts'
 import { resolveText, type QqbotRegistryStore, type QqbotSession } from './registry.ts'
 import {
@@ -121,7 +122,7 @@ export function apply(ctx: Context): void {
       if (agent === undefined) {
         return Promise.resolve(fail(409, 'not-loaded', '这个会话还没有加载，发一条消息或重新打开会话后再试'))
       }
-      if (ctx.agentPresets.presetForSession(agent.session) !== PRESET_ID) {
+      if (presetForAgent(ctx.agentPresets, agent) !== PRESET_ID) {
         return Promise.resolve(fail(404, 'not-qqbot', '查看器只用于 QQ Bot 会话'))
       }
       const tools = (agent.session.requestHeader()?.tools ?? []).map(tool => ({

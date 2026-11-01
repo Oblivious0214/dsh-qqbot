@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import * as qqbot from '../../src/index.ts'
 import { assembleParts, renderRuntime } from '../../src/prompt.ts'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { STATE_PATH, type ToyView } from '../../src/toy/api-types.ts'
 import { defaultMotion } from '../../src/toy/core/config.ts'
 import { DEFAULT_PROACTIVITY_TEXTS } from '../../src/toy/core/rules.ts'
@@ -14,8 +14,12 @@ import { dataDir } from '../../src/toy/storage.ts'
 
 type Route = { path: string; methods: string[]; fetch: (request: Request) => Promise<Response> }
 
-async function mount(withQqbot: boolean) {
+async function mount(withQqbot: boolean, live?: { agents: object; presets: object }) {
   const root = new Context()
+  if (live) {
+    root.provide('agents', live.agents)
+    root.provide('agentPresets', live.presets)
+  }
   const routes = new Map<string, Route>()
   root.provide('connection', { fetch: { register: (route: Route) => { routes.set(route.path, route); return () => { routes.delete(route.path) } } } })
   const qqbotFiber = withQqbot ? await root.plugin(qqbot.QqbotService) : undefined
@@ -35,6 +39,28 @@ async function mount(withQqbot: boolean) {
 const authorized = { ...defaultSettings(), enabled: true, display: { actions: true, countdown: true }, authorized: true }
 
 describe('settings and sessions', () => {
+  it.each(['current', 'older'])('%s: 联动通知读取实时 QQ 绑定，标准对话拒绝（模拟会话）', async host => {
+    const agentContext = {} as Context
+    let preset = 'qqbot'
+    const followup = vi.fn()
+    const agent = { ctx: agentContext, session: { header: { agentPreset: 'standard' } }, followup }
+    const presets = host === 'current' ? { presetForSession: () => preset }
+      : { composedPreset: (ctx: Context) => { expect(ctx).toBe(agentContext); return preset } }
+    const { call, root } = await mount(true, { agents: { get: () => agent }, presets })
+    const original = (await call()).body.settings
+    try {
+      await call({ action: 'settings.save', settings: authorized })
+      await call({ action: 'session.attach', session: 's1', status: 'ready' })
+      expect((await call({ action: 'session.climax', session: 's1' })).status).toBe(200)
+      expect(followup).toHaveBeenCalledTimes(1)
+      preset = 'standard'
+      expect((await call({ action: 'session.aftercare', session: 's1' })).status).toBe(409)
+      expect(followup).toHaveBeenCalledTimes(1)
+    } finally {
+      await call({ action: 'settings.save', settings: original })
+      await root.fiber.dispose()
+    }
+  })
   it('starts unauthorized and refuses to attach until authorized', async () => {
     const { call } = await mount(false)
     const initial = await call(undefined, '?session=s1')

@@ -9,6 +9,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import { guardWrites } from '../maintenance.ts'
+import { presetForAgent } from '../agent-preset.ts'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { DEFAULT_BURST, STATE_PATH, type ToyError, type ToyView } from './api-types.ts'
 import { RANGES } from './core/config.ts'
@@ -318,7 +319,7 @@ export function apply(ctx: Context): void {
       host.prompter = {
         send: (session, text, summary) => {
           const agent = find(session)
-          if (agent === undefined || inner.agentPresets.presetForSession(agent.session) !== 'qqbot') throw new Error('会话已关闭或不是 QQ Bot 对话')
+          if (agent === undefined || presetForAgent(inner.agentPresets, agent) !== 'qqbot') throw new Error('会话已关闭或不是 QQ Bot 对话')
           agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: CLIMAX_SOURCE, form: 'notice', summary } }))
         },
         cancel: session => {

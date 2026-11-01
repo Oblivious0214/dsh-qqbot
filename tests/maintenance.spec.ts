@@ -87,10 +87,11 @@ describe('QQ Bot 数据维护', () => {
     expect(new Maintenance(dshHome(), () => {}).view().dataEpoch).toBe(service.maintenance.view().dataEpoch)
   })
 
-  it('正在生成原生回复时拒绝全部清理，缓存仍可清理', async () => {
+  it.each(['current', 'older'])('%s: 正在生成原生回复时拒绝全部清理，缓存仍可清理', async host => {
     const { root, call } = await fixture()
-    root.provide('agents', { list: () => [{ status: 'running', session: {} }] })
-    root.provide('agentPresets', { presetForSession: () => 'qqbot' })
+    root.provide('agents', { list: () => [{ status: 'running', session: {}, ctx: root }] })
+    root.provide('agentPresets', host === 'current' ? { presetForSession: () => 'qqbot' }
+      : { composedPreset: (ctx: Context) => { expect(ctx).toBe(root); return 'qqbot' } })
     const response = await call(MAINTENANCE_PATH, { action: 'all' })
     expect(response.status).toBe(409)
     expect(await response.text()).toContain('请先停止回复')

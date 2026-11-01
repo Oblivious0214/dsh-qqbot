@@ -86,6 +86,8 @@ export function apply(ctx: Context): void {
           const source = await realpath(join(profile.dir, 'node_modules', 'dsh-qqbot'))
           await cp(source, join(dir, 'plugin'), { recursive: true, dereference: true, filter: path => basename(path) !== 'node_modules' })
           await verifyCopy(source, join(dir, 'plugin'))
+          // The previous source may be a moving Git branch; restore the verified local snapshot.
+          return join(dir, 'plugin')
         }
         // Do not attach this promise to a Cordis effect: removal must not await its own upgrade.
         const job = Promise.resolve().then(async () => {

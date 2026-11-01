@@ -1,11 +1,13 @@
 /**
- * 空白 qqbot 会话可选择角色；开始后输入栏显示当前角色，点击打开 QQ Bot 设置。
+ * qqbot 会话的角色菜单：开聊前和对话空闲时可切换，下一轮生效。
  */
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { IconChevronDownOutlineRegular, IconUserOutlineRegular, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-agent/types'
 import { PRESET_ID } from '../view-types.ts'
 import type { OpenEditor } from './library-editor.tsx'
 import type { UiState } from './ui-state.ts'
@@ -44,26 +46,21 @@ type InputProps = PropsRuntime<'conversation.input.left'> & InjectFace<RoleChipI
 export function HeroRoleChip(props: HeroProps) {
   const state = useSessionState(props)
   if (state !== 'blank') return null
-  return <RoleChip sessionId={props.sessionId} ui={props.ui} openEditor={props.openEditor} />
+  return <SessionRoleChip key={props.sessionId} {...props} place="hero" />
 }
 
 /** 输入栏：qqbot 会话发过消息以后出现。 */
 export function InputRoleChip(props: InputProps) {
   const state = useSessionState(props)
   if (state !== 'started') return null
-  return <CurrentRoleSettings sessionId={props.sessionId} ui={props.ui} openEditor={props.openEditor} />
+  return <SessionRoleChip key={props.sessionId} {...props} place="input" />
 }
 
-function CurrentRoleSettings({ sessionId, ui, openEditor }: { sessionId: string } & RoleChipInjected) {
-  useSyncExternalStore(ui.subscribe, ui.getVersion)
-  const current = ui.session(sessionId)?.role
-  return <span className={ROLE_CHIP_CLASS} data-place="input">
-    <button type="button" className="qr-trigger" aria-haspopup="dialog" title="QQ Bot 设置"
-      onClick={() => openEditor({ tab: 'roles', ...current == null ? {} : { id: current.id } })}>
-      <IconUserOutlineRegular size={16} />
-      <span className="qr-label">{current?.name ?? 'QQ Bot'}</span>
-    </button>
-  </span>
+function SessionRoleChip(props: (HeroProps | InputProps) & { place: 'hero' | 'input' }) {
+  const blocked = props.useSession(value => value.running || value.removed || value.openState !== 'open' || value.pendingSubmissions.length > 0)
+  const inbox = props.useProjection('inbox')
+  const queued = (inbox?.['next-turn'].length ?? 0) > 0 || (inbox?.['next-step'].length ?? 0) > 0
+  return <RoleChip sessionId={props.sessionId} ui={props.ui} openEditor={props.openEditor} place={props.place} blocked={blocked || queued} />
 }
 
 /** 不是 qqbot 会话时为 undefined。 */
@@ -76,7 +73,7 @@ function useSessionState({ sessionId, useSessions }: HeroProps | InputProps): 'b
   })
 }
 
-function RoleChip({ sessionId, ui, openEditor }: { readonly sessionId: string } & RoleChipInjected) {
+function RoleChip({ sessionId, ui, openEditor, place, blocked }: { readonly sessionId: string; place: 'hero' | 'input'; blocked: boolean } & RoleChipInjected) {
   useSyncExternalStore(ui.subscribe, ui.getVersion)
   const view = ui.session(sessionId)
   const [open, setOpen] = useState(false)
@@ -85,6 +82,7 @@ function RoleChip({ sessionId, ui, openEditor }: { readonly sessionId: string } 
 
   // 角色可能在编辑器或另一个窗口里改过：每次打开菜单重读一次。
   useEffect(() => { if (open) ui.refreshRole(sessionId) }, [open, sessionId, ui])
+  useEffect(() => { if (blocked) setOpen(false) }, [blocked])
 
   const current = view?.role ?? null
   const label = view === undefined ? '角色' : current === null ? '不用角色' : current.name
@@ -101,6 +99,7 @@ function RoleChip({ sessionId, ui, openEditor }: { readonly sessionId: string } 
   ]
 
   const pick = (id: string) => {
+    if (blocked || busy) return
     setOpen(false)
     if (id === MANAGE_ID) {
       openEditor({ tab: 'roles', ...current === null ? {} : { id: current.id } })
@@ -116,11 +115,11 @@ function RoleChip({ sessionId, ui, openEditor }: { readonly sessionId: string } 
     )
   }
 
-  return <span className={ROLE_CHIP_CLASS} data-place="hero">
-    <Menu open={open} onClose={() => { setOpen(false) }} items={items} selectedId={current?.id ?? NONE_ID}
+  return <span className={ROLE_CHIP_CLASS} data-place={place}>
+    <Menu open={open && !blocked} onClose={() => { setOpen(false) }} items={items} selectedId={current?.id ?? NONE_ID}
       onSelect={pick} align="start" side="bottom" portal
       anchor={<button type="button" className="qr-trigger" aria-haspopup="menu" aria-expanded={open} title="这个会话用的角色"
-        disabled={busy} onClick={() => { setOpen(value => !value) }}>
+        disabled={busy || blocked} onClick={() => { setOpen(value => !value) }}>
         <IconUserOutlineRegular size={16} />
         <span className="qr-label">{label}</span>
         <IconChevronDownOutlineRegular size={14} />

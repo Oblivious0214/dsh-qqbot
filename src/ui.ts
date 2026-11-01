@@ -252,7 +252,6 @@ export function applyUiAction(data: QqbotData, ui: UiStore, body: unknown): void
     case 'session.role': {
       const session = body['session']
       if (typeof session !== 'string' || !SESSION_ID_PATTERN.test(session)) throw new BadRequest('会话 id 无效')
-      if (data.bindings.turnsOf(session).length > 0) throw new Error('对话开始后不能切换角色，请新建对话选择角色。')
       data.bindings.set(session, body['role'] === null ? NO_ROLE : role())
       return
     }
@@ -331,8 +330,9 @@ export function apply(ctx: Context): void {
             const id = body['session']
             const agent = typeof id === 'string' ? ctx.agents.get(id as Parameters<typeof ctx.agents.get>[0]) : undefined
             if (!agent || presetForAgent(ctx.agentPresets, agent) !== 'qqbot') throw new Error('请在 QQ Bot 对话中选择角色。')
-            if (ctx.agents.turnBoundaryOf(agent.session).lastTurn > 0 || agent.status !== 'idle'
-              || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0) throw new Error('对话开始后不能切换角色，请新建对话选择角色。')
+            if (agent.status !== 'idle' || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0) {
+              throw new Error('请等当前回复和排队消息处理完后再切换角色。')
+            }
           }
           applyUiAction(data, ui, body)
         } catch (error) {

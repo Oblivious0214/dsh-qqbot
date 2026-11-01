@@ -103,8 +103,6 @@ class SegmentModel {
   }
 }
 
-const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-
 /** 外层节点的头像变量：有头像图片用图片，没有用角色名首字。没有角色时不显示头像。 */
 function avatarStyle(ui: UiState, role: SessionRole | undefined): CSSProperties | undefined {
   if (role === undefined || role === null) return undefined
@@ -146,7 +144,8 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     // 本页打开期间生成（见过它在流式输出，或完成时间晚于打开时间）的回复才逐段出现。
     const live = useRef(running)
     if (running) live.current = true
-    const isLive = !reducedMotion() && (live.current || (final?.time ?? 0) > model.openedAt)
+    // 系统的减少动态效果只由 CSS 控制视觉动画，实时分段仍驱动文字节奏和设备回调。
+    const isLive = live.current || (final?.time ?? 0) > model.openedAt
     const replyId = `${data.turn}:${data.step}`
 
     // 流式时只取已经闭合的段落。生成结束时没写完的（用户停止生成）按已闭合的段落算作完整。

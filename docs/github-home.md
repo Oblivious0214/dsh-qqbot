@@ -39,12 +39,12 @@ API key 在 DeepSeek 开放平台获取：登录 [platform.deepseek.com](https:/
 
 > 💰 新账号要先到 [充值页面](https://platform.deepseek.com/top_up) 充值才能用，**建议先小额充值体验**。
 
-**2. 安装 QQ Bot 0.36.2**
+**2. 安装 QQ Bot**
 
-打开 DSH 左侧的 **插件**，点右上角 **添加插件**，粘贴下面的安装包链接，点 **安装**：
+打开 DSH 左侧的 **插件**，点右上角 **添加插件**，粘贴下面的仓库链接，点 **安装**：
 
 ```
-https://github.com/Oblivious0214/dsh-qqbot/releases/download/v0.36.2/dsh-qqbot-0.36.2.tgz
+https://github.com/Oblivious0214/dsh-qqbot
 ```
 
 安装完成后，按 DSH 提示完整退出并重新打开。
@@ -69,13 +69,19 @@ https://github.com/Oblivious0214/dsh-qqbot/releases/download/v0.36.2/dsh-qqbot-0
 
 其他功能欢迎二次开发，提交 PR。详细说明见 [使用说明](usage.md)。
 
+## 更新插件
+
+打开 **QQ Bot 设置 → 版本号 → 检查更新**，有新版时点 **一键升级**，完成后按提示重启 DSH。
+
+如果旧版的一键升级失败，在 DSH 的 **插件** 页卸载 QQ Bot，再用上面的仓库链接重新添加。升级无需点“清理全部数据”。
+
 ## 旧版用户升级
 
 新版已经把 QQ 聊天和设备联动合成一个插件。
 
 1. 打开 DSH 的 **插件** 页，卸载旧的 **QQ Bot（dsh-qqbot）**。
 2. 如果装过双插件版本，再卸载独立的 **设备联动（dsh-toy-buttplug）**。
-3. 点击 **添加插件**，粘贴上面的 0.36.2 安装包链接，安装新版。
+3. 点击 **添加插件**，粘贴上面的仓库链接，安装新版。
 4. 完整退出并重新打开 DSH，新建对话选择 **QQ Bot**。设备联动已在新版中，无需再装独立插件。
 
 卸载插件不等于“清理全部数据”；升级不需要清理数据。旧独立皮肤／人格插件的私有数据不自动导入。

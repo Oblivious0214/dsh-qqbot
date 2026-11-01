@@ -11,6 +11,7 @@ import { dataDir } from '../storage.ts'
 import { QuickReplySettings } from './quick-settings.ts'
 import { QUICK_REPLY_PROMPT } from './prompts.ts'
 import { presetForAgent } from '../agent-preset.ts'
+import { lastTurnOf } from '../agent-turn.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -36,7 +37,7 @@ export function apply(ctx: Context): void {
       return { allowed: agent !== undefined && presetForAgent(ctx.agentPresets, agent) === 'qqbot'
         && agent.session.header.origin !== 'subagent' && !workspace.archivedSessionIds.includes(id),
       busy: agent === undefined || agent.status !== 'idle' || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0,
-      started: agent !== undefined && ctx.agents.turnBoundaryOf(agent.session).lastTurn > 0 }
+      started: agent !== undefined && lastTurnOf(ctx.agents, agent.session) > 0 }
     },
     send: id => {
       const agent = find(id)

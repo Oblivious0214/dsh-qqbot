@@ -1,6 +1,6 @@
 # dsh-qqbot 提示词清单
 
-插件版本 0.35.0，生成于 2026-11-01T09:50:07.966Z。由 `E:/ServeUDSH/work/prompt-inventory-20261031/dump.mjs（node --experimental-transform-types）` 生成，与 `prompt-inventory.json` 同内容。不要手改，改源码后重新生成。
+插件版本 0.37.0，生成于 2026-11-01T14:05:14.182Z。由 `E:/ServeUDSH/work/prompt-inventory-20261031/dump.mjs（node --experimental-transform-types）` 生成，与 `prompt-inventory.json` 同内容。不要手改，改源码后重新生成。
 
 text 为源码导出常量或函数的实际返回值；extracted: "static" 的条目是从源码文本提取的。chars 为 JS 字符串长度（UTF-16 码元，中文一字一码元）。
 
@@ -55,9 +55,9 @@ text 为源码导出常量或函数的实际返回值；extracted: "static" 的�
 - 类别：系统提示词段
 - 位置：200，SECTION_ORDER.PERSONA，qqbot:persona
 - 来源：`src/prompt.ts:67`，`src/content.ts:77`，`src/roles.ts:24`
-- 进入条件：仅 qqbot 预设会话的真实组装（agent-loop 每一步都组装一次）；标准会话和其他预设不加载 dsh-qqbot/prompt，不出现。所有段落合并为一个 complete section `qqbot:prompt`（PROMPT_ORDER=0），DSH 自带段落与其他插件的 section 不进入 qqbot 会话。空段整段去掉，段间用两个换行连接。 会话绑定了角色且角色仍在角色库中时出现（ROLE.md 正文）；会话选了“不用角色”、默认角色为空或绑定的角色已被删除时为空。新会话第一次真实组装时由 settle() 把当时的默认角色写进 sessions.json，之后改默认角色不影响该会话；/role 仅可在开聊前选择角色，开始后角色固定。
+- 进入条件：仅 qqbot 预设会话的真实组装（agent-loop 每一步都组装一次）；标准会话和其他预设不加载 dsh-qqbot/prompt，不出现。所有段落合并为一个 complete section `qqbot:prompt`（PROMPT_ORDER=0），DSH 自带段落与其他插件的 section 不进入 qqbot 会话。空段整段去掉，段间用两个换行连接。 会话绑定了角色且角色仍在角色库中时出现（ROLE.md 正文）；会话选了“不用角色”、默认角色为空或绑定的角色已被删除时为空。新会话第一次真实组装时由 settle() 把当时的默认角色写进 sessions.json，之后改默认角色不影响该会话；角色菜单和 /role 可在对话空闲时切换角色，下一轮生效，生成中或有排队消息时暂时禁用。
 - 插值：整段为角色卡正文（frontmatter 之后，trim 后），用户填写。
-- 用户可改：可编辑：QQ Bot 设置 → 角色 → 正文；开聊前可选择角色。
+- 用户可改：可编辑：QQ Bot 设置 → 角色 → 正文；对话空闲时可从角色菜单或 /role 切换角色。
 - 缓存：order 200。换角色或改当前角色正文时，从这里起失效（破限开头仍可复用）。DSH 为 in-history 模式：qqbot:prompt 文本任何变化都会在历史末尾追加一个新的完整 system 节点（之前的历史前缀仍可复用，但新节点本身全量计费且历史变长）；不支持 in-history 的路由从第一个变化字符起失效。
 - 说明：运行时取角色库；内置默认角色原文见 default-role-persona。
 
@@ -179,7 +179,7 @@ QQ 分段：
 
 - 类别：系统提示词段
 - 位置：500，SECTION_ORDER.EXT，qqbot:ext:toy，EXT 位置内按名称排序：quick-replies 在 toy 之前
-- 来源：`src/toy/index.ts:111`，`src/toy/sessions.ts:77`，`src/toy/core/rules.ts:93`，`src/toy/core/rules.ts:24`
+- 来源：`src/toy/index.ts:112`，`src/toy/sessions.ts:77`，`src/toy/core/rules.ts:93`，`src/toy/core/rules.ts:24`
 - 进入条件：仅 qqbot 预设会话的真实组装（agent-loop 每一步都组装一次）；标准会话和其他预设不加载 dsh-qqbot/prompt，不出现。所有段落合并为一个 complete section `qqbot:prompt`（PROMPT_ORDER=0），DSH 自带段落与其他插件的 section 不进入 qqbot 会话。空段整段去掉，段间用两个换行连接。 还要同时满足：① 联动总开关开启（settings.enabled !== false，默认开）；② 旧独立插件 dsh-toy-buttplug 没有在运行（否则整个登记撤销）；③ 已完成首次授权；④ 用户在右侧联动面板点了“联动对话”把本会话接入（接入状态只在内存，DSH 重启或插件重载后全部回到未接入）。设备是否已连接、是否暂停不影响这段，只影响 runtime 的 device 行。关闭总开关或撤回授权时所有会话退出，整段消失。
 - 插值：PROTOCOL（range/tier/action；action 为该档动作池里的动作名或 auto）→ 高速偏好 → 角色自主性 → 角色偏好（动作库名称）→ 补充互动规则。动作名称与描述走 runtime。
 - 用户可改：高速偏好、补充互动规则：QQ Bot 设置 → 联动；自主性档位、各档说明、偏好动作/范围：QQ Bot 设置 → 角色 → 联动玩具。协议正文不可编辑。
@@ -350,7 +350,7 @@ tier：low=慢，medium=中，high=快。action：填运行时“可选动作”
 
 - 类别：系统提示词段
 - 位置：500，SECTION_ORDER.EXT，qqbot:ext:quick-replies
-- 来源：`src/auto-reply/index.ts:30`，`src/auto-reply/quick-settings.ts:63`，`src/auto-reply/prompts.ts:2`
+- 来源：`src/auto-reply/index.ts:32`，`src/auto-reply/quick-settings.ts:63`，`src/auto-reply/prompts.ts:2`
 - 进入条件：仅 qqbot 预设会话的真实组装（agent-loop 每一步都组装一次）；标准会话和其他预设不加载 dsh-qqbot/prompt，不出现。所有段落合并为一个 complete section `qqbot:prompt`（PROMPT_ORDER=0），DSH 自带段落与其他插件的 section 不进入 qqbot 会话。空段整段去掉，段间用两个换行连接。 本会话“回复建议”开启时出现（QQ Bot 设置 → 聊天辅助，缺省开启，开关与自定义文本按会话保存在 quick-replies.json，重启后保留）。auto-reply 模块需要 connection、agents、agentPresets、workspaceRegistry 服务都在。
 - 插值：按会话读取已保存的自定义提示词，未编辑时使用内置原文。
 - 用户可改：QQ Bot 设置 → 聊天辅助 → 回复建议提示词，可编辑、保存和恢复默认，最多 6000 字符；关闭开关仍保留自定义文本。
@@ -536,7 +536,7 @@ voice: 已启用（全部转语音）：当前角色已配置音色，所有可�
 
 - 类别：运行时 context
 - 位置：1000，CONTEXT_ORDER.RUNTIME，qqbot:runtime，行 device
-- 来源：`src/toy/index.ts:112`，`src/toy/core/rules.ts:118`
+- 来源：`src/toy/index.ts:113`，`src/toy/core/rules.ts:118`
 - 进入条件：仅 qqbot 会话真实组装。qqbot:runtime 是 required context（预设关掉了可选 runtime context，它仍保留），各行按登记名排序（device、role、voice），每行 `名称: 内容`，空行去掉。DSH 把所有 context（还有 working-directory:current）拼成一条 user 消息，前缀固定为 “Current runtime context. This snapshot supersedes earlier runtime-context snapshots.”，只在拼出的文本与上一次不同时才追加一条新的快照消息。 只在本会话已接入联动时出现（与 qqbot:ext:toy 同条件：总开关开、无旧独立插件、已授权、已接入）；未接入时整行去掉。状态由浏览器上报。
 - 插值：ready / paused / disconnected 三选一。额外附“可选动作”：动作池里每个动作一行“名称：描述”（描述截到120字，只写一次），再按 low/medium/high 各列一行可用名称（每档最多40项）；权重、点位、内部id和随机状态不进入上下文。目录随动作库与动作池更新，不改变固定系统前缀。
 - 用户可改：随连接、暂停/继续、断开变化。
@@ -663,7 +663,7 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 
 - 类别：记忆整理
 - 位置：作为最后一条 user 消息接在回放的对话之后
-- 来源：`src/memory-consolidate.ts:30`，`src/memory-consolidate.ts:15`，`src/memory-coordinator.ts:14`，`src/memory-agent.ts:63`
+- 来源：`src/memory-consolidate.ts:30`，`src/memory-consolidate.ts:15`，`src/memory-coordinator.ts:14`，`src/memory-agent.ts:64`
 - 进入条件：仅 qqbot 会话且会话有角色、已发过至少一次请求。四种触发：① 空闲：AI 回复后 20 分钟（IDLE_MS）无动静；② 压缩：qqbot 压缩前先触发一次；③ 开新会话（startup/clear）：同一角色其他开着的会话；④ 手动：角色编辑器“整理记忆”（取该角色最近活跃的会话）。①②③ 要求距上次整理至少新增 10 轮（MIN_NEW_TURNS），手动至少 1 轮；同一会话不并发，同一角色排队。请求原样回放本会话系统提示词、工具和全部历史（deriveMessages），maxTokens 8192；结果只写 memories/，不进会话。
 - 插值：角色名（两处）、旧记忆全文（或“（还没有）”）、栏目说明由 MEMORY_SECTIONS 生成（栏目名、条数上限）、总字数上限 MEMORY_LIMIT=1500。
 - 用户可改：不可编辑；旧记忆可在角色 → 记忆中改。
@@ -806,7 +806,7 @@ ${output}
 
 - 类别：用户消息
 - 位置：agent.followup() 追加的 user 消息，source.kind = qqbot-auto-reply，界面显示为“自动接话”通知
-- 来源：`src/auto-reply/prompts.ts:15`，`src/auto-reply/index.ts:43`
+- 来源：`src/auto-reply/prompts.ts:15`，`src/auto-reply/index.ts:45`
 - 进入条件：仅 qqbot 预设、非子代理、未归档的会话。用户在 QQ Bot 设置 → 聊天辅助中开启（每次手动开启，不持久化，默认等待 120 秒、连续上限 6 次，可设 10–3600 秒、1–20 次）。发送需同时满足：页面开着且每 8 秒内有心跳；会话空闲、收件箱为空；会话已至少完成一轮；输入框没有草稿或附件；上一条接话的回复已完成；等待时间到。用户发言会把计数清零；回复出错、取消、页面离开、达到上限时自动停止。
 - 插值：默认使用内置文本；当前对话保存了自定义提示词时使用该文本。
 - 用户可改：QQ Bot 设置 → 聊天辅助 → 自动接话提示词，可编辑、保存、恢复默认，按会话存入 auto-reply-prompts.json；等待时间、最多连续接话次数可设。
@@ -823,7 +823,7 @@ ${output}
 
 - 类别：用户消息
 - 位置：agent.followup() 追加的 user 消息，source.kind = qqbot-toy-climax，界面显示为“高潮”通知；不算用户发言
-- 来源：`src/toy/climax-prompt.ts:23`，`src/toy/index.ts:322`
+- 来源：`src/toy/climax-prompt.ts:23`，`src/toy/index.ts:323`
 - 进入条件：仅已接入联动的 qqbot 预设会话。用户在右栏按“高潮”时，设备立即开始刺激，同时投递一次；按“取消高潮”时撤回还没处理的这条消息。转入温存时另投 toy-aftercare。
 - 插值：{秒数} = 刺激秒数，{段数} = 秒数÷3（4–30 段），取自联动设置的高潮设置。
 - 用户可改：可编辑：联动设备 → 高潮／温存预设（或右栏高潮设置）→ 高潮提示词，可保存和恢复默认，最多 2000 字；{秒数}、{段数} 发送时填入。

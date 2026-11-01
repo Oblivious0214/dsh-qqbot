@@ -280,6 +280,24 @@ function liveSession(id: string, turn: { value: number }, reply: () => Promise<s
 }
 
 describe('memory coordinator', () => {
+  it('does not consolidate the old role conversation into a newly selected role before its next reply', async () => {
+    const content = data()
+    content.bindings.set('s1', 'alice')
+    content.bindings.recordTurn('s1', 1, 'alice')
+    content.bindings.set('s1', 'bob')
+    const turn = { value: 20 }
+    let requests = 0
+    const coordinator = new MemoryCoordinator(content, () => {})
+    coordinator.register(liveSession('s1', turn, async () => { requests++; return MEMORY }))
+    expect(await coordinator.consolidate('s1', true)).toMatchObject({ kind: 'skipped' })
+    expect(requests).toBe(0)
+    expect(content.memories.text('bob')).toBe('')
+    content.bindings.recordTurn('s1', 21, 'bob')
+    turn.value = 21
+    expect(await coordinator.consolidate('s1', true)).toMatchObject({ kind: 'done' })
+    expect(requests).toBe(1)
+    expect(content.memories.text('bob')).toBe(MEMORY)
+  })
   it('waits for enough new turns, then consolidates and records progress', async () => {
     const content = data()
     content.bindings.setDefaultRole('alice')

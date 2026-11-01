@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from './index.ts'
 import { captureConsolidation, consolidateMemory } from './memory-consolidate.ts'
 import { IDLE_MS } from './memory-coordinator.ts'
+import { lastTurnOf } from './agent-turn.ts'
 
 export const name = 'qqbot-memory'
 export const inject = ['qqbot', 'llm', 'agents']
@@ -35,7 +36,7 @@ export function apply(ctx: Context): void {
   ctx.on('agent/created', ({ agent, source }) => {
     ctx.effect(() => memory.register({
       id: agent.id,
-      latestTurn: () => ctx.agents.turnBoundaryOf(agent.session).lastTurn,
+      latestTurn: () => lastTurnOf(ctx.agents, agent.session),
       lastActive: () => lastActive,
       capture: () => captureConsolidation(agent),
       run: (input, roleName, previous, cleanup) => consolidateMemory(ctx.llm, input, roleName, previous, cleanup === undefined ? abort.signal : AbortSignal.any([abort.signal, cleanup])),

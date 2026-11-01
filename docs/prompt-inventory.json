@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generated_at": "2026-11-01T09:50:07.966Z",
-    "plugin_version": "0.35.0",
+    "generated_at": "2026-11-01T14:05:14.182Z",
+    "plugin_version": "0.37.0",
     "generator": "E:/ServeUDSH/work/prompt-inventory-20261031/dump.mjs（node --experimental-transform-types）",
     "note": "text 为源码导出常量或函数的实际返回值；extracted: \"static\" 的条目是从源码文本提取的。chars 为 JS 字符串长度（UTF-16 码元，中文一字一码元）。",
     "section_order": {
@@ -56,9 +56,9 @@
         "src/content.ts:77",
         "src/roles.ts:24"
       ],
-      "condition": "仅 qqbot 预设会话的真实组装（agent-loop 每一步都组装一次）；标准会话和其他预设不加载 dsh-qqbot/prompt，不出现。所有段落合并为一个 complete section `qqbot:prompt`（PROMPT_ORDER=0），DSH 自带段落与其他插件的 section 不进入 qqbot 会话。空段整段去掉，段间用两个换行连接。 会话绑定了角色且角色仍在角色库中时出现（ROLE.md 正文）；会话选了“不用角色”、默认角色为空或绑定的角色已被删除时为空。新会话第一次真实组装时由 settle() 把当时的默认角色写进 sessions.json，之后改默认角色不影响该会话；/role 仅可在开聊前选择角色，开始后角色固定。",
+      "condition": "仅 qqbot 预设会话的真实组装（agent-loop 每一步都组装一次）；标准会话和其他预设不加载 dsh-qqbot/prompt，不出现。所有段落合并为一个 complete section `qqbot:prompt`（PROMPT_ORDER=0），DSH 自带段落与其他插件的 section 不进入 qqbot 会话。空段整段去掉，段间用两个换行连接。 会话绑定了角色且角色仍在角色库中时出现（ROLE.md 正文）；会话选了“不用角色”、默认角色为空或绑定的角色已被删除时为空。新会话第一次真实组装时由 settle() 把当时的默认角色写进 sessions.json，之后改默认角色不影响该会话；角色菜单和 /role 可在对话空闲时切换角色，下一轮生效，生成中或有排队消息时暂时禁用。",
       "dynamic_parts": "整段为角色卡正文（frontmatter 之后，trim 后），用户填写。",
-      "user_editable": "可编辑：QQ Bot 设置 → 角色 → 正文；开聊前可选择角色。",
+      "user_editable": "可编辑：QQ Bot 设置 → 角色 → 正文；对话空闲时可从角色菜单或 /role 切换角色。",
       "cache_note": "order 200。换角色或改当前角色正文时，从这里起失效（破限开头仍可复用）。DSH 为 in-history 模式：qqbot:prompt 文本任何变化都会在历史末尾追加一个新的完整 system 节点（之前的历史前缀仍可复用，但新节点本身全量计费且历史变长）；不支持 in-history 的路由从第一个变化字符起失效。",
       "text": null,
       "text_note": "运行时取角色库；内置默认角色原文见 default-role-persona。",
@@ -191,7 +191,7 @@
         "note": "EXT 位置内按名称排序：quick-replies 在 toy 之前"
       },
       "source": [
-        "src/toy/index.ts:111",
+        "src/toy/index.ts:112",
         "src/toy/sessions.ts:77",
         "src/toy/core/rules.ts:93",
         "src/toy/core/rules.ts:24"
@@ -264,7 +264,7 @@
         "section_name": "qqbot:ext:quick-replies"
       },
       "source": [
-        "src/auto-reply/index.ts:30",
+        "src/auto-reply/index.ts:32",
         "src/auto-reply/quick-settings.ts:63",
         "src/auto-reply/prompts.ts:2"
       ],
@@ -469,7 +469,7 @@
         "line": "device"
       },
       "source": [
-        "src/toy/index.ts:112",
+        "src/toy/index.ts:113",
         "src/toy/core/rules.ts:118"
       ],
       "condition": "仅 qqbot 会话真实组装。qqbot:runtime 是 required context（预设关掉了可选 runtime context，它仍保留），各行按登记名排序（device、role、voice），每行 `名称: 内容`，空行去掉。DSH 把所有 context（还有 working-directory:current）拼成一条 user 消息，前缀固定为 “Current runtime context. This snapshot supersedes earlier runtime-context snapshots.”，只在拼出的文本与上一次不同时才追加一条新的快照消息。 只在本会话已接入联动时出现（与 qqbot:ext:toy 同条件：总开关开、无旧独立插件、已授权、已接入）；未接入时整行去掉。状态由浏览器上报。",
@@ -580,7 +580,7 @@
         "src/memory-consolidate.ts:30",
         "src/memory-consolidate.ts:15",
         "src/memory-coordinator.ts:14",
-        "src/memory-agent.ts:63"
+        "src/memory-agent.ts:64"
       ],
       "condition": "仅 qqbot 会话且会话有角色、已发过至少一次请求。四种触发：① 空闲：AI 回复后 20 分钟（IDLE_MS）无动静；② 压缩：qqbot 压缩前先触发一次；③ 开新会话（startup/clear）：同一角色其他开着的会话；④ 手动：角色编辑器“整理记忆”（取该角色最近活跃的会话）。①②③ 要求距上次整理至少新增 10 轮（MIN_NEW_TURNS），手动至少 1 轮；同一会话不并发，同一角色排队。请求原样回放本会话系统提示词、工具和全部历史（deriveMessages），maxTokens 8192；结果只写 memories/，不进会话。",
       "variants": [
@@ -632,7 +632,7 @@
       },
       "source": [
         "src/auto-reply/prompts.ts:15",
-        "src/auto-reply/index.ts:43"
+        "src/auto-reply/index.ts:45"
       ],
       "condition": "仅 qqbot 预设、非子代理、未归档的会话。用户在 QQ Bot 设置 → 聊天辅助中开启（每次手动开启，不持久化，默认等待 120 秒、连续上限 6 次，可设 10–3600 秒、1–20 次）。发送需同时满足：页面开着且每 8 秒内有心跳；会话空闲、收件箱为空；会话已至少完成一轮；输入框没有草稿或附件；上一条接话的回复已完成；等待时间到。用户发言会把计数清零；回复出错、取消、页面离开、达到上限时自动停止。",
       "dynamic_parts": "默认使用内置文本；当前对话保存了自定义提示词时使用该文本。",
@@ -650,7 +650,7 @@
       },
       "source": [
         "src/toy/climax-prompt.ts:23",
-        "src/toy/index.ts:322"
+        "src/toy/index.ts:323"
       ],
       "condition": "仅已接入联动的 qqbot 预设会话。用户在右栏按“高潮”时，设备立即开始刺激，同时投递一次；按“取消高潮”时撤回还没处理的这条消息。转入温存时另投 toy-aftercare。",
       "dynamic_parts": "{秒数} = 刺激秒数，{段数} = 秒数÷3（4–30 段），取自联动设置的高潮设置。",

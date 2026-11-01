@@ -23,12 +23,13 @@ function fixture(host = 'current') {
     return !!message
   }) }
   const agentContext = {} as Context
-  const agent = { id: 's', ctx: agentContext, session: { id: 's', header: {} }, status: 'idle', inbox,
+  const agent = { id: 's', ctx: agentContext, session: { id: 's', header: {}, snapshotEvents: () => [{ type: 'turn/start', data: { turn: 1 } }] }, status: 'idle', inbox,
     followup: vi.fn((message: any) => { inbox.nextTurn.push(message); events.get('agent/inbox/inserted')?.({ agent, message }) }) }
   const ctx = {
     qqbot: Object.assign(registry, { maintenance: new Maintenance(dshHome(), () => {}) }), logger: { warn: vi.fn() },
     get: () => workspace,
-    agents: { get: (id: string) => alive && id === 's' ? agent : undefined, turnBoundaryOf: () => ({ lastTurn: 1 }) },
+    agents: { get: (id: string) => alive && id === 's' ? agent : undefined,
+      ...host === 'no-turn-boundary' ? {} : { turnBoundaryOf: () => ({ lastTurn: 1 }) } },
     agentPresets: host === 'current' ? { presetForSession: () => preset }
       : { composedPreset: (ctx: Context) => { expect(ctx).toBe(agentContext); return preset } },
     on: (name: string, callback: (...args: any[]) => void) => { events.set(name, callback) },
@@ -53,8 +54,8 @@ function fixture(host = 'current') {
 }
 afterEach(() => vi.useRealTimers())
 describe('宿主公开接口接入（模拟 Agent，不调用模型）', () => {
-  it('缺少 presetForSession 的宿主仍可设置并开启接话，标准对话拒绝', async () => {
-    const f = fixture('older')
+  it.each(['older', 'no-turn-boundary'])('%s 宿主缺接口仍可设置并开启接话，标准对话拒绝', async host => {
+    const f = fixture(host)
     expect((await f.request({ action: 'quick.get' })).status).toBe(200)
     expect((await f.enable()).status).toBe(200)
     await f.wait()

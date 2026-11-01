@@ -1,6 +1,6 @@
 # 从源码开发
 
-普通安装使用 [Release 安装包](https://github.com/Oblivious0214/dsh-qqbot/releases/tag/v0.36.2)。源码仓库不提交 lib 构建产物，也不发布 npm。
+普通安装在 DSH 的“添加插件”中填写仓库地址：https://github.com/Oblivious0214/dsh-qqbot 。安装入口使用默认分支，不追加版本标签。用于安装的公开分支需随版本提交 lib 构建产物；本地开发分支仍忽略 lib。不发布 npm。
 
 ## 环境与布局
 
@@ -26,7 +26,7 @@ pnpm install --frozen-lockfile
 pnpm run typecheck
 pnpm test
 pnpm run build
-pnpm pack --out ../../dsh-qqbot-0.36.2.tgz
+pnpm pack --out ../../dsh-qqbot-0.37.0.tgz
 ```
 
 宿主准备方式以 [官方源码运行文档](https://github.com/deepseek-ai/deepseek-harness/blob/22ddee3792402c3e70ec5f86a63c3e3e895a2f60/README.zh.md#run-from-source) 为准。插件运行时与宿主共用 cordis、compaction-basic 和 llm；它们是 peer 依赖，不打入插件。

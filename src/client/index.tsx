@@ -1,7 +1,7 @@
 /**
  * dsh-qqbot 浏览器端：给 qqbot 会话根节点加 data-qqbot，QQ 样式（qq-style.ts）只写在它下面；
- * DSH 设置窗口里加"QQ Bot"入口（不提供"设为默认"），新会话沿用 DSH 原生预设选择，
- * 在 qqbot 会话添加「提示词」视图，新会话页选角色，输入栏显示角色与设置入口（role-chip.tsx），编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复，
+ * DSH 设置窗口里加"QQ Bot"入口（不提供"设为默认"），侧栏提供独立新QQ会话按钮，
+ * 在 qqbot 会话添加「提示词」视图，新会话页和输入栏提供角色切换菜单（role-chip.tsx），编辑器弹窗挂在 shell.overlay，qqbot 会话里按 [qq] 块分段显示回复，
  * 角色选了音色时显示成语音条。
  */
 
@@ -33,6 +33,7 @@ import { createMemeGuide } from './meme-guide.ts'
 import { ACTION_DIALOG_CLASS, ACTION_DIALOG_CSS } from './action-dialog.tsx'
 import { UiExtensions, UiExtensionsService } from './ui-extensions.tsx'
 import { installLeftSidebar } from './left-sidebar.tsx'
+import { installNewQqSession } from './new-qq-session.ts'
 import { installPhoneLayout, PHONE_LAYOUT_CSS } from './phone-layout.tsx'
 
 export { MARK_ATTRIBUTE, PRESET_ID }
@@ -40,7 +41,7 @@ export { MARK_ATTRIBUTE, PRESET_ID }
 type SessionId = keyof SessionListState['byId']
 
 // 教程启动器在 apply 中创建；通过真实服务依赖等待导航就绪，并跟随其生命周期重建。
-export const inject = ['sessions', 'slots', 'uiSession', 'layout', 'uiWorkspace']
+export const inject = ['sessions', 'slots', 'uiSession', 'layout', 'uiWorkspace', 'workspaces']
 
 export function apply(ctx: Context): void {
   const presetOf = (sessionId: string | null): string | undefined => {
@@ -153,9 +154,10 @@ export function apply(ctx: Context): void {
 
   installPromptView(ctx, openEditor)
   installLeftSidebar(ctx)
+  installNewQqSession(ctx)
   installPhoneLayout(ctx)
 
-  // 新会话页选角色；开始后输入栏显示当前角色，点击打开 QQ Bot 设置。仅 qqbot 会话渲染。
+  // 新会话页和开始后的输入栏共用角色菜单，仅 qqbot 会话空闲时可切换。
   const roleInjected = (): RoleChipInjected => ({ ui, openEditor })
   ctx.slots.inject('conversation.hero.options', () => ctx.slots.register({
     name: 'conversation.hero.options',

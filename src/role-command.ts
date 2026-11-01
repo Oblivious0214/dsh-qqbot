@@ -16,7 +16,7 @@ import type { Role } from './roles.ts'
 export const name = 'qqbot-role-command'
 export const inject = ['commands', 'qqbot', 'agents']
 
-const USAGE = '用法：/role <角色名称> 开聊前选角色 · /role none 不用角色 · /role list 列出角色 · /role default <角色名称|none> 设置新会话默认角色'
+const USAGE = '用法：/role <角色名称> 切换角色 · /role none 不用角色 · /role list 列出角色 · /role default <角色名称|none> 设置新会话默认角色'
 
 /** 角色在命令输出里只显示名称；id 是内部键，用户看不到。 */
 function label(role: Role): string {
@@ -51,7 +51,7 @@ export function overview(data: QqbotData, session: QqbotSession): string {
 }
 
 /** 执行一次 `/role`。纯逻辑，便于测试；写盘失败时抛出，由调用方转成错误结果。 */
-export function runRole(data: QqbotData, session: QqbotSession, rawInput: string, started = data.bindings.turnsOf(session.id).length > 0): CommandResult {
+export function runRole(data: QqbotData, session: QqbotSession, rawInput: string, busy = false): CommandResult {
   // 每次执行都重新扫描，用户在文件里改过的角色卡由此生效。
   data.roles.reload()
   // 名称里可以有空格：除了关键字，整段输入就是角色名称。
@@ -61,7 +61,7 @@ export function runRole(data: QqbotData, session: QqbotSession, rawInput: string
   if (input === 'list') return { kind: 'success', text: roster(data, data.roleIdFor(session)) }
 
   if (input === 'none' || input === 'off') {
-    if (started) return { kind: 'error', text: '对话开始后不能切换角色，请新建对话选择角色。' }
+    if (busy) return { kind: 'error', text: '请等当前回复和排队消息处理完后再切换角色。' }
     const before = data.roleFor(session)
     data.bindings.set(session.id, NO_ROLE)
     const head = before === undefined ? '这个会话本来就没有角色。' : `已取消角色 ${label(before)}，下一条消息起不带角色。`
@@ -82,7 +82,7 @@ export function runRole(data: QqbotData, session: QqbotSession, rawInput: string
 
   const role = data.roles.find(input)
   if (role === undefined) return unknown(input)
-  if (started) return { kind: 'error', text: '对话开始后不能切换角色，请新建对话选择角色。' }
+  if (busy) return { kind: 'error', text: '请等当前回复和排队消息处理完后再切换角色。' }
   const before = data.roleIdFor(session)
   data.bindings.set(session.id, role.id)
   const head = before === role.id ? `这个会话已经是 ${label(role)}。` : `已切换到 ${label(role)}，下一条消息起生效。`
@@ -94,14 +94,14 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.commands.register({
     definitionId: CommandDefinitionId('dsh-qqbot/role'),
     name: 'role',
-    description: '查看角色、开聊前选角色或设置新会话默认角色',
+    description: '查看或切换角色、设置新会话默认角色',
     input: { hint: '[<角色名称>|list|none|default <角色名称>]' },
     handler: ({ agent, rawInput }) => {
       try {
         ctx.qqbot.maintenance.assertAvailable()
-        const started = ctx.agents.turnBoundaryOf(agent.session).lastTurn > 0 || agent.status !== 'idle'
+        const busy = agent.status !== 'idle'
           || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0
-        return runRole(data, { id: agent.id }, rawInput, started || data.bindings.turnsOf(agent.id).length > 0)
+        return runRole(data, { id: agent.id }, rawInput, busy)
       } catch (error) {
         return { kind: 'error', text: `角色没有切换：${(error as Error).message}` }
       }

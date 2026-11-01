@@ -76,6 +76,9 @@ export class MemoryCoordinator {
     const session = this.live.get(sessionId)
     const role = this.content.roleFor({ id: sessionId })
     if (session === undefined || role === undefined) return Promise.resolve({ kind: 'skipped', reason: 'no-role' })
+    // 刚换人但还没生成下一轮时，capture 仍是旧角色的请求，不能写进新角色的记忆。
+    const lastRole = this.content.bindings.turnsOf(sessionId).at(-1)
+    if (lastRole !== undefined && lastRole.role !== role.id) return Promise.resolve({ kind: 'skipped', reason: 'no-request' })
     const latest = session.latestTurn()
     const pending = this.pendingTurns(sessionId, role.id, latest)
     if (pending < (force ? 1 : MIN_NEW_TURNS)) return Promise.resolve({ kind: 'skipped', reason: 'too-few' })

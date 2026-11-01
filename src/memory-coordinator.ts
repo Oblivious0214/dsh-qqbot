@@ -25,7 +25,7 @@ export interface LiveMemorySession {
   /** 同步取下当前的请求前缀；还没发过请求时为 undefined。 */
   capture(): ConsolidationInput | undefined
   /** 用取下的前缀发整理请求。 */
-  run(input: ConsolidationInput, roleName: string, previous: string): Promise<ConsolidationResult>
+  run(input: ConsolidationInput, roleName: string, previous: string, signal?: AbortSignal): Promise<ConsolidationResult>
 }
 
 export type ConsolidationOutcome =
@@ -39,12 +39,16 @@ export type ConsolidationOutcome =
   | { readonly kind: 'failed'; readonly error: string }
 
 export class MemoryCoordinator {
+  private generation = 0
+  private cleanup = new AbortController()
+  /** 清理时使进行中和排队的旧整理结果失效。 */
+  invalidate(): void { this.cleanup.abort(); this.cleanup = new AbortController(); this.generation++; this.running.clear(); this.queues.clear() }
   private readonly live = new Map<string, LiveMemorySession>()
   private readonly running = new Map<string, Promise<ConsolidationOutcome>>()
   /** 角色 id → 这个角色上一个整理任务；新任务接在后面。 */
   private readonly queues = new Map<string, Promise<unknown>>()
 
-  constructor(private readonly content: QqbotData, private readonly warn: Warn) {}
+  constructor(private readonly content: QqbotData, private readonly warn: Warn, private readonly paused = () => false) {}
 
   /** 登记会话，返回注销函数。 */
   register(session: LiveMemorySession): () => void {
@@ -66,6 +70,7 @@ export class MemoryCoordinator {
 
   /** 整理一个会话。force 时不看门槛（手动），但至少要有一轮新内容。 */
   consolidate(sessionId: string, force = false): Promise<ConsolidationOutcome> {
+    if (this.paused()) return Promise.resolve({ kind: 'skipped', reason: 'busy' })
     const existing = this.running.get(sessionId)
     if (existing !== undefined) return force ? existing : Promise.resolve({ kind: 'skipped', reason: 'busy' })
     const session = this.live.get(sessionId)
@@ -78,18 +83,22 @@ export class MemoryCoordinator {
     const input = session.capture()
     if (input === undefined) return Promise.resolve({ kind: 'skipped', reason: 'no-request' })
 
+    const generation = this.generation
+    const signal = this.cleanup.signal
     const previousTask = this.queues.get(role.id) ?? Promise.resolve()
     const task = previousTask.then(async (): Promise<ConsolidationOutcome> => {
+      if (generation !== this.generation) return { kind: 'stale' }
       // 排在前面的任务可能刚写过，所以在轮到时才读旧记忆和版本号。
       const revision = this.content.memories.revision(role.id)
       const previous = this.content.memories.text(role.id)
       let result: ConsolidationResult
       try {
-        result = await session.run(input, role.name, previous)
+        result = await session.run(input, role.name, previous, signal)
       } catch (error) {
         // 请求失败不推进进度，下次触发时重试。
         return { kind: 'failed', error: error instanceof Error ? error.message : String(error) }
       }
+      if (generation !== this.generation) return { kind: 'stale' }
       if (!this.content.memories.commitConsolidation(role.id, revision, sessionId, latest, result.text)) return { kind: 'stale' }
       if (result.text === undefined) {
         this.warn(`qqbot: 角色“${role.name}”的记忆整理结果不合格，保留旧版：${result.problem ?? ''}`)

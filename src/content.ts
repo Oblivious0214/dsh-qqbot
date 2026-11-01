@@ -117,6 +117,30 @@ export class QqbotData implements QqbotContent {
     }
   }
 
+  /**
+   * 会话当前角色的记忆快照是否落后于记忆的当前版本。会话还没开始、没有角色、
+   * 或角色还没在本会话出场时为 undefined：下一次组装自然取新版本，不需要应用。
+   */
+  memoryState(sessionId: string): { readonly role: string; readonly stale: boolean } | undefined {
+    if (this.bindings.get(sessionId) === undefined) return undefined
+    const role = this.roleFor({ id: sessionId })
+    if (role === undefined) return undefined
+    const snapshot = this.bindings.memorySnapshot(sessionId, role.id)
+    if (snapshot === undefined) return undefined
+    return { role: role.id, stale: snapshot !== this.memories.text(role.id) }
+  }
+
+  /** 把角色记忆的当前版本应用到会话：下一轮组装起本会话使用新版。会话当前不是这个角色或已是新版时不动。 */
+  applyMemory(sessionId: string, roleId: string): void {
+    if (this.memoryState(sessionId)?.stale !== true || this.memoryState(sessionId)?.role !== roleId) return
+    this.bindings.replaceMemorySnapshot(sessionId, roleId, this.memories.text(roleId))
+  }
+
+  /** 用户手动改了记忆：所有当前用这个角色、快照落后的会话都换上新版。 */
+  applyMemoryToRole(roleId: string): void {
+    for (const sessionId of this.bindings.sessionIds()) this.applyMemory(sessionId, roleId)
+  }
+
   recordTurn(session: QqbotSession, turn: number): void {
     try {
       this.bindings.recordTurn(session.id, turn, this.roleIdFor(session) ?? null)

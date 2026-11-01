@@ -1,0 +1,425 @@
+{
+  "format": "dsh-motion-preset-assets",
+  "version": 1,
+  "sources": {
+    "catalog": {
+      "path": "legacy/dsh-serveu/src/catalog.json",
+      "sha256": "6b707cb786e06f0f67b8f238fb163c849455296dabed7339dc04c8a28c2dad55"
+    },
+    "pools": {
+      "path": "legacy/dsh-serveu/src/default-pools.json",
+      "sha256": "9aef8a6019b4c4bc6b6cecbb49cf4f5af8b29ef55d40ed57898ef6c5aaee3311"
+    }
+  },
+  "conversion": {
+    "time": "Math.round(cumulative source milliseconds)",
+    "omitted": "zipper final [50,50,0] only"
+  },
+  "presets": [
+    {
+      "id": "motion-1",
+      "file": "motion-1.funscript",
+      "name": "稳定节奏",
+      "description": "速度始终不变，节奏平稳。",
+      "playback": "loop",
+      "sourceKey": "normal",
+      "sourceOrdinal": 1,
+      "sha256": "27a6304cdd74c90bad1cdc21deb0d3532e8927afe9808aa27f21a21995420f89"
+    },
+    {
+      "id": "motion-2",
+      "file": "motion-2.funscript",
+      "name": "峰谷连环",
+      "description": "全程往返，在龟头和根部各补一次半程回弹。",
+      "playback": "loop",
+      "sourceKey": "mw",
+      "sourceOrdinal": 2,
+      "sha256": "fbe183bbfec1c001d54dee9197b2f01d2a03a514622a6fbf02168cab1dcd440c"
+    },
+    {
+      "id": "motion-3",
+      "file": "motion-3.funscript",
+      "name": "温柔正弦",
+      "description": "两端放缓、中段加快的柔和往返，下端留一点余量。",
+      "playback": "loop",
+      "sourceKey": "classic",
+      "sourceOrdinal": 3,
+      "sha256": "564cd766ddec3542452c49cd8c01d307399e87cbc636c3eb7806fb3c8b2391de"
+    },
+    {
+      "id": "motion-4",
+      "file": "motion-4.funscript",
+      "name": "深浅跌宕",
+      "description": "深浅交替的折线，幅度起伏不定，整体先升后降。",
+      "playback": "loop",
+      "sourceKey": "deep",
+      "sourceOrdinal": 4,
+      "sha256": "589fe387ee5683f48f1f4fcc0d5f44980e397cb7f0c187991f1594d07026b033"
+    },
+    {
+      "id": "motion-5",
+      "file": "motion-5.funscript",
+      "name": "轻挑细捻",
+      "description": "在根部小幅轻点，穿插几次中等幅度的抽送。",
+      "playback": "loop",
+      "sourceKey": "tease",
+      "sourceOrdinal": 5,
+      "sha256": "15a6659323d7e2ac915342f5c31218ed6057d45e36f772d0e2c924309b1924e7"
+    },
+    {
+      "id": "motion-6",
+      "file": "motion-6.funscript",
+      "name": "极限冲刺",
+      "description": "大幅冲向龟头、中途折返，节奏急促多变。",
+      "playback": "loop",
+      "sourceKey": "edge",
+      "sourceOrdinal": 6,
+      "sha256": "674a81b57062acca84d340a00d1e53b94e8d61566a858e3feeddecc7767963a8"
+    },
+    {
+      "id": "motion-7",
+      "file": "motion-7.funscript",
+      "name": "强拍律动",
+      "description": "从根部一口气推到龟头，带重拍感的规律抽送。",
+      "playback": "loop",
+      "sourceKey": "rhythm",
+      "sourceOrdinal": 7,
+      "sha256": "d2e2a6d2ba369df5917be8bc8393823aed8d6fe37169d59f3480e5c65a8e11cb"
+    },
+    {
+      "id": "motion-8",
+      "file": "motion-8.funscript",
+      "name": "拉链爬升",
+      "description": "锯齿式逐级爬升到龟头再逐级回落，结尾两次全程。",
+      "playback": "loop",
+      "sourceKey": "zipper",
+      "sourceOrdinal": 8,
+      "sha256": "c692e33d96e1c8ad7a5511dbacb28232a359ee4cd7e2a18e95314940ca17f98c"
+    },
+    {
+      "id": "motion-9",
+      "file": "motion-9.funscript",
+      "name": "长波缓涌",
+      "description": "一次全程后小幅波浪逐级回落再爬升，周期较长。",
+      "playback": "loop",
+      "sourceKey": "risingheat",
+      "sourceOrdinal": 9,
+      "sha256": "957938c5b47a9bb98d7576d48a2a4959c09fbd504579e6a041c9632a97ee88d8"
+    },
+    {
+      "id": "motion-10",
+      "file": "motion-10.funscript",
+      "name": "深抽连颤",
+      "description": "两次全程深抽后，在中段和根部小幅连颤。",
+      "playback": "loop",
+      "sourceKey": "angelbounce",
+      "sourceOrdinal": 10,
+      "sha256": "d58bd46f325ca77cd7a3095f713362e26dccd20e4c70310e2cfb03ccede141e8"
+    },
+    {
+      "id": "motion-11",
+      "file": "motion-11.funscript",
+      "name": "拱形中浪",
+      "description": "中等幅度的波浪，整体先升到龟头再回落，呈拱形。",
+      "playback": "loop",
+      "sourceKey": "psytrance",
+      "sourceOrdinal": 11,
+      "sha256": "83432ff22c764b918a4aa456dd276cd927a023755e039b8a971b512e3c14eabe"
+    },
+    {
+      "id": "motion-12",
+      "file": "motion-12.funscript",
+      "name": "低吟渐起",
+      "description": "先在根部小幅慢动，逐渐加大到全程，在龟头轻颤后缓慢回落。",
+      "playback": "loop",
+      "sourceKey": "girlwants",
+      "sourceOrdinal": 12,
+      "sha256": "d6df391b17aa9a320340ea5fc3adf550dbb6f8daf7a570060a77e88e4db4c785"
+    },
+    {
+      "id": "motion-13",
+      "file": "motion-13.funscript",
+      "name": "连击长落",
+      "description": "折返着逐步推到龟头，再一次滑落到底，反复进行。",
+      "playback": "loop",
+      "sourceKey": "cpr",
+      "sourceOrdinal": 13,
+      "sha256": "a08e9322fad35ecd110e63a3cd6f68613bad6cb7c09b3355e7f35b452fe08449"
+    },
+    {
+      "id": "motion-14",
+      "file": "motion-14.funscript",
+      "name": "细密渐强",
+      "description": "细密的小幅快颤，从根部逐级移到龟头再逐级回落。",
+      "playback": "loop",
+      "sourceKey": "stepclimb",
+      "sourceOrdinal": 14,
+      "sha256": "680970cc518deaa96fb7a36d4f865fc73dda6c4100a12c67a4fafb959083bb7a"
+    },
+    {
+      "id": "motion-15",
+      "file": "motion-15.funscript",
+      "name": "冲顶碎颤",
+      "description": "快速冲到龟头并在顶部碎颤，回到根部稍作回弹。",
+      "playback": "loop",
+      "sourceKey": "tide",
+      "sourceOrdinal": 15,
+      "sha256": "0e3d2616c0336d29b136fbc9d49a60a55f6fd3e4cf074a919529a3604b5e68de"
+    },
+    {
+      "id": "motion-16",
+      "file": "motion-16.funscript",
+      "name": "中幅爆发",
+      "description": "开头中幅试探，随后连续几次大幅爆发。",
+      "playback": "loop",
+      "sourceKey": "slopburst",
+      "sourceOrdinal": 16,
+      "sha256": "dc3a5317e09fc0d0a9882bd4398602d96f3a36cb2fd1c6599a7c49ad428ecd69"
+    },
+    {
+      "id": "motion-17",
+      "file": "motion-17.funscript",
+      "name": "锯齿大落",
+      "description": "两级锯齿推到龟头后一落到底。",
+      "playback": "loop",
+      "sourceKey": "gimmemore",
+      "sourceOrdinal": 17,
+      "sha256": "26b38e858a460b2daf937c96370894141c83a4269d156e36f08453345a26521b"
+    },
+    {
+      "id": "motion-18",
+      "file": "motion-18.funscript",
+      "name": "密颤变奏",
+      "description": "在根部、中段、龟头分区密颤，最后几次不规则的大幅抽送。",
+      "playback": "loop",
+      "sourceKey": "tikthots",
+      "sourceOrdinal": 18,
+      "sha256": "eb2cba63f27c3ab4dcb9df4dd6bf6882099c5b116e1768949bb0554825253260"
+    },
+    {
+      "id": "motion-19",
+      "file": "motion-19.funscript",
+      "name": "呼吸起伏",
+      "description": "像呼吸一样的中幅起伏，位置缓慢上移又回落，中间夹一次全程。",
+      "playback": "loop",
+      "sourceKey": "sugardaddy",
+      "sourceOrdinal": 19,
+      "sha256": "edcf5a9dd2dd62f6863a91f7b6dec98855b5021c96e347e2d98b93bef1e6bf25"
+    },
+    {
+      "id": "motion-20",
+      "file": "motion-20.funscript",
+      "name": "逐级推移",
+      "description": "在不同区段间切换的短促抽动，从根部逐级移到龟头。",
+      "playback": "loop",
+      "sourceKey": "underground",
+      "sourceOrdinal": 20,
+      "sha256": "5120ba716560c9c5e2e2269ecce7584d6c9a87c4a61c755e17bd2040d8b6a17d"
+    },
+    {
+      "id": "motion-21",
+      "file": "motion-21.funscript",
+      "name": "蓄势突进",
+      "description": "在根部小幅蓄势、越来越碎，最后一次全程突进。",
+      "playback": "loop",
+      "sourceKey": "cyberdream",
+      "sourceOrdinal": 21,
+      "sha256": "b70e62099721832a7d3a5cc43994b1f4bc618e852bc10b2f792d948895f2bbb8"
+    },
+    {
+      "id": "motion-22",
+      "file": "motion-22.funscript",
+      "name": "全幅大浪",
+      "description": "大幅往返，整体逐渐上移到龟头再回落，像大浪。",
+      "playback": "loop",
+      "sourceKey": "swallowwave",
+      "sourceOrdinal": 22,
+      "sha256": "90872d9df20ad89424e28d3f962a0c26451850eaef937a1ab4cbb2ea5c4428b4"
+    },
+    {
+      "id": "motion-23",
+      "file": "motion-23.funscript",
+      "name": "潮汐涨落",
+      "description": "幅度像潮水一样从根部涨到全程，再退回根部。",
+      "playback": "loop",
+      "sourceKey": "premiumwave",
+      "sourceOrdinal": 23,
+      "sha256": "34a31dd5a71789fea0d1fe5349a55ac4e074158931775bc1efd7e831804ab338"
+    },
+    {
+      "id": "motion-24",
+      "file": "motion-24.funscript",
+      "name": "滑动",
+      "description": "往返的同时整体在范围内先上移再下移，刺激位置缓慢变化。",
+      "playback": "loop",
+      "sourceKey": "takeit",
+      "sourceOrdinal": 24,
+      "sha256": "bdf3a8fb89fa3e9c965273e4eac88582325a201e656e09fb02d928d0a5d879c6"
+    },
+    {
+      "id": "motion-25",
+      "file": "motion-25.funscript",
+      "name": "渐快",
+      "description": "往返逐渐加快，到最快后保持最快的节奏。",
+      "playback": "loop",
+      "loopFromMs": 6365,
+      "sourceKey": "accelerate",
+      "sourceOrdinal": 25,
+      "generated": true,
+      "sha256": "3922ff2a08b576b805c5e01e2ca93548e2032e4b66793774e7162a1008e12e79"
+    },
+    {
+      "id": "motion-26",
+      "file": "motion-26.funscript",
+      "name": "渐慢",
+      "description": "往返由快逐渐放慢，放到最慢后保持慢节奏。",
+      "playback": "loop",
+      "loopFromMs": 5388,
+      "sourceKey": "decelerate",
+      "sourceOrdinal": 26,
+      "generated": true,
+      "sha256": "9067c3d25ba694de5f3681b9c0a344dbb5fdcf1a3cbba886e98424d7ace2be5a"
+    },
+    {
+      "id": "motion-27",
+      "file": "motion-27.funscript",
+      "name": "间歇",
+      "description": "动一下、停一下，断断续续。",
+      "playback": "loop",
+      "sourceKey": "intermittent",
+      "sourceOrdinal": 27,
+      "generated": true,
+      "sha256": "defcd3b20b86684d06b5106f4c1d4631e9d4adc68f486ff8ab6cada939c1585f"
+    },
+    {
+      "id": "motion-28",
+      "file": "motion-28.funscript",
+      "name": "快去慢回",
+      "description": "向龟头快速推进，回根部时放慢。",
+      "playback": "loop",
+      "sourceKey": "fast_out",
+      "sourceOrdinal": 28,
+      "generated": true,
+      "sha256": "83fe034f6c7834ec7b91edfd73af336c8691ec5f36452e89f7bead292b5b8401"
+    },
+    {
+      "id": "motion-29",
+      "file": "motion-29.funscript",
+      "name": "慢去快回",
+      "description": "向龟头缓慢推进，快速回到根部。",
+      "playback": "loop",
+      "sourceKey": "slow_out",
+      "sourceOrdinal": 29,
+      "generated": true,
+      "sha256": "22cb524a83d5c0894e0fa2b0134910a36a4883258b771463b78b21cd0995c727"
+    }
+  ],
+  "pools": {
+    "low": [
+      {
+        "name": "温柔正弦",
+        "weight": "high"
+      },
+      {
+        "name": "呼吸起伏",
+        "weight": "high"
+      },
+      {
+        "name": "长波缓涌",
+        "weight": "medium"
+      },
+      {
+        "name": "低吟渐起",
+        "weight": "medium"
+      },
+      {
+        "name": "稳定节奏",
+        "weight": "medium"
+      },
+      {
+        "name": "渐慢",
+        "weight": "medium"
+      },
+      {
+        "name": "慢去快回",
+        "weight": "medium"
+      },
+      {
+        "name": "间歇",
+        "weight": "low"
+      }
+    ],
+    "medium": [
+      {
+        "name": "稳定节奏",
+        "weight": "high"
+      },
+      {
+        "name": "滑动",
+        "weight": "medium"
+      },
+      {
+        "name": "潮汐涨落",
+        "weight": "medium"
+      },
+      {
+        "name": "拱形中浪",
+        "weight": "medium"
+      },
+      {
+        "name": "快去慢回",
+        "weight": "medium"
+      },
+      {
+        "name": "慢去快回",
+        "weight": "medium"
+      },
+      {
+        "name": "渐快",
+        "weight": "medium"
+      },
+      {
+        "name": "渐慢",
+        "weight": "medium"
+      },
+      {
+        "name": "深浅跌宕",
+        "weight": "low"
+      }
+    ],
+    "high": [
+      {
+        "name": "稳定节奏",
+        "weight": "high"
+      },
+      {
+        "name": "强拍律动",
+        "weight": "high"
+      },
+      {
+        "name": "深抽连颤",
+        "weight": "medium"
+      },
+      {
+        "name": "冲顶碎颤",
+        "weight": "medium"
+      },
+      {
+        "name": "全幅大浪",
+        "weight": "medium"
+      },
+      {
+        "name": "极限冲刺",
+        "weight": "medium"
+      },
+      {
+        "name": "中幅爆发",
+        "weight": "medium"
+      },
+      {
+        "name": "渐快",
+        "weight": "low"
+      }
+    ]
+  }
+}

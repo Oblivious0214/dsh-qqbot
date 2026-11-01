@@ -33,6 +33,18 @@ describe('ui settings', () => {
     expect(new UiStore(dir, () => {}).settings).toMatchObject({ palette: 'green', chatMaxWidth: 1000 })
   })
 
+  it('migrates the old immersive preference and keeps independent switches after reload', () => {
+    const { dir, data, ui } = setup()
+    const { hideTools, hideCommands, hideStats, hideThinking, ...older } = DEFAULT_UI_SETTINGS
+    writeFileSync(join(dir, 'ui.json'), JSON.stringify({ ...older, immersive: false }))
+    const migrated = new UiStore(dir, () => {})
+    expect(migrated.settings).toMatchObject({ hideTools: false, hideCommands: false, hideStats: false, hideThinking: true })
+    applyUiAction(data, ui, { action: 'settings.save', settings: { ...older, immersive: false } })
+    expect(ui.settings.hideThinking).toBe(true)
+    applyUiAction(data, ui, { action: 'settings.save', settings: { ...migrated.settings, hideTools: true, hideThinking: false } })
+    expect(new UiStore(dir, () => {}).settings).toMatchObject({ hideTools: true, hideCommands: false, hideStats: false, hideThinking: false })
+  })
+
   it('rejects invalid settings', () => {
     const { data, ui } = setup()
     expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { ...DEFAULT_UI_SETTINGS, palette: 'pink' } })).toThrow(BadRequest)
@@ -71,14 +83,29 @@ describe('ui settings', () => {
     expect(new UiStore(dir, () => {}).settings).toEqual({ ...DEFAULT_UI_SETTINGS, palette: 'black', bubbleTail: false })
   })
 
-  it('ignores retired interval settings when loading and drops them when saving', () => {
+  it('drops old interval settings when loading and saving', () => {
     const { dir, data } = setup()
-    const oldSettings = { ...DEFAULT_UI_SETTINGS, palette: 'black', intervalMethod: 'random', intervalMin: 0, intervalMax: 0, logBase: 1.1 }
+    const oldSettings = { ...DEFAULT_UI_SETTINGS, palette: 'black', intervalMethod: 'random', intervalSpeed: 143, intervalMin: 0, intervalMax: 0, logBase: 1.1 }
     writeFileSync(join(dir, 'ui.json'), JSON.stringify(oldSettings))
     const ui = new UiStore(dir, () => {})
-    expect(ui.settings).toEqual({ ...DEFAULT_UI_SETTINGS, palette: 'black' })
+    const expected = { ...DEFAULT_UI_SETTINGS, palette: 'black' }
+    expect(ui.settings).toEqual(expected)
     applyUiAction(data, ui, { action: 'settings.save', settings: oldSettings })
-    expect(JSON.parse(readFileSync(join(dir, 'ui.json'), 'utf8'))).toEqual({ version: 1, ...DEFAULT_UI_SETTINGS, palette: 'black' })
+    expect(JSON.parse(readFileSync(join(dir, 'ui.json'), 'utf8'))).toEqual({ version: 1, ...expected })
+  })
+
+  it('defaults a missing typing speed and rejects invalid ones', () => {
+    const { dir, data, ui } = setup()
+    const { typingSpeed, ...older } = DEFAULT_UI_SETTINGS
+    writeFileSync(join(dir, 'ui.json'), JSON.stringify(older))
+    expect(new UiStore(dir, () => {}).settings).toEqual(DEFAULT_UI_SETTINGS)
+    applyUiAction(data, ui, { action: 'settings.save', settings: { ...older, typingSpeed: 'slow' } })
+    expect(ui.settings.typingSpeed).toBe('slow')
+    for (const typingSpeed of ['medium', null, 100]) {
+      expect(() => applyUiAction(data, ui, { action: 'settings.save', settings: { ...DEFAULT_UI_SETTINGS, typingSpeed } })).toThrow(BadRequest)
+    }
+    writeFileSync(join(dir, 'ui.json'), JSON.stringify({ ...older, typingSpeed: 'warp' }))
+    expect(new UiStore(dir, () => {}).settings).toEqual(DEFAULT_UI_SETTINGS)
   })
 
   it('reports the session role only when asked', () => {
@@ -242,22 +269,32 @@ describe('cropped image output', () => {
 })
 
 describe('segment delay', () => {
-  it('uses a fixed log base of 2.6 and preserves the small random variation', () => {
-    const expected = Math.log(3) / Math.log(2.6) * 1000
-    expect(segmentDelay('好的', 0)).toBeCloseTo(expected)
-    expect(segmentDelay('好的', 0.5)).toBeCloseTo(expected + 250)
-    expect(segmentDelay('hello world', 0)).toBeCloseTo(expected)
+  const steady = () => 0.5
+  it('simulates typing the next segment: a short pause plus time per character', () => {
+    expect(segmentDelay('短句', DEFAULT_UI_SETTINGS, steady)).toBe(496)
+    expect(segmentDelay('字'.repeat(10), DEFAULT_UI_SETTINGS, steady)).toBe(1200)
+    expect(segmentDelay('one two three', DEFAULT_UI_SETTINGS, steady)).toBe(848)
+    expect(segmentDelay('字'.repeat(1000), DEFAULT_UI_SETTINGS, steady)).toBe(4000)
   })
 
-  it('grows with length and caps at 10 seconds including the variation', () => {
-    expect(segmentDelay('好的', 0)).toBeLessThan(segmentDelay('今天下班以后我们一起去江边看烟花吧', 0))
-    expect(segmentDelay('字'.repeat(100000), 0.999)).toBe(10000)
+  it('scales by typing speed with its own cap', () => {
+    expect(segmentDelay('短句', { typingSpeed: 'fast' }, steady)).toBe(312)
+    expect(segmentDelay('短句', { typingSpeed: 'slow' }, steady)).toBe(736)
+    expect(segmentDelay('字'.repeat(1000), { typingSpeed: 'fast' }, steady)).toBe(2800)
+    expect(segmentDelay('字'.repeat(1000), { typingSpeed: 'slow' }, steady)).toBe(5600)
+  })
+
+  it('varies by ±25% and never drops below 300 ms', () => {
+    expect(segmentDelay('短句', DEFAULT_UI_SETTINGS, () => 0)).toBe(372)
+    expect(segmentDelay('短句', DEFAULT_UI_SETTINGS, () => 1)).toBe(620)
+    expect(segmentDelay('好', { typingSpeed: 'fast' }, () => 0)).toBe(300)
+    expect(segmentDelay('好的', DEFAULT_UI_SETTINGS, steady)).toBeLessThan(segmentDelay('今天下班以后我们一起去江边看烟花吧', DEFAULT_UI_SETTINGS, steady))
   })
 })
 
 describe('qq style', () => {
   it('scopes every rule under [data-qqbot]', () => {
-    const css = buildQqCss({ ...DEFAULT_UI_SETTINGS, avatars: true, bubbleTail: true, immersive: true }, 1)
+    const css = buildQqCss({ ...DEFAULT_UI_SETTINGS, avatars: true, bubbleTail: true, hideTools: true }, 1)
     // 去掉 @keyframes 块和 @media 外壳，剩下的每条规则的每个选择器都要在 qqbot 节点下。
     const flat = css.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '').replace(/@media[^{]*\{/g, '')
     const selectors = [...flat.matchAll(/([^{}]+)\{[^{}]*\}/g)].flatMap(match => match[1]!.split(','))
@@ -273,9 +310,24 @@ describe('qq style', () => {
     expect(before[0]).toContain('[data-qqbot-reply][data-qqbot-role]')
   })
 
+  it('controls each immersive feature independently', () => {
+    const off = { ...DEFAULT_UI_SETTINGS, hideTools: false, hideCommands: false, hideStats: false, hideThinking: false }
+    const tools = buildQqCss({ ...off, hideTools: true }, undefined)
+    expect(tools).toContain("turn-process'")
+    expect(tools).not.toContain("kind='command'")
+    expect(tools).not.toContain("[data-clock='end']")
+    const commands = buildQqCss({ ...off, hideCommands: true }, undefined)
+    expect(commands).toContain("kind='command'")
+    expect(commands).not.toContain("turn-process'")
+    const thinking = buildQqCss({ ...off, hideThinking: true }, undefined)
+    expect(thinking).toContain("[data-chat-running]::after { content: '对方输入中…'")
+    expect(thinking).toContain("[data-process-activity='thinking']")
+    expect(buildQqCss(off, undefined)).not.toContain('对方输入中…')
+  })
+
   it('follows the switches', () => {
     expect(buildQqCss({ ...DEFAULT_UI_SETTINGS, avatars: false }, undefined)).not.toContain('--qqbot-initial')
-    expect(buildQqCss({ ...DEFAULT_UI_SETTINGS, immersive: false }, undefined)).not.toContain("turn-process'")
+    expect(buildQqCss({ ...DEFAULT_UI_SETTINGS, hideTools: false }, undefined)).not.toContain("turn-process'")
     expect(buildQqCss(DEFAULT_UI_SETTINGS, undefined)).not.toContain('background-image')
     expect(buildQqCss(DEFAULT_UI_SETTINGS, 5)).toContain('kind=background&v=5')
     expect(buildQqCss({ ...DEFAULT_UI_SETTINGS, palette: 'green' }, undefined)).toContain('#95EC69')

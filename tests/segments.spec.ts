@@ -4,7 +4,7 @@ import { MAX_HOLD_MS, ReplyClock, type ClockTimers, type SegmentEndReason, type 
 import { SegmentsService, type QqbotSegments } from '../src/client/segments-service.ts'
 import { SegmentAnnotations } from '../src/client/segment-annotations.tsx'
 import { decodeReply, INVALID_REPLY } from '../src/client/decode.ts'
-import { parseTimedStream, salvageTimedReply } from '../src/vendor/dialogue-timing/protocol.js'
+import { parseTimedReply, parseTimedStream, salvageTimedReply } from '../src/vendor/dialogue-timing/protocol.js'
 
 /** 假时钟：advance(ms) 按时间顺序执行到点的计时器。 */
 function fakeTimers() {
@@ -52,45 +52,126 @@ describe('parseTimedStream', () => {
   it('reads closed stages while streaming and the full block once closed', () => {
     expect(parseTimedStream('前言[qq]{"version":1,"stages":[{"text":"a\\"}{["},{"text":"b')).toEqual({ stages: [{ text: 'a"}{[' }], complete: false })
     expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":"a"')).toBeNull()
-    expect(parseTimedStream('[qq]{"stages":[{"text":"a"}')).toBeNull()
+    expect(parseTimedStream('[qq]{"stages":[{"text":"a"}')).toEqual({ stages: [{ text: 'a' }], complete: false })
     expect(parseTimedStream('普通回复')).toBeNull()
-    expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":"a","cycles":3}]}[/qq]')).toEqual({ stages: [{ text: 'a', cycles: 3 }], complete: true })
-    expect(() => parseTimedStream('[qq]{"version":1,"stages":[{"text":""},')).toThrow()
+    expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":"a","seconds":20}]}[/qq]')).toEqual({ stages: [{ text: 'a' }], complete: true })
+    expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":""},')).toBeNull()
     expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":"a","durationMs":500,"emotion":"happy"}]}[/qq]')).toEqual({ stages: [{ text: 'a' }], complete: true })
-    expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":"a","cycles":0},{"text":"b","cycles":"3","motion":{"stop":true}},{"text":"c"')).toEqual({ stages: [{ text: 'a' }, { text: 'b', motion: { stop: true } }], complete: false })
-    expect(() => parseTimedStream('[qq]{"version":1,"stages":[{"text":"a"}],"extra":1}[/qq]')).toThrow()
+    // 段落停留由显示时钟决定：模型写的 seconds、cycles 都丢掉，其余照常。
+    expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":"a","seconds":4},{"text":"b","seconds":"20","motion":{"stop":true}},{"text":"c","seconds":121},{"text":"d","seconds":12.5},{"text":"e","cycles":3},{"text":"f"'))
+      .toEqual({ stages: [{ text: 'a' }, { text: 'b', motion: { stop: true } }, { text: 'c' }, { text: 'd' }, { text: 'e' }], complete: false })
+    expect(parseTimedStream('[qq]{"version":1,"stages":[{"text":"a"}],"extra":1}[/qq]')).toEqual({ stages: [{ text: 'a' }], complete: true })
     expect(() => parseTimedStream('[qq]{"version":1,"stages":[{"text":"a"}]}[/qq][qq]{}[/qq]')).toThrow()
+  })
+
+  it('drops a duration written inside motion', () => {
+    const motion = { range: 'full', tier: 'low', action: '稳定节奏' }
+    const reply = (stage: object) => parseTimedReply(`[qq]${JSON.stringify({ version: 1, stages: [{ text: 'a', ...stage }] })}[/qq]`)!.stages[0]
+    expect(reply({ motion: { ...motion, seconds: 20 } })).toEqual({ text: 'a', motion })
+    expect(reply({ motion: { ...motion, cycles: 4 } })).toEqual({ text: 'a', motion })
+    expect(reply({ motion: { ...motion, cycles: 4, seconds: 200 } })).toEqual({ text: 'a', motion })
+    expect(reply({ seconds: 15, motion: { ...motion, seconds: 30 } })).toEqual({ text: 'a', motion })
+    expect(reply({ motion: { stop: true, seconds: 10 } })).toEqual({ text: 'a', motion: { stop: true } })
+    // 流式读到的闭合段落同样处理。
+    expect(parseTimedStream(`[qq]{"version":1,"stages":[{"text":"a","motion":${JSON.stringify({ ...motion, seconds: 20 })}},{"text":"b`)!.stages)
+      .toEqual([{ text: 'a', motion }])
   })
 })
 
 describe('salvage', () => {
-  // 正文里有未转义的引号和直接换行，JSON 解析失败。
-  const broken = '[qq]{"version":1,"stages":[{"text":"他说"你好"","motion":{"range":"full","tier":"high","action":"steady"}},{"text":"第二\n行\\n","cycles":3}]}[/qq]'
+  // 段落之间缺逗号，修复也读不出，只能抢救文字。
+  const broken = '[qq]{"version":1,"stages":[{"text":"他说"你好"","motion":{"range":"full","tier":"high","action":"steady"}}{"text":"第二\n行\\n","seconds":20}]}[/qq]'
 
-  it('keeps only text from a block whose JSON does not parse', () => {
+  it('keeps only text from a block whose JSON cannot be repaired', () => {
     expect(salvageTimedReply(broken)).toEqual({ version: 1, stages: [
       { text: '他说"你好"', salvaged: true }, { text: '第二\n行\n', salvaged: true },
     ] })
-    // 能解析的块交给严格规则，不救；抽不出文字、正文含 [qq] 也不救。
+    // 能读出的块按正常规则，不救；抽不出文字也不救。
     expect(salvageTimedReply('[qq]{"version":1,"stages":[{"text":"a"}],"extra":1}[/qq]')).toBeNull()
     expect(salvageTimedReply('[qq]{"version":1,"stages":[{"txt":"a"}[/qq]')).toBeNull()
-    expect(salvageTimedReply('[qq]{"version":1,"stages":[{"text":"a[dsh]"}[/qq]')).toBeNull()
     expect(salvageTimedReply('普通回复')).toBeNull()
   })
 
   it('waits while streaming, then shows salvaged text after the stages already read', () => {
     const head = parseTimedStream('[qq]{"version":1,"stages":[{"text":"他说"},{"text":"x')!
     expect(head.stages).toEqual([{ text: '他说' }])
-    const tail = '[qq]{"version":1,"stages":[{"text":"他说"},{"text":"坏"引号"}]}[/qq]'
+    const tail = '[qq]{"version":1,"stages":[{"text":"他说"}{"text":"坏"引号"}]}[/qq]'
     expect(decodeReply(tail, true, head)).toEqual({ stream: { stages: head.stages, complete: false }, error: '' })
     expect(decodeReply(tail, false, head)).toEqual({ stream: { stages: [{ text: '他说' }, { text: '坏"引号', salvaged: true }], complete: true }, error: '' })
     // 和已显示的对不上，或抽不出来时显示错误。
     expect(decodeReply(tail, false, { stages: [{ text: '别的' }], complete: false })).toEqual({ stream: null, error: INVALID_REPLY })
-    expect(decodeReply('[qq]{"version":1,"stages":[{"text":"a"}],"extra":1}[/qq]', false, null)).toEqual({ stream: null, error: INVALID_REPLY })
+    expect(decodeReply('[qq]{"version":1,"stages":[{"txt":"a"}]}[/qq]', false, null)).toEqual({ stream: null, error: INVALID_REPLY })
   })
 })
 
 describe('reply clock', () => {
+  it('times the wait by the next segment, picks up setting changes for later waits, and lets a device override', () => {
+    const fake = fakeTimers()
+    let perChar = 100
+    const clock = new ReplyClock({ delay: next => next.length * perChar, timers: fake.timers, onChange: () => {}, onError: error => { throw error } })
+    clock.feed('s', 'r', stages('一', '二三四五', '六'), true, true)
+    fake.advance(0)
+    expect(clock.count('s', 'r')).toBe(1)
+    perChar = 50
+    fake.advance(399)
+    expect(clock.count('s', 'r')).toBe(1)
+    fake.advance(1)
+    expect(clock.count('s', 'r')).toBe(2)
+    fake.advance(49)
+    expect(clock.count('s', 'r')).toBe(2)
+    fake.advance(1)
+    expect(clock.count('s', 'r')).toBe(3)
+    clock.register({ durations: (_s, _r, all, i) => all[i]?.motion !== undefined ? 3000 : undefined })
+    clock.feed('s', 'device', [{ text: '一', motion: { stop: true } }, { text: '二' }], true, true)
+    fake.advance(2999)
+    expect(clock.count('s', 'device')).toBe(1)
+    expect(clock.playback('s', 'device')?.typing).toBe(false)
+    fake.advance(1)
+    expect(clock.count('s', 'device')).toBe(2)
+    clock.dispose()
+  })
+
+  it('waits for a streamed next segment, counting typing time from when the previous one appeared', () => {
+    const fake = fakeTimers()
+    const clock = new ReplyClock({ delay: next => next.length * 100, timers: fake.timers, onChange: () => {}, onError: error => { throw error } })
+    clock.feed('s', 'r', stages('a'), false, true)
+    fake.advance(0)
+    expect(clock.playback('s', 'r')).toEqual({ index: 0, status: 'running', remainingMs: 0, typing: true })
+    // 生成比打字慢：下一段一到就显示。
+    fake.advance(1000)
+    clock.feed('s', 'r', stages('a', 'bb'), false, true)
+    fake.advance(0)
+    expect(clock.count('s', 'r')).toBe(2)
+    // 生成比打字快：从上一段出现起算打字时间。
+    fake.advance(100)
+    clock.feed('s', 'r', stages('a', 'bb', 'cccc'), true, true)
+    fake.advance(299)
+    expect(clock.count('s', 'r')).toBe(2)
+    expect(clock.playback('s', 'r')?.typing).toBe(true)
+    fake.advance(1)
+    expect(clock.playback('s', 'r')).toEqual({ index: 2, status: 'complete', remainingMs: 0, typing: false })
+    clock.dispose()
+  })
+
+  it('keeps the elapsed typing time across a pause while waiting for the next segment', () => {
+    const fake = fakeTimers()
+    const clock = new ReplyClock({ delay: next => next.length * 100, timers: fake.timers, onChange: () => {}, onError: error => { throw error } })
+    clock.feed('s', 'r', stages('x'), false, true)
+    fake.advance(100)
+    const resume = clock.pause('s')
+    expect(clock.playback('s', 'r')?.typing).toBe(false)
+    fake.advance(10000)
+    clock.feed('s', 'r', stages('x', 'yyyy'), true, true)
+    fake.advance(0)
+    expect(clock.count('s', 'r')).toBe(1)
+    resume()
+    fake.advance(299)
+    expect(clock.count('s', 'r')).toBe(1)
+    fake.advance(1)
+    expect(clock.count('s', 'r')).toBe(2)
+    clock.dispose()
+  })
+
   it('reveals a complete live reply stage by stage and ends once', () => {
     const { clock, fake, events } = setup()
     clock.feed('s', '1:0', stages('a', 'b', 'c'), true, true)
@@ -156,13 +237,13 @@ describe('reply clock', () => {
     clock.register({ durations: () => { throw new Error('boom') } })
     clock.register({ durations: (_s, _r, all, index) => { seen.push([all, index]); return index === 0 ? 2500 : index === 1 ? 10 ** 9 : undefined } })
     clock.register({ durations: () => 1 })
-    clock.feed('s', 'r', [{ text: 'a', cycles: 4 }, { text: 'b' }, { text: 'c' }], true, true)
+    clock.feed('s', 'r', [{ text: 'a', motion: { stop: true } }, { text: 'b' }, { text: 'c' }], true, true)
     fake.advance(0)
     fake.advance(2500)
     fake.advance(MAX_HOLD_MS)
     const holds = events.filter(e => e[0] === 'revealed').map(e => e[5])
     expect(holds).toEqual([2500, MAX_HOLD_MS, undefined])
-    expect(seen[0]).toEqual([[{ text: 'a', cycles: 4 }, { text: 'b' }, { text: 'c' }], 0])
+    expect(seen[0]).toEqual([[{ text: 'a', motion: { stop: true } }, { text: 'b' }, { text: 'c' }], 0])
     expect(errors.length).toBe(3)
   })
 
@@ -300,11 +381,11 @@ describe('read-only segment playback', () => {
     clock.register({ durations: () => 2400 })
     clock.feed('s', 'r', stages('a', 'b'), true, true)
     fake.advance(600)
-    expect(clock.playback('s', 'r')).toEqual({ index: 0, status: 'running', remainingMs: 1800 })
+    expect(clock.playback('s', 'r')).toEqual({ index: 0, status: 'running', remainingMs: 1800, typing: false })
     const resume = clock.pause('s'), resume2 = clock.pause('s')
     fake.advance(10000)
     resume()
-    expect(clock.playback('s', 'r')).toEqual({ index: 0, status: 'paused', remainingMs: 1800 })
+    expect(clock.playback('s', 'r')).toEqual({ index: 0, status: 'paused', remainingMs: 1800, typing: false })
     const before = events.length
     for (let i = 0; i < 100; i++) clock.playback('s', 'r')
     expect(events).toHaveLength(before)
@@ -312,14 +393,14 @@ describe('read-only segment playback', () => {
     fake.advance(1799)
     expect(clock.playback('s', 'r')?.remainingMs).toBe(1)
     fake.advance(1)
-    expect(clock.playback('s', 'r')).toEqual({ index: 1, status: 'complete', remainingMs: 0 })
+    expect(clock.playback('s', 'r')).toEqual({ index: 1, status: 'complete', remainingMs: 0, typing: false })
   })
 
   it('reports stream waits, cancellation, failures and history without new timers', () => {
     const { clock, fake, events } = setup()
     clock.feed('s', 'stream', stages('a'), false, true)
     fake.advance(1200)
-    expect(clock.playback('s', 'stream')).toEqual({ index: 0, status: 'running', remainingMs: 0 })
+    expect(clock.playback('s', 'stream')).toEqual({ index: 0, status: 'running', remainingMs: 0, typing: true })
     clock.interrupt('s')
     expect(clock.playback('s', 'stream')?.status).toBe('interrupted')
     clock.feed('s', 'failed', stages('a', 'b'), false, true)

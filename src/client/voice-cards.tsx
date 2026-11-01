@@ -29,7 +29,7 @@ export function voiceWidth(duration: number): number {
 }
 
 function label(state: ReturnType<VoicePlayer['status']>['state'], duration: number | undefined): string {
-  if (state === 'loading') return '生成中'
+  if (state === 'loading') return ''
   if (state === 'error') return '重试'
   return duration === undefined ? '语音' : `${Math.max(1, Math.ceil(duration))}"`
 }
@@ -52,7 +52,8 @@ function VoiceCard({ owner, item, items, player }: {
     void player.playFrom(owner, voiced.map(entry => entry.clip), Math.max(0, start), voiced.map(entry => entry.bubble))
   }
   return <>
-    <button type="button" data-state={state} style={{ width: `${voiceWidth(duration ?? 0)}px` }}
+    {!player.isRevealed(item.bubble) && <span data-unread role="img" aria-label="未播放" />}
+    <button type="button" data-state={state} style={{ width: `${Math.max(160, voiceWidth(duration ?? 0))}px` }}
       aria-label={active ? '停止播放' : '播放语音，接着播放本条回复的其他语音'} onClick={onClick}>
       <span aria-hidden="true">{state === 'playing' ? 'Ⅱ' : state === 'pending' ? '…' : '▶'}</span>
       <span data-wave aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <i key={index} />)}</span>
@@ -75,7 +76,7 @@ export function useVoiceCards({ root, owner, items, player, display, live, prege
   readonly display: VoiceDisplay
   readonly live: boolean
   readonly pregenerate: boolean
-}): ReactNode {
+}): { readonly cards: ReactNode; readonly sending: boolean } {
   const [hosts, setHosts] = useState<readonly HTMLElement[]>([])
   const inserted = useRef(new Map<string, HTMLElement>())
   useSyncExternalStore(player.subscribe, player.getVersion)
@@ -129,9 +130,14 @@ export function useVoiceCards({ root, owner, items, player, display, live, prege
     for (const clip of pending) player.prepare(clip).catch(() => {})
   }, [player, pendingKey])
 
-  return hosts.map((host, index) => {
+  const sending = hosts.some((host, index) => {
+    const clip = items[index]?.clip
+    return host.hasAttribute(VOICE_HOST_ATTRIBUTE) && clip !== undefined && player.status(clip.key).state === 'loading'
+  })
+  const cards = hosts.map((host, index) => {
     const item = items[index]
     if (item?.clip === undefined || !host.hasAttribute(VOICE_HOST_ATTRIBUTE)) return null
     return createPortal(<VoiceCard owner={owner} item={item as VoiceBubble & { readonly clip: Clip }} items={items} player={player} />, host, item.bubble)
   })
+  return { cards, sending }
 }

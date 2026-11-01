@@ -21,6 +21,8 @@ export const MARK_ATTRIBUTE = 'data-qqbot'
 export const REPLY_ATTRIBUTE = 'data-qqbot-reply'
 /** 这一轮回复有角色时 segments.tsx 加在 REPLY 节点上；没有角色不画头像。 */
 export const ROLE_ATTRIBUTE = 'data-qqbot-role'
+/** 段间打字和语音合成共用的状态提示。 */
+export const TYPING_ATTRIBUTE = 'data-qqbot-typing'
 
 const Q = `[${MARK_ATTRIBUTE}]`
 const DARK = `body[data-ds-dark-theme] ${Q}`
@@ -61,12 +63,18 @@ ${DARK} [data-conversation-scroll] { background-color: ${DARK_CHAT_BACKGROUND}; 
 }
 
 /** 隐藏已完成回合的工具过程和统计，只留消息和时间。迁移自 qq-layout.ts 的 QQ_IMMERSIVE_CSS。 */
-const IMMERSIVE_CSS = `
+const HIDE_TOOLS_CSS = `
 ${Q} [data-chat-flow] [data-chat-flow-kind='turn-process'],
 ${Q} [data-chat-flow] [data-turn-process],
-${Q} [data-chat-flow] [data-chat-flow-kind='command']:has([data-state='ok']) {
+${Q} [data-chat-flow] [data-chat-flow-kind='tool-call'],
+${Q} [data-step-process] > div:first-child:has(> [data-process-activity]:not([data-process-activity='thinking'])) {
   display: none !important;
 }
+`
+const HIDE_COMMANDS_CSS = `
+${Q} [data-chat-flow] [data-chat-flow-kind='command']:has([data-state='ok']) { display: none !important; }
+`
+const HIDE_STATS_CSS = `
 ${Q} [data-chat-flow] [data-turn-tail] [data-clock='end'] > :not([class$='_endInfo']),
 ${Q} [data-chat-flow] [data-turn-tail] [data-clock='end'] > [class$='_endInfo'] > :not([class$='_timeEnd']) {
   display: none !important;
@@ -74,6 +82,22 @@ ${Q} [data-chat-flow] [data-turn-tail] [data-clock='end'] > [class$='_endInfo'] 
 ${Q} [data-chat-flow] [data-turn-tail] [data-clock='end'] > [class$='_endInfo'] {
   margin-left: 0;
 }
+`
+
+/** 思考正文和过程标题归到同一条运行状态；段间打字提示优先，避免流式回复时出现两条。 */
+const HIDE_THINKING_CSS = `
+${Q} [data-variant='think'],
+${Q} [data-chat-group-part='reasoning'],
+${Q} [data-step-process] > div:first-child:has(> [data-process-activity='thinking']) {
+  display: none !important;
+}
+${Q} [data-chat-running] > * { display: none !important; }
+${Q} [data-chat-running] {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+${Q} [data-chat-running]::after { content: '对方输入中…'; }
+${Q} [data-chat-flow]:has([${TYPING_ATTRIBUTE}]) [data-chat-running] { display: none !important; }
 `
 
 /**
@@ -95,18 +119,30 @@ ${REPLY}[${ROLE_ATTRIBUTE}] ${BUBBLE_PATH}::before {
 }
 `
 
+const TYPING_CSS = `
+${REPLY} [${TYPING_ATTRIBUTE}] { margin: 4px 0 0; color: var(--dsw-alias-label-secondary); font-size: 13px; }
+`
+
 /** 语音条：外层是一个普通气泡（BUBBLE），里面一个按钮。外观迁移自 dsh-qq-skin 的 QQ_FISH_VOICE_CSS。 */
 const VOICE_CSS = `
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-unread] { position: absolute; right: -12px; top: 12px; width: 6px; height: 6px; border-radius: 50%; background: #f05b62; }
 ${REPLY} [${VOICE_HIDDEN_ATTRIBUTE}] { display: none !important; }
 ${REPLY} [${VOICE_HOST_ATTRIBUTE}] > button {
-  display: inline-flex; align-items: center; gap: 12px; box-sizing: border-box; max-width: 100%;
+  display: inline-flex; align-items: center; gap: 12px; box-sizing: border-box; max-width: 100%; min-width: min(160px, 100%);
   min-height: 24px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer;
 }
 ${REPLY} [${VOICE_HOST_ATTRIBUTE}] > button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 4px; }
-${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-wave] { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 22px; }
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-wave] { flex: 0 1 auto; min-width: 0; overflow: hidden; display: inline-flex; align-items: center; gap: 3px; height: 22px; }
 ${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-wave] i { width: 3px; height: 12px; border-radius: 2px; background: currentColor; }
 ${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-wave] i:nth-child(2n) { height: 20px; }
-${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-duration] { margin-left: auto; white-space: nowrap; color: var(--dsw-alias-label-secondary); }
+${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-duration] { flex: none; margin-left: auto; white-space: nowrap; color: var(--dsw-alias-label-secondary); }
+${BUBBLE}[${VOICE_HOST_ATTRIBUTE}] + [class*="_markdown_"] {
+  margin-top: -6px; padding: 7px 12px; font-size: 0.875em; line-height: 1.5; border-radius: 14px;
+  overflow-wrap: anywhere;
+}
+${REPLY}[${ROLE_ATTRIBUTE}] ${BUBBLE_PATH}[${VOICE_HOST_ATTRIBUTE}] + [class*="_markdown_"]::before { content: none; }
+${BUBBLE}[${VOICE_HOST_ATTRIBUTE}] + [class*="_markdown_"] > :first-child::before { content: '['; }
+${BUBBLE}[${VOICE_HOST_ATTRIBUTE}] + [class*="_markdown_"] > :last-child::after { content: ']'; }
 ${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-error] { margin-top: 4px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 @media (prefers-reduced-motion: no-preference) {
   ${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-state='playing'] [data-wave] i { animation: qqbot-voice-wave 0.7s ease-in-out infinite alternate; }
@@ -115,7 +151,7 @@ ${REPLY} [${VOICE_HOST_ATTRIBUTE}] [data-error] { margin-top: 4px; font-size: 12
 `
 
 const BUBBLE_TAIL_CSS = `
-${Q} [class*='_bubble_']::after {
+${Q} [data-message-bubble]::after {
   content: '';
   position: absolute; right: -5px; bottom: 8px;
   width: 10px; height: 10px; border-radius: 2px;
@@ -155,8 +191,8 @@ ${REPLY} [data-qqbot-annotation]:empty { display: none; }
 }
 @keyframes qqbot-bubble-arrive { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 ${settings.avatars ? AVATAR_CSS : ''}
-${VOICE_CSS}/* 用户气泡：QQ 蓝底，右上小圆角。 */
-${Q} [class*='_bubble_'] {
+${VOICE_CSS}${TYPING_CSS}/* 用户气泡：使用宿主正文标记，避免误匹配 Tooltip 的 bubble 类名。 */
+${Q} [data-message-bubble] {
   position: relative;
   border-radius: 16px 6px 16px 16px;
   box-shadow: 0 1px 2px rgba(18, 122, 175, 0.12);
@@ -182,9 +218,12 @@ ${Q} [data-composer-card] [class$='_tools'] button:hover { background: var(--dsw
 ${Q} [data-conversation-scroll]::-webkit-scrollbar { width: 10px; }
 ${Q} [data-conversation-scroll]::-webkit-scrollbar-thumb { border-radius: 6px; background: var(--dsw-alias-scrollbar-bg-l1); }
 ${Q} [data-conversation-scroll]::-webkit-scrollbar-thumb:hover { background: var(--dsw-alias-scrollbar-hover-l1); }
-${settings.immersive ? IMMERSIVE_CSS : ''}
+${settings.hideTools ? HIDE_TOOLS_CSS : ''}
+${settings.hideCommands ? HIDE_COMMANDS_CSS : ''}
+${settings.hideStats ? HIDE_STATS_CSS : ''}
+${settings.hideThinking ? HIDE_THINKING_CSS : ''}
 /* 深色：阴影在深底上去掉，角色气泡用固定灰色。 */
-${DARK} [class*='_bubble_'], ${DARK} [class*='_bubble_']::after { box-shadow: none; }
+${DARK} [data-message-bubble], ${DARK} [data-message-bubble]::after { box-shadow: none; }
 ${DARK} [data-composer-card] { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); }
 ${DARK} [${REPLY_ATTRIBUTE}] > div > div > div:not([data-turn-process-inline]) { background: ${DARK_REPLY_BUBBLE}; }
 ${DARK} [data-time-hover-root] [class$='_timeStart'],

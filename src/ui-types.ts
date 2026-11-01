@@ -1,9 +1,11 @@
 /**
- * QQ 界面设置和图片接口的约定，host 和浏览器端共用。不 import 任何东西，两端都能直接打包。
+ * QQ 界面设置和图片接口的约定，host 和浏览器端共用。
  * 设置存 `<DSH_HOME>/qqbot/ui.json`，图片存 `<DSH_HOME>/qqbot/images/`。
  */
 
 /** GET 读设置和图片版本，POST 提交一个操作；`?session=<id>` 时顺带返回这个会话当前的角色。 */
+import { typingDelay, type TypingSpeed } from './pacing.ts'
+
 export const UI_PATH = '/api/qqbot/ui'
 /** GET `?kind=avatar&role=<id>` 或 `?kind=background`，返回图片本身。 */
 export const IMAGE_PATH = '/api/qqbot/image'
@@ -30,6 +32,8 @@ export const BACKGROUND_FIT_LABELS: Record<BackgroundFit, string> = {
 }
 
 export interface UiSettings {
+  /** 普通聊天时对方的打字速度，决定段落之间的等待。 */
+  readonly typingSpeed: TypingSpeed
   readonly palette: Palette
   /** 用户气泡右侧的小尾巴。 */
   readonly bubbleTail: boolean
@@ -37,8 +41,11 @@ export interface UiSettings {
   readonly avatars: boolean
   /** 聊天区最大宽度（px）。 */
   readonly chatMaxWidth: number
-  /** 隐藏工具调用过程和回合统计，只留消息和时间。 */
-  readonly immersive: boolean
+  /** QQ 沉浸显示，分别控制各类过程。 */
+  readonly hideTools: boolean
+  readonly hideCommands: boolean
+  readonly hideStats: boolean
+  readonly hideThinking: boolean
   /** 背景图片作为特殊色板启用；切换普通色板时保留已上传图片。 */
   readonly backgroundEnabled: boolean
   readonly backgroundFit: BackgroundFit
@@ -46,11 +53,15 @@ export interface UiSettings {
 
 /** 默认值和 dsh-qq-skin 一致。 */
 export const DEFAULT_UI_SETTINGS: UiSettings = {
+  typingSpeed: 'normal',
   palette: 'classic',
   bubbleTail: true,
   avatars: true,
   chatMaxWidth: 880,
-  immersive: true,
+  hideTools: true,
+  hideCommands: true,
+  hideStats: true,
+  hideThinking: true,
   backgroundEnabled: true,
   backgroundFit: 'cover',
 }
@@ -104,11 +115,7 @@ export const AVATAR_SIZE = 256
 export const BACKGROUND_MAX_EDGE = 1920
 export const IMAGE_BYTE_LIMIT = { avatar: 1024 * 1024, background: 8 * 1024 * 1024 } as const
 
-/** 外部插件未提供时长时的兜底间隔（毫秒）：字数取底数 2.6 的对数，最多 10 秒。
- * 保留 0–0.5 秒随机浮动；random 传 [0,1) 的随机数，测试时可以固定。
- */
-export function segmentDelay(text: string, random = Math.random()): number {
-  const ascii = /^[\x00-\x7f]*$/.test(text)
-  const units = ascii ? text.trim().split(/\s+/).filter(Boolean).length : (text.match(/[\p{L}\p{N}]/gu) ?? []).length
-  return Math.min(10, Math.log(units + 1) / Math.log(2.6) + random * 0.5) * 1000
+/** 下一段出现前的等待，按下一段的字数模拟打字；设备提供的时长由时钟优先使用。 */
+export function segmentDelay(next: string, settings: Pick<UiSettings, 'typingSpeed'> = DEFAULT_UI_SETTINGS, random?: () => number): number {
+  return typingDelay(next, settings.typingSpeed, random)
 }

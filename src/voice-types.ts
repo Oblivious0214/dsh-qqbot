@@ -6,7 +6,7 @@
 
 /** GET 读设置、引擎和音色（不含 key），POST 提交一个操作。 */
 export const VOICE_PATH = '/api/qqbot/voice'
-/** POST `{ voice, text }`，返回音频本身。 */
+/** POST `{ voice, text, tone? }`，返回音频本身。 */
 export const SPEAK_PATH = '/api/qqbot/voice/speak'
 
 /** 引擎和音色的内部键，程序生成。角色卡的 `voice` 字段存音色的。 */
@@ -51,6 +51,29 @@ export interface EngineConfig {
   readonly baseUrl: string
   readonly model: string
   readonly proxy?: ProxyConfig
+  /** 只有 openai：服务能读 `instructions` 时打开，段落的 tone 才会发过去。 */
+  readonly tone?: boolean
+}
+
+/** Fish S2 系列：tone 写成句首的英文标签。 */
+export const FISH_TAG_MODELS = ['s2.1-pro-free', 's2.1-pro', 's2-pro'] as const
+export const FISH_TONE_TAGS = ['happy', 'sad', 'angry', 'excited', 'calm', 'soft tone', 'whispering', 'breathy'] as const
+/** Fish S2 的声音标签，写在 text 中发生的位置（参考 dsh-fish-tts 的 SPEECH_TAGS，MIT）。 */
+export const FISH_SOUND_TAGS = ['panting', 'moaning', 'sighing', 'groaning'] as const
+
+/**
+ * 这个服务怎么用段落的 tone：free 自由描述；tags 从 FISH_TONE_TAGS 里选；undefined 不支持，tone 不发送。
+ * drama：Fish Drama，tone 写成台词前的 [描述]，句中音效留在正文。
+ */
+export type ToneStyle = 'drama' | 'tags' | 'free'
+
+export function toneStyle(engine: { readonly kind: EngineKind; readonly config: EngineConfig }): ToneStyle | undefined {
+  if (engine.kind === 'fish') {
+    if (engine.config.model === 'drama-3') return 'drama'
+    return (FISH_TAG_MODELS as readonly string[]).includes(engine.config.model) ? 'tags' : undefined
+  }
+  if (engine.kind === 'openai') return engine.config.tone === true ? 'free' : undefined
+  return undefined
 }
 
 export const ENGINE_DEFAULTS: Record<EngineKind, EngineConfig> = {

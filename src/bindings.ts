@@ -48,6 +48,9 @@ export class SessionBindings {
     this.state = file === undefined ? { version: 1, sessions: {} } : this.load(file)
   }
 
+  /** 从磁盘重新读取；清理后不保留旧会话绑定。 */
+  reload(): void { this.state = this.file === undefined ? { version: 1, sessions: {} } : this.load(this.file) }
+
   static at(dir: string, warn: Warn): SessionBindings {
     return new SessionBindings(join(dir, 'sessions.json'), warn)
   }
@@ -93,6 +96,18 @@ export class SessionBindings {
   setMemorySnapshot(sessionId: string, roleId: string, text: string): void {
     const entry = this.state.sessions[sessionId]
     if (entry === undefined || entry.memory?.[roleId] !== undefined) return
+    this.commitSession(sessionId, { ...entry, memory: { ...entry.memory, [roleId]: text } })
+  }
+
+  /** 有记录的全部会话 id。 */
+  sessionIds(): readonly string[] {
+    return Object.keys(this.state.sessions)
+  }
+
+  /** 把新版记忆应用到这个会话时覆盖快照。会话还没有选择记录或内容相同时不写。 */
+  replaceMemorySnapshot(sessionId: string, roleId: string, text: string): void {
+    const entry = this.state.sessions[sessionId]
+    if (entry === undefined || entry.memory?.[roleId] === text) return
     this.commitSession(sessionId, { ...entry, memory: { ...entry.memory, [roleId]: text } })
   }
 

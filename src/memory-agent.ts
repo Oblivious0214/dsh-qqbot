@@ -9,6 +9,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from './index.ts'
 import { captureConsolidation, consolidateMemory } from './memory-consolidate.ts'
 import { IDLE_MS } from './memory-coordinator.ts'
@@ -24,6 +25,7 @@ export function apply(ctx: Context): void {
   let timer: ReturnType<typeof setTimeout> | undefined
   const clearTimer = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined }
   ctx.effect(() => clearTimer, 'qqbot: memory idle timer')
+  ctx.effect(() => ctx.qqbot.maintenance.register({ prepare: clearTimer }), 'qqbot: reset memory timer')
   let lastActive = Date.now()
 
   const report = (outcome: Awaited<ReturnType<typeof memory.consolidate>>) => {
@@ -36,8 +38,20 @@ export function apply(ctx: Context): void {
       latestTurn: () => ctx.agents.turnBoundaryOf(agent.session).lastTurn,
       lastActive: () => lastActive,
       capture: () => captureConsolidation(agent),
-      run: (input, roleName, previous) => consolidateMemory(ctx.llm, input, roleName, previous, abort.signal),
+      run: (input, roleName, previous, cleanup) => consolidateMemory(ctx.llm, input, roleName, previous, cleanup === undefined ? abort.signal : AbortSignal.any([abort.signal, cleanup])),
     }), 'qqbot: memory session')
+    // 压缩提交时历史开头本来就要重算：顺带把本会话的记忆快照换成新版，长对话也能用上整理出的记忆。
+    ctx.effect(() => ctx.on('session/event', (session, event) => {
+      if (session !== agent.session || event.type !== 'compaction/summary') return
+      const role = content.memoryState(agent.id)?.role
+      if (role === undefined) return
+      try {
+        content.applyMemory(agent.id, role)
+      } catch (error) {
+        // 写不了盘时本会话继续用旧快照，下次压缩再试。
+        ctx.logger.warn(`qqbot: 压缩后没能更新记忆快照：${String(error)}`)
+      }
+    }), 'qqbot: memory after compaction')
     // 新会话（含清空后重开）：先让同一角色还开着的旧会话整理。不等待，赶得上第一次组装就进快照。
     if (source === 'startup' || source === 'clear') {
       const role = content.roleFor({ id: agent.id })

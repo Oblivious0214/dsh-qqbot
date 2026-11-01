@@ -100,7 +100,7 @@ describe('engine requests', () => {
   it('turns upstream failures into messages a user can act on', async () => {
     const reply = (response: Response) => fakeFetch(() => response).impl
     const run = (impl: Fetch) => synthesize({ engine: fish, apiKey: 'sk-1', params, text: '你好' }, impl)
-    await expect(run(reply(Response.json({ message: 'invalid token' }, { status: 401 })))).rejects.toThrow('检查 API key：invalid token')
+    await expect(run(reply(Response.json({ message: 'invalid token' }, { status: 401 })))).rejects.toThrow('检查 API key 和账户权限：invalid token')
     await expect(run(reply(Response.json({ detail: 'no credit' }, { status: 402 })))).rejects.toThrow('余额不足')
     await expect(run(reply(new Response(null, { status: 302, headers: { location: 'http://evil' } })))).rejects.toThrow('跳转')
     await expect(run(reply(Response.json({ error: 'busy' })))).rejects.toThrow('返回的不是音频')
@@ -251,6 +251,76 @@ describe('speaker', () => {
     const voice = store.saveVoice({ name: '小雅', engine: engine.id, params })
     return { store, keys, engine, voice }
   }
+
+  it('gives each service its own tone directions, only for an enabled configured voice', () => {
+    const { store, engine, voice } = ready()
+    store.saveSettings({ ...store.settings, enabled: true })
+    const s2 = store.promptStatus(voice.id)
+    expect(s2).toContain('从 happy、sad、angry、excited、calm、soft tone、whispering、breathy 中选一个')
+    expect(s2).toContain('用 [panting]、[moaning]、[sighing]、[groaning]')
+    expect(s2).toContain('{"voice":true,"tone":"happy","text":"终于等到你了！"}')
+    expect(s2).not.toContain('[叹气]')
+    expect(store.promptStatus(undefined)).not.toContain('tone')
+    store.saveSettings({ ...store.settings, enabled: false })
+    expect(store.promptStatus(voice.id)).not.toContain('tone')
+    store.saveSettings({ ...store.settings, enabled: true, mode: 'all' })
+    store.saveEngine({ ...engine, config: { ...engine.config, model: 'drama-3' } })
+    const drama = store.promptStatus(voice.id)
+    expect(drama).toContain('全部转语音')
+    expect(drama).toContain('段落可加 "tone"')
+    expect(drama).toContain('[叹气]、[喘息]、[呻吟]、[短暂停顿]')
+    expect(drama).toContain('喘着气，声音发颤')
+    expect(drama).toContain('{"tone":"轻声安慰","text":"我在这里。[短暂停顿]慢慢说。"}')
+    store.saveEngine({ ...engine, config: { ...engine.config, model: 'custom-model' } })
+    expect(store.promptStatus(voice.id)).not.toContain('tone')
+    const other = store.saveEngine({ name: 'Other', kind: 'openai', config: { baseUrl: 'http://localhost/v1', model: 'drama-3' } })
+    const otherVoice = store.saveVoice({ name: 'Other voice', engine: other.id, params })
+    expect(store.promptStatus(otherVoice.id)).not.toContain('tone')
+    store.saveEngine({ ...other, config: { ...other.config, tone: true } })
+    const free = store.promptStatus(otherVoice.id)
+    expect(free).toContain('用几个字描述这段怎么说')
+    expect(free).not.toContain('[叹气]')
+    store.removeVoice(voice.id)
+    expect(store.promptStatus(voice.id)).not.toContain('tone')
+  })
+
+  it('sends tone the way each service expects and keys the cache by it', async () => {
+    const { store, keys, voice } = ready()
+    const { calls, impl } = fakeFetch()
+    const speaker = new Speaker(store, () => keys, new AudioCache(), impl)
+    await speaker.speak({ voice: voice.id, text: '你好', tone: 'happy' })
+    await speaker.speak({ voice: voice.id, text: '你好', tone: 'happy' })
+    await speaker.speak({ voice: voice.id, text: '你好', tone: '[sad]\n' })
+    await speaker.speak({ voice: voice.id, text: '你好' })
+    expect(calls.map(call => call.body['text'])).toEqual(['[happy]你好', '[sad]你好', '你好'])
+
+    const local = store.saveEngine({ name: 'Index', kind: 'openai', config: { baseUrl: 'http://localhost/v1', model: 'index' } })
+    const localVoice = store.saveVoice({ name: '本地', engine: local.id, params })
+    calls.length = 0
+    await speaker.speak({ voice: localVoice.id, text: '慢慢说', tone: '轻声安慰' })
+    await speaker.speak({ voice: localVoice.id, text: '慢慢说', tone: '开心' })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.body).not.toHaveProperty('instructions')
+    store.saveEngine({ ...local, config: { ...local.config, tone: true } })
+    await speaker.speak({ voice: localVoice.id, text: '慢慢说', tone: '轻声安慰' })
+    expect(calls[1]!.body).toMatchObject({ input: '慢慢说', instructions: '轻声安慰' })
+  })
+
+  it('clearCache cancels pending speech and prevents a late response from refilling the cache', async () => {
+    const { store, keys, voice } = ready()
+    let finish!: (value: Response) => void
+    const { calls, impl } = fakeFetch(() => new Promise(resolve => { finish = resolve }))
+    const cache = new AudioCache()
+    const speaker = new Speaker(store, () => keys, cache, impl)
+    const pending = speaker.speak({ voice: voice.id, text: '迟到的声音' })
+    const rejected = expect(pending).rejects.toThrow()
+    while (!finish) await Promise.resolve()
+    speaker.clearCache()
+    finish(new Response(MP3))
+    await rejected
+    expect(cache.get(AudioCache.key(store.engines[0]!, params, '迟到的声音'))).toBeUndefined()
+    expect(calls[0]!.init.signal?.aborted).toBe(true)
+  })
 
   it('synthesizes saved voices once and serves repeats from the cache', async () => {
     const { store, keys, voice } = ready()

@@ -5,7 +5,7 @@
  *   抽出的前几段和已经读到的一致时接着显示，不一致或抽不出来时显示错误提示。
  */
 
-import { parseTimedStream, salvageTimedReply, type TimedStream } from '../vendor/dialogue-timing/protocol.js'
+import { parseFinishedReply, parseTimedStream, salvageTimedReply, type TimedStream } from '../vendor/dialogue-timing/protocol.js'
 
 export const INVALID_REPLY = '分段回复格式无效，请让 AI 重试。'
 
@@ -18,7 +18,7 @@ export interface DecodedReply {
 /** previous 是这条回复上一次成功读到的段落，没有时为 null。 */
 export function decodeReply(source: string, running: boolean, previous: TimedStream | null): DecodedReply {
   try {
-    return { stream: parseTimedStream(source), error: '' }
+    return { stream: running ? parseTimedStream(source) : parseFinishedReply(source), error: '' }
   } catch {
     if (running) return { stream: previous && { stages: previous.stages, complete: false }, error: '' }
     const salvaged = salvageTimedReply(source)

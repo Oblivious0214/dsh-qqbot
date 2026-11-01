@@ -5,7 +5,8 @@ import { defineConfig } from 'tsdown'
 const require = createRequire(import.meta.url)
 
 /** 浏览器模块 id，必须与包名一致。 */
-const PLUGIN_ID: string = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).name
+const { name: PLUGIN_ID, version: PLUGIN_VERSION }: { name: string; version: string } =
+  JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 
 /** 裁剪弹窗的根 class，与 src/client/image-cropper.tsx 的 CROPPER_CLASS 一致。 */
 const CROPPER_CLASS = 'dsh-qqbot-cropper'
@@ -42,9 +43,15 @@ export default [
   defineConfig({
     name: `${PLUGIN_ID}/client`,
     plugins: [{
-      name: 'qqbot-cropper-css',
-      resolveId(source: string) { return source === 'virtual:cropper-css' ? '\0qqbot-cropper-css' : undefined },
-      load(id: string) { return id === '\0qqbot-cropper-css' ? `export default ${JSON.stringify(scopedCropperCss())}` : undefined },
+      name: 'qqbot-client-assets',
+      resolveId(source: string) {
+        if (source === 'virtual:cropper-css') return '\0qqbot-cropper-css'
+        if (source === 'virtual:qqbot-version') return '\0qqbot-version'
+      },
+      load(id: string) {
+        if (id === '\0qqbot-cropper-css') return `export default ${JSON.stringify(scopedCropperCss())}`
+        if (id === '\0qqbot-version') return `export default ${JSON.stringify(PLUGIN_VERSION)}`
+      },
     }],
     entry: { client: 'src/client/index.tsx' },
     outDir: 'lib',

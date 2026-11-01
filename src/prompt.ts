@@ -98,7 +98,7 @@ export function renderRuntime(store: QqbotRegistryStore, session: QqbotSession):
 }
 
 export function apply(ctx: Context): void {
-  const { content, store, lastPrompt } = ctx.qqbot
+  const { content, store } = ctx.qqbot
 
   // complete：本会话的系统提示词只有这一段。DSH 自带段落（身份行、present 说明、源码目录、
   // Web GUI）和其他插件的 section 都不会进入 qqbot 会话；工具 schema 不受影响。
@@ -109,12 +109,13 @@ export function apply(ctx: Context): void {
     complete: true,
     interpolate: false,
     text: (context) => {
+      ctx.qqbot.maintenance.assertAvailable()
       const session = sessionOf(context)
       // 只有 agent-loop 的真实组装带 agent（agent-loop/src/agent.ts）。新会话在这里定下角色，之后改默认角色不影响它。
       if (session !== undefined) content.settle(session)
       const text = assembleParts(content, store, session, featuresOf(context)).map(part => part.text).join(PART_SEPARATOR)
       // 这份记录就是发给模型的系统提示词。
-      if (context.agent !== undefined) lastPrompt.set(context.agent, text)
+      if (context.agent !== undefined) ctx.qqbot.lastPrompt.set(context.agent, text)
       return text
     },
   })
@@ -135,6 +136,7 @@ export function apply(ctx: Context): void {
   // 只写插件自己的 sessions.json，不改发给模型的内容。
   ctx.on('agent/pre-step', async ({ agent, turn }, next) => {
     const decision = await next()
+    if (decision.kind !== 'reject') ctx.qqbot.maintenance.assertAvailable()
     if (decision.kind !== 'reject') content.recordTurn({ id: agent.id }, turn)
     return decision
   })

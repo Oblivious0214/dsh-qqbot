@@ -19,6 +19,11 @@ import { dataDir, dshHome } from './storage.ts'
 import * as ui from './ui.ts'
 import * as viewer from './viewer.ts'
 import * as voice from './voice.ts'
+import * as toy from './toy/index.ts'
+import * as autoReply from './auto-reply/index.ts'
+import * as maintenance from './maintenance.ts'
+import * as phone from './phone/index.ts'
+import * as update from './update.ts'
 
 export type { QqbotExtensionEntry, QqbotRegistry, QqbotRoleInfo, QqbotSession, QqbotText } from './registry.ts'
 
@@ -34,6 +39,7 @@ declare module '@deepseek-ai/cordis' {
  */
 export class QqbotService extends Service implements QqbotRegistry {
   readonly store = new QqbotRegistryStore()
+  readonly maintenance: maintenance.Maintenance
   /** 角色库、会话绑定和破限预设，数据在 `<DSH_HOME>/qqbot/`。 */
   readonly content: QqbotData
   /** QQ 界面设置、角色头像和聊天背景，只给浏览器端显示用，不进提示词。 */
@@ -46,19 +52,35 @@ export class QqbotService extends Service implements QqbotRegistry {
    * 每个 agent 上一次真实组装出的系统提示词，供查看器对比"上一轮发出的"和"下一轮要发的"。
    * 以 agent 对象为键，agent 释放后自动回收；重启后为空。
    */
-  readonly lastPrompt = new WeakMap<object, string>()
+  lastPrompt = new WeakMap<object, string>()
 
   constructor(ctx: Context) {
     super(ctx, 'qqbot')
     const warn = (message: string) => ctx.logger.warn(message)
     const dir = dataDir(dshHome())
+    this.maintenance = new maintenance.Maintenance(dshHome(), warn)
+    ctx.effect(() => () => this.maintenance.dispose(), 'qqbot: stop maintenance')
     initializeDefaultConfiguration(dir, warn)
     this.ui = new ui.UiStore(dir, warn)
     this.voice = new voice.VoiceStore(dir, warn)
     this.content = new QqbotData(
       new RoleLibrary(join(dir, 'roles'), warn), SessionBindings.at(dir, warn), JailbreakStore.at(dir, warn), warn, MemoryStore.at(dir, warn),
     )
-    this.memory = new MemoryCoordinator(this.content, warn)
+    this.memory = new MemoryCoordinator(this.content, warn, () => this.maintenance.active)
+    ctx.effect(() => this.maintenance.register({
+      cache: () => { this.lastPrompt = new WeakMap() },
+      prepare: () => { this.memory.invalidate(); this.lastPrompt = new WeakMap() },
+      reload: () => {
+        try { initializeDefaultConfiguration(dir, warn) } finally {
+          this.content.roles.reload()
+          this.content.bindings.reload()
+          this.content.presets.reload()
+          this.content.memories.clearCache()
+          this.ui.clearCache()
+          this.voice.clearCache()
+        }
+      },
+    }), 'qqbot: reset stores')
     // 当前角色是会话中途会变的运行时状态，放 context 不放 section（CLAUDE.md 提示词规则）。
     // 写名称不写 id：id 是自动生成的内部键，对模型没有意义。改名也会让这一行变。
     // 换角色时这一行跟着变，DSH 会追加一条新的 context 快照，模型从中能看到换了人。
@@ -78,6 +100,7 @@ export class QqbotService extends Service implements QqbotRegistry {
     const role = this.content.roleFor(session)
     if (role === undefined) return undefined
     return {
+      id: role.id,
       name: role.name,
       ...role.proactivity === undefined ? {} : { proactivity: role.proactivity },
       ...role.proactivityTexts === undefined ? {} : { proactivityTexts: role.proactivityTexts },
@@ -109,4 +132,9 @@ export function apply(ctx: Context): void {
   ctx.plugin(library)
   ctx.plugin(ui)
   ctx.plugin(voice)
+  ctx.plugin(toy)
+  ctx.plugin(autoReply)
+  ctx.plugin(maintenance)
+  ctx.plugin(phone)
+  ctx.plugin(update)
 }

@@ -1,17 +1,21 @@
+import { SETTINGS_CSS } from './settings-style.ts'
+import { UpdateButton, UpdateSettings } from './update-settings.tsx'
 /**
  * 角色、破限预设、界面和语音设置编辑器。统一在 `shell.overlay` 的独立弹窗里编辑；
  * 选中 DSH 设置侧栏的"QQ Bot"即跳转，角色菜单和提示词查看器可直接定位到对应条目。
  * 角色和预设来自 host 的 LIBRARY_PATH，保存后下一条消息起生效；界面设置和头像见 ui-editor.tsx，语音见 voice-editor.tsx。
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+
+import { writeHeaders } from './cleanup-epoch.ts'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, Menu, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  LIBRARY_PATH, MOTION_ACTION_LABELS, MOTION_ACTIONS,
-  MOTION_RANGE_LABELS, MOTION_RANGES, ROLE_PROACTIVITIES, ROLE_PROACTIVITY_LABELS,
+  LIBRARY_PATH, MEME_PROMPT_LIMIT,
+  MOTION_RANGE_LABELS, MOTION_RANGES,
   type LibraryAction, type LibraryPreset, type LibraryPresetDraft, type LibraryRole, type LibraryRoleDraft, type LibraryView,
 } from '../library-types.ts'
 import { RoleAvatarField, UiForm } from './ui-editor.tsx'
@@ -19,11 +23,18 @@ import type { UiState } from './ui-state.ts'
 import { RoleVoiceField, VoicePage } from './voice-editor.tsx'
 import { VOICE_EDITOR_CSS } from './voice-style.ts'
 import type { VoiceState } from './voice-state.ts'
-import { MemeFields } from './meme-fields.tsx'
+import { RoleTextEditor } from './role-text-editor.tsx'
+import { MemeFields, MemeFrequencyField } from './meme-fields.tsx'
+import { MemeHelp } from './meme-help.tsx'
+import type { PhoneGuide } from './phone-guide.ts'
+import type { MemeGuide } from './meme-guide.ts'
 import { ActionDialog } from './action-dialog.tsx'
-import { RoleToyPrompts } from './role-toy-prompts.tsx'
-import type { UiExtensions } from './ui-extensions.tsx'
+import { RoleProactivitySelect, RoleToyPrompts, useToyActionNames } from './role-toy-prompts.tsx'
+import { UiExtensionFields, type UiExtensions } from './ui-extensions.tsx'
+import { DataSettings } from './data-settings.tsx'
+import type { MaintenanceClient } from './maintenance.ts'
 import { ConfigImport } from './config-import.tsx'
+import { PhoneSettings, PHONE_SETTINGS_CSS } from './phone-settings.tsx'
 import { MEMORY_LIMIT, MEMORY_SECTIONS } from '../memory-format.ts'
 
 /** 所有样式都在这个根 class 下（CLAUDE.md 隔离原则第 3 条）。 */
@@ -31,12 +42,22 @@ export const EDITOR_CLASS = 'dsh-qqbot-library'
 
 export const EDITOR_CSS = `
 ${VOICE_EDITOR_CSS}
-[role="dialog"].${EDITOR_CLASS} { width: min(960px, 100%); max-height: 100%; font-size: 14px; line-height: 22px; }
-.${EDITOR_CLASS} .ql-modal-content, .${EDITOR_CLASS} .ql-modal-content > :last-child { min-height: 0; }
-.${EDITOR_CLASS} .ql-body { display: flex; flex-direction: column; gap: 10px; }
+${PHONE_SETTINGS_CSS}
+[role="dialog"].${EDITOR_CLASS} { width: min(960px, 100%); height: calc(64vh + 160px); max-height: 100%; font-size: 14px; line-height: 22px; }
+.${EDITOR_CLASS} .ql-modal-content, .${EDITOR_CLASS} .ql-modal-content > :last-child { flex: 1; min-height: 0; }
+.${EDITOR_CLASS} .ql-modal-content > :first-child { flex-shrink: 0; }
+.${EDITOR_CLASS} .ql-heading { display:flex; align-items:center; gap:10px; padding-right:42px; flex:none; }
+.${EDITOR_CLASS} .ql-heading h2 { margin:0; font-size:18px; }
+.${EDITOR_CLASS} .ql-close { position:absolute; right:20px; top:20px; }
+.${EDITOR_CLASS} .ql-dialog-layout { display:flex; flex-direction:column; flex:1; min-height:0; padding:24px; gap:14px; }
+.${EDITOR_CLASS} .ql-update-dot { width:7px; height:7px; border-radius:50%; background:#e5484d; display:inline-block; margin-right:5px; }
+.${EDITOR_CLASS} .ql-body { flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.${EDITOR_CLASS} .ql-page { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.${EDITOR_CLASS} .ql-page > .ql-main, .${EDITOR_CLASS} .ql-page > .qv-page { flex: 1; height: 100%; min-height: 0; min-width: 0; }
 .${EDITOR_CLASS} .ql-tabs { display: flex; gap: 6px; }
 /* 与 DSH 设置页一致：正文和控件 14/22，辅助文字 13/20；仅作用于本编辑器。 */
 .${EDITOR_CLASS} .ql-body button { font-size: 14px; line-height: 22px; min-height: 36px; }
+.${EDITOR_CLASS} .ql-data-section { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 12px 0; }
 .${EDITOR_CLASS} .ql-import-button { margin-left: auto; }
 .${EDITOR_CLASS} .ql-main { display: flex; gap: 12px; height: 64vh; min-height: 320px; }
 .${EDITOR_CLASS} .ql-list { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; overflow: auto; border-right: 0.5px solid var(--dsw-alias-border-l2); padding-right: 8px; }
@@ -50,9 +71,13 @@ ${VOICE_EDITOR_CSS}
 .${EDITOR_CLASS} .ql-fields > * { flex-shrink: 0; }
 .${EDITOR_CLASS} .ql-savebar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-top: 1px solid var(--dsw-alias-border-l2); padding: 10px 0 0; }
 .${EDITOR_CLASS} .ql-save-status { flex: 1; min-width: 80px; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
+.${EDITOR_CLASS}.ql-prompt-dialog .ql-fields > .ql-field:has(> textarea) { flex: 1; min-height: 180px; }
+.${EDITOR_CLASS}.ql-prompt-dialog .ql-fields > .ql-field > textarea { flex: 1; min-height: 120px; resize: none; }
 .${EDITOR_CLASS} .ql-body, .${EDITOR_CLASS} .ql-main { min-height: 0; }
 .${EDITOR_CLASS} .ql-tabs { flex-wrap: wrap; flex-shrink: 0; }
 .${EDITOR_CLASS} .ql-field > input[type="number"] { width: 120px; max-width: 100%; }
+.${EDITOR_CLASS} .ql-field > input:not([type="number"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]) { width: 100%; max-width: 360px; min-width: 0; box-sizing: border-box; }
+.${EDITOR_CLASS} .ql-field > select { align-self: flex-start; max-width: 100%; width: auto; }
 .${EDITOR_CLASS} .ql-example-fold { flex: none; margin-top: 8px; }
 .${EDITOR_CLASS} .ql-example-fold > summary { cursor: pointer; font-size: 14px; margin-bottom: 8px; }
 .${EDITOR_CLASS} .ql-example { border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; overflow: hidden; font-size: 14px; }
@@ -74,15 +99,30 @@ ${VOICE_EDITOR_CSS}
 .${EDITOR_CLASS} .ql-identity { flex: none; width: min(280px, 100%); }
 .${EDITOR_CLASS} .ql-identity > .ql-field { min-width: 0; }
 .${EDITOR_CLASS} .ql-identity input { min-width: 0; width: 100%; box-sizing: border-box; }
-.${EDITOR_CLASS} .ql-field.ql-inline { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.${EDITOR_CLASS} .ql-field.ql-inline { flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; min-width: 0; }
 .${EDITOR_CLASS} .ql-inline > span { flex: none; }
 .${EDITOR_CLASS} .ql-inline > select { min-width: 0; max-width: 65%; }
-.${EDITOR_CLASS} .ql-inline > .ql-actions { min-width: 0; justify-content: flex-end; }
+.${EDITOR_CLASS} .ql-inline > .ql-actions { min-width: 0; justify-content: flex-start; }
 .${EDITOR_CLASS} .ql-inline > .ql-actions > select { min-width: 0; max-width: 100%; }
+.${EDITOR_CLASS} .ql-proactivity { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.${EDITOR_CLASS} .ql-proactivity-select { flex: 0 1 560px; min-width: 0; }
+.${EDITOR_CLASS} .ql-proactivity-select > button { width: 100%; justify-content: space-between; text-align: left; white-space: normal; height: auto; }
+.${EDITOR_CLASS} .ql-proactivity-select > button > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.${EDITOR_CLASS} .ql-proactivity-select > button > span:last-child { flex: none; }
+.dsh-qqbot-proactivity-menu { max-width: min(560px, calc(100vw - 24px)); }
+.dsh-qqbot-proactivity-menu .ql-proactivity-option { display: flex; flex-direction: column; gap: 2px; white-space: normal; overflow-wrap: anywhere; }
+.dsh-qqbot-proactivity-menu .ql-proactivity-option > strong { font-weight: 500; }
+.dsh-qqbot-proactivity-menu .ql-proactivity-option > span { color: var(--dsw-alias-label-secondary); }
+[role="dialog"].${EDITOR_CLASS}.ql-toy-prompts { width: min(560px, 100%); height: auto; }
+.${EDITOR_CLASS} .ql-toy-prompts-content { min-height: 0; overflow: auto; }
+.${EDITOR_CLASS}.ql-toy-prompts textarea { box-sizing: border-box; width: 100%; max-width: 100%; }
 .${EDITOR_CLASS} .ql-avatar-control { position: relative; flex: none; }
 .${EDITOR_CLASS} .ql-avatar-button { display: block; padding: 0; border: none; border-radius: 50%; background: none; cursor: pointer; }
 .${EDITOR_CLASS} .ql-avatar-button:disabled { cursor: default; }
 .${EDITOR_CLASS} .ql-empty-pane { flex: 1; min-width: 0; }
+.${EDITOR_CLASS} .ql-persona-preview { width: 100%; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-primary); font: inherit; text-align: left; cursor: pointer; }
+.${EDITOR_CLASS} .ql-persona-preview > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 22px; }
+.${EDITOR_CLASS}.ql-persona-dialog .ql-persona-text { flex: 1; min-height: 0; width: 100%; resize: none; }
 @media (max-width: 600px) {
   .${EDITOR_CLASS} .ql-main:has(> .ql-list) { flex-direction: column; gap: 8px; }
   .${EDITOR_CLASS} .ql-list { flex: 0 0 auto; flex-direction: row; border-right: 0; border-bottom: 0.5px solid var(--dsw-alias-border-l2); padding: 0 0 8px; }
@@ -105,7 +145,9 @@ ${VOICE_EDITOR_CSS}
 .${EDITOR_CLASS} .ql-state { padding: 6px 10px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-1); font-size: 13px; line-height: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .${EDITOR_CLASS} .ql-warn { color: var(--dsw-alias-state-warn-label); }
 .${EDITOR_CLASS} .ql-empty { color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; }
-.${EDITOR_CLASS} .ql-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 16px; }
+.${EDITOR_CLASS} .qq-section { display: flex; flex-direction: column; gap: 12px; padding: 16px 0; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }
+.${EDITOR_CLASS} .qq-section h3, .${EDITOR_CLASS} .dsh-toy-buttplug .tb-card h3 { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
+.${EDITOR_CLASS} .ql-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 32px; }
 .${EDITOR_CLASS} .ql-toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--dsw-alias-label-primary); }
 .${EDITOR_CLASS} .ql-avatar { width: 40px; height: 40px; border-radius: 50%; corner-shape: round; object-fit: cover; flex: none; }
 .${EDITOR_CLASS} .ql-avatar-initial { display: flex; align-items: center; justify-content: center; background: var(--dsw-alias-brand-primary); color: #fff; font-weight: 600; }
@@ -144,14 +186,16 @@ ${VOICE_EDITOR_CSS}
 @media (max-width: 600px) {
   .${EDITOR_CLASS} .ql-palettes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+${SETTINGS_CSS}
 `
 
-export type EditorTab = 'roles' | 'presets' | 'ui' | 'voice'
+export type EditorTab = 'roles' | 'presets' | 'ui' | 'voice' | 'toy' | 'reply' | 'phone' | 'data' | 'update'
 
 /** 打开编辑器时要定位到的条目；id 为空时选第一个，角色库为空则留白。 */
 export interface EditorTarget {
   readonly tab: EditorTab
   readonly id?: string
+  readonly focusProactivity?: boolean
 }
 
 export type OpenEditor = (target: EditorTarget) => void
@@ -160,7 +204,7 @@ async function request(action?: LibraryAction, signal?: AbortSignal): Promise<Li
   // 相对路径：DSH 可能挂在子路径下（与提示词查看器一致）。
   const init: RequestInit = action === undefined
     ? { cache: 'no-store' }
-    : { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action) }
+    : { method: 'POST', cache: 'no-store', headers: writeHeaders(), body: JSON.stringify(action) }
   if (signal !== undefined) init.signal = signal
   const response = await fetch(LIBRARY_PATH.slice(1), init)
   const body = await response.json().catch(() => undefined) as (LibraryView & { message?: string }) | undefined
@@ -180,7 +224,7 @@ function uniqueName(base: string, taken: readonly { readonly name: string }[]): 
 
 /** hint 是悬停在标签上时的提示，不铺在页面上。 */
 function Field({ label, hint, inline = false, children }: { readonly label: string; readonly hint?: string; readonly inline?: boolean; readonly children: ReactNode }) {
-  return <label className={`ql-field${inline ? ' ql-inline' : ''}`}>
+  return <label className={`ql-field qq-settings-field${inline ? ' ql-inline qq-settings-row' : ''}`}>
     <span title={hint}>{label}</span>
     {children}
   </label>
@@ -194,7 +238,7 @@ function ChoiceField<T extends string>({ label, hint, choices, labels, value, on
   const selected = new Set(value)
   return <div className="ql-field ql-inline">
     <span title={hint}>{label}</span>
-    <div className="ql-actions">
+    <div className="ql-actions qq-settings-actions">
       {choices.map(choice => <label key={choice} className="ql-toggle">
         <input type="checkbox" checked={selected.has(choice)} onChange={(event) => {
           const next = choices.filter(c => c === choice ? event.target.checked : selected.has(c))
@@ -214,13 +258,14 @@ interface FormProps {
   readonly view: LibraryView
   readonly ui: UiState
   readonly voice: VoiceState
+  readonly memeGuide?: MemeGuide | undefined
   readonly busy: boolean
   readonly removeError: string | undefined
   readonly clearError: () => void
   readonly onBusy: (busy: boolean) => void
   readonly onDirty: (dirty: boolean) => void
   /** 成功时返回操作后的数据，失败时为 undefined（错误已显示）。 */
-  readonly run: (action: LibraryAction) => Promise<LibraryView | undefined>
+  readonly run: (action: LibraryAction, onError?: (message: string) => void) => Promise<LibraryView | undefined>
 }
 
 function FormMore({ disabled, items, onSelect }: {
@@ -229,121 +274,224 @@ function FormMore({ disabled, items, onSelect }: {
 }) {
   const [open, setOpen] = useState(false)
   return <Menu open={open} portal autoFocus align="end" onClose={() => { setOpen(false) }} items={items}
-    anchor={<Button size="sm" variant="ghost" disabled={disabled} aria-haspopup="menu" aria-expanded={open}
+    anchor={<Button size="sm" variant="outline" disabled={disabled} aria-haspopup="menu" aria-expanded={open}
       onClick={() => { setOpen(!open) }}>更多</Button>}
     onSelect={id => { setOpen(false); onSelect(id) }} />
 }
 
-/** 角色表单。role 为空表示新建；保存成功后由父组件换 key 重新挂载。 */
-function RoleForm({ view, ui, voice, busy, saveStatus, removeError, clearError, onBusy, onDirty, run, role, template, onSaved, onRemoved, onManageVoices, onCancel }: FormProps & {
+/** 新建成功后切换条目；已有角色保存保留其他独立编辑区的草稿。 */
+function RoleForm({ view, ui, voice, memeGuide, busy, saveStatus, removeError, clearError, onBusy, onDirty, run, role, template, onSaved, onRemoved, onManageVoices, onManagePrompts, onCancel, focusProactivity = false }: FormProps & {
   readonly role: LibraryRole | undefined
   readonly template: LibraryRoleDraft
   readonly onSaved: (id: string) => void
   readonly onRemoved: () => void
   readonly onManageVoices: () => void
+  readonly onManagePrompts: (selection: Selection<LibraryPresetDraft>, onCreated: (id: string) => void) => void
   readonly onCancel: () => void
+  readonly focusProactivity?: boolean
 }) {
   const create = role === undefined
+  const toySection = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    if (!focusProactivity || toySection.current === null) return
+    toySection.current.open = true
+    toySection.current.scrollIntoView({ block: 'start' })
+  }, [focusProactivity])
+  const [roleDirty, setRoleDirty] = useState(false)
+  const [textDirty, setTextDirty] = useState({ meme: false, memory: false, toy: false })
+  const markMeme = useCallback((meme: boolean) => setTextDirty(d => d.meme === meme ? d : { ...d, meme }), [])
+  const markMemory = useCallback((memory: boolean) => setTextDirty(d => d.memory === memory ? d : { ...d, memory }), [])
+  const markToy = useCallback((toy: boolean) => setTextDirty(d => d.toy === toy ? d : { ...d, toy }), [])
+  useEffect(() => { onDirty(roleDirty || Object.values(textDirty).some(Boolean)) }, [roleDirty, textDirty, onDirty])
+  const libraryActions = useToyActionNames()
   const [draft, setDraft] = useState<LibraryRoleDraft>(() => ({
     ...role ?? template, preset: (role ?? template).preset ?? view.defaultPreset,
   }))
+  // 角色卡里已有、动作库里已没有的名称也列出来，方便取消勾选。
+  const actionChoices = [...libraryActions, ...(draft.motionActions ?? []).filter(name => !libraryActions.includes(name))]
   const [confirming, setConfirming] = useState(false)
   const [memeOpen, setMemeOpen] = useState(false)
-  const [toyOpen, setToyOpen] = useState(false)
-  const edit = (patch: Partial<LibraryRoleDraft>) => { setDraft(d => ({ ...d, ...patch })); onDirty(true) }
-  const save = async () => {
-    // 新建时 id 由服务端生成，从返回值里拿。
-    const saved = (await run({ action: 'role.save', create, role: draft }))?.saved
-    if (saved !== undefined) onSaved(saved)
+  const [personaEditor, setPersonaEditor] = useState<{ text: string; dirtyBefore: boolean }>()
+  const [discardPersona, setDiscardPersona] = useState(false)
+  const leavePersona = () => {
+    if (busy || personaEditor === undefined) return
+    setRoleDirty(personaEditor.dirtyBefore)
+    setDiscardPersona(false)
+    setPersonaEditor(undefined)
   }
-  // 整理要等模型回复，结果只替换记忆栏，表单其他未保存的修改不动。记忆栏本身有未保存的修改时不能整理。
+  const closePersona = () => {
+    if (busy || personaEditor === undefined || discardPersona) return
+    if (personaEditor.text !== draft.persona) setDiscardPersona(true)
+    else leavePersona()
+  }
+  const edit = (patch: Partial<LibraryRoleDraft>) => { setDraft(d => ({ ...d, ...patch })); setRoleDirty(true) }
+  // 删除模板后服务端会重绑角色；草稿其他字段仍保留，提交时也使用有效模板。
+  const presetId = view.presets.find(preset => preset.id === draft.preset)?.id ?? view.defaultPreset
+  useEffect(() => {
+    if (draft.preset !== presetId) setDraft(draft => ({ ...draft, preset: presetId }))
+  }, [draft.preset, presetId])
+  const save = async (persona = draft.persona) => {
+    // 新建时 id 由服务端生成，从返回值里拿。
+    const next = await run({ action: 'role.save', create, role: { ...draft, persona } })
+    if (next?.saved === undefined) return
+    if (create) onSaved(next.saved)
+    else {
+      const savedRole = next.roles.find(r => r.id === next.saved)
+      if (savedRole) setDraft(savedRole)
+      setRoleDirty(false); setPersonaEditor(undefined)
+    }
+  }
+  const syncText = (key: 'memePrompt' | 'proactivityTexts' | 'memory', savedRole: LibraryRole) => {
+    setDraft(current => {
+      const { [key]: _, ...rest } = current
+      const value = savedRole[key]
+      return { ...rest, ...value === undefined ? {} : { [key]: value } }
+    })
+  }
+  const saveText = async (action: LibraryAction, key: 'memePrompt' | 'proactivityTexts' | 'memory', creation: LibraryRoleDraft) => {
+    let failure: string | undefined
+    const next = await run(create ? { action: 'role.save', create: true, role: creation } : action, message => { failure = message })
+    if (failure !== undefined) throw new Error(failure)
+    const savedRole = next?.roles.find(r => r.id === next.saved)
+    if (savedRole) {
+      if (create) onSaved(savedRole.id)
+      else syncText(key, savedRole)
+    }
+    return savedRole
+  }
   const [consolidating, setConsolidating] = useState(false)
-  const memoryEdited = (draft.memory ?? '') !== (role?.memory ?? '')
   const consolidate = async () => {
     if (role === undefined) return
     setConsolidating(true)
     const next = await run({ action: 'role.memory.consolidate', id: role.id })
     setConsolidating(false)
-    const memory = next?.roles.find(r => r.id === role.id)?.memory
-    if (memory !== undefined) setDraft(d => ({ ...d, memory }))
+    const savedRole = next?.roles.find(r => r.id === role.id)
+    if (savedRole) syncText('memory', savedRole)
   }
   const isDefault = !create && view.defaultRole === role.id
 
   return <fieldset className="ql-form ql-editor" disabled={busy}>
     <div className="ql-fields">
-    <div className="ql-identity">
+    <div className="ql-role-identity"><div className="ql-identity">
       <Field label="名称">
         <input value={draft.name} data-modal-autofocus={create ? '' : undefined} onChange={(event) => { edit({ name: event.target.value }) }} />
       </Field>
     </div>
-    <RoleAvatarField ui={ui} role={role} name={draft.name} onBusy={onBusy} />
-    <Field label="角色设定" hint="设定、性格、说话方式、示例对话。成年人声明等通用规则写在破限预设里">
-      <textarea rows={14} value={draft.persona} onChange={(event) => { edit({ persona: event.target.value }) }} />
+    <RoleAvatarField ui={ui} role={role} name={draft.name} onBusy={onBusy}>
+    {!create && <Button className="ql-role-default" size="sm" variant="outline" disabled={busy}
+      title={isDefault ? '取消新 QQ 会话的默认角色' : '设为新 QQ 会话的默认角色'} aria-pressed={isDefault}
+      onClick={() => { void run(isDefault ? { action: 'role.default' } : { action: 'role.default', id: role.id }) }}>
+      {isDefault ? '取消默认' : '设为默认角色'}
+    </Button>}</RoleAvatarField></div>
+    <Field label="角色设定" hint="设定、性格、说话方式、示例对话；共用规则写在提示词模板里">
+      <button type="button" className="ql-persona-preview" aria-label="编辑角色设定" aria-haspopup="dialog"
+        onClick={() => { setPersonaEditor({ text: draft.persona, dirtyBefore: roleDirty }) }}>
+        <span>{draft.persona || '点击编辑角色设定'}</span>
+      </button>
     </Field>
-    <Field label="破限预设" inline>
-      <select value={draft.preset} disabled={busy} onChange={(event) => { edit({ preset: event.target.value }) }}>
-        {view.presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-      </select>
-    </Field>
-    {view.features.meme &&
-      <details className="ql-group" onToggle={event => { setMemeOpen(event.currentTarget.open) }}>
-        <summary><strong>表情包</strong></summary>
-        <div className="ql-group-body"><MemeFields draft={draft} active={memeOpen} available={view.features.meme}
-          onChange={next => { setDraft(next); onDirty(true) }} /></div>
-      </details>}
-    <details className="ql-group"><summary><strong>记忆</strong></summary>
+    <section className="ql-group" aria-label="提示词"><h3 style={{ margin: 0, fontSize: 'inherit' }}>提示词</h3>
       <div className="ql-group-body">
-        <Field label="跨会话记忆" hint={`新会话开始时读取，聊天中途不变。按栏目写，最多 ${MEMORY_LIMIT} 字`}>
-          <textarea rows={10} value={draft.memory ?? ''} placeholder={MEMORY_SECTIONS.map(s => `## ${s.title}`).join('\n')}
-            onChange={(event) => { edit({ memory: event.target.value }) }} />
-        </Field>
-        {!create && <div className="ql-actions">
-          <Button size="sm" variant="outline" disabled={busy || memoryEdited}
-            title={memoryEdited ? '先保存对记忆的修改' : '用最近和这个角色的聊天整理一次'}
-            onClick={() => { void consolidate() }}>{consolidating ? '整理中…' : '整理记忆'}</Button>
-        </div>}
+        <div className="ql-actions qq-settings-actions">
+          <Field label="模板" inline>
+            <select aria-label="提示词模板" value={presetId} disabled={busy}
+              onChange={(event) => { edit({ preset: event.target.value }) }}>
+              {view.presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+            </select>
+          </Field>
+          <Button size="sm" variant="outline" disabled={busy}
+            onClick={() => { onManagePrompts({ id: presetId }, id => { edit({ preset: id }) }) }}>管理模板</Button>
+        </div>
+      </div>
+    </section>
+      <details className="ql-group ql-meme-group qq-settings-fold" onToggle={event => { if (event.target === event.currentTarget) setMemeOpen(event.currentTarget.open) }}>
+        <summary><strong>表情包</strong></summary>
+        <div className="ql-group-body">
+          <div className="ql-actions">
+            {view.features.meme && <MemeFrequencyField draft={draft} onChange={next => { setDraft(next); setRoleDirty(true) }} />}
+            <MemeHelp guide={memeGuide} disabled={busy || saveStatus !== ''} onBusy={onBusy} />
+          </div>
+          {!view.features.meme && <div className="ql-note">需要先安装并启用 dsh-meme。</div>}
+          {view.features.meme && <MemeFields draft={draft} active={memeOpen} available={view.features.meme}
+            onChange={next => { setDraft(next); setRoleDirty(true) }} promptEditor={<RoleTextEditor label="补充提示词"
+              value={role?.memePrompt ?? template.memePrompt ?? ''} disabled={busy} maxLength={MEME_PROMPT_LIMIT} clear create={create}
+              onDirty={markMeme} onDraft={create ? prompt => { setDraft(d => ({ ...d, memePrompt: prompt })) } : undefined}
+              onSave={async prompt => {
+                const savedRole = await saveText({ action: 'role.meme-prompt.save', id: role?.id ?? '', prompt }, 'memePrompt', { ...draft, memePrompt: prompt })
+                return savedRole === undefined ? undefined : savedRole.memePrompt ?? ''
+              }} />} />}
+        </div>
+      </details>
+    <details className="ql-group qq-settings-fold"><summary><strong>记忆</strong></summary>
+      <div className="ql-group-body">
+        <RoleTextEditor label="跨会话记忆" value={role?.memory ?? template.memory ?? ''} disabled={busy} fold={false}
+          maxLength={MEMORY_LIMIT} placeholder={MEMORY_SECTIONS.map(s => `## ${s.title}`).join('\n')} create={create}
+          onDirty={markMemory} onDraft={create ? memory => { setDraft(d => ({ ...d, memory })) } : undefined}
+          onSave={async memory => (await saveText({ action: 'role.memory.save', id: role?.id ?? '', memory }, 'memory', { ...draft, memory }))?.memory}
+          actions={!create && <Button size="sm" variant="outline" disabled={busy || textDirty.memory}
+            title={textDirty.memory ? '先保存对记忆的修改' : '总结最近和这个角色的聊天'}
+            onClick={() => { void consolidate() }}>{consolidating ? '总结中…' : '从最近对话总结记忆'}</Button>} />
       </div>
     </details>
-    <details className="ql-group"><summary><strong>音色</strong></summary>
+    <details className="ql-group qq-settings-fold"><summary><strong>音色</strong></summary>
       <div className="ql-group-body"><RoleVoiceField voice={voice} value={draft.voice} onManage={onManageVoices}
-        onChange={(value) => { setDraft(({ voice: _, ...rest }) => value === undefined ? rest : { ...rest, voice: value }); onDirty(true) }} /></div>
+        onChange={(value) => { setDraft(({ voice: _, ...rest }) => value === undefined ? rest : { ...rest, voice: value }); setRoleDirty(true) }} /></div>
     </details>
-    {view.features.toy && <details className="ql-group" onToggle={event => { if (event.target === event.currentTarget) setToyOpen(event.currentTarget.open) }}><summary><strong>联动玩具</strong></summary><div className="ql-group-body">
-    <Field label="自主性" inline hint="AI 控制设备的自主程度：从主要依照用户要求，到更多依据剧情走向和角色性格自主决定。随角色保存，下一轮生效。">
-      <select value={draft.proactivity ?? 'follow'} onChange={(event) => {
-        const value = ROLE_PROACTIVITIES.find(p => p === event.target.value)
-        if (value === undefined) return
+    {view.features.toy && <details ref={toySection} className="ql-group qq-settings-fold"><summary><strong>联动设备</strong></summary><div className="ql-group-body">
+    <div className="ql-field"><span>自主性</span>
+      <div className="ql-proactivity">
+      <RoleProactivitySelect value={draft.proactivity ?? 'follow'} disabled={busy} onChange={value => {
         setDraft(rest => ({ ...rest, proactivity: value }))
-        onDirty(true)
-      }}>
-        {ROLE_PROACTIVITIES.map(p => <option key={p} value={p}>{ROLE_PROACTIVITY_LABELS[p]}</option>)}
-      </select>
-    </Field>
-    <details className="ql-group"><summary>自主性说明</summary><div className="ql-group-body">
-      <p className="ql-note">AI 控制设备的自主程度：低自主性主要依照用户要求，中自主性结合剧情和角色性格适度调整，高自主性更多依据剧情和角色性格自主决定。随角色保存，下一轮生效；三档提示词可在下方修改。</p>
-    </div></details>
-    {draft.proactivity === 'high' && <p className="ql-note">高自主性下，在对话里说“停”“慢一点”时，AI 可能按人设继续。需要立即停下时，请用暂停按钮或暂停快捷键。</p>}
-    <ChoiceField label="偏好动作" hint="只是倾向，用户的要求优先；不选表示没有偏好"
-      choices={MOTION_ACTIONS} labels={MOTION_ACTION_LABELS} value={draft.motionActions}
-      onChange={(value) => { setDraft(({ motionActions: _, ...rest }) => value === undefined ? rest : { ...rest, motionActions: value }); onDirty(true) }} />
-    <ChoiceField label="偏好范围" hint="只是倾向，用户的要求优先；滑动只在全行程、下半程、上半程里生效"
+        setRoleDirty(true)
+      }} />
+
+      </div>
+    </div>
+    <RoleToyPrompts level={draft.proactivity ?? 'follow'} disabled={busy} value={role?.proactivityTexts ?? template.proactivityTexts}
+      onDirty={markToy} create={create} onDraft={create ? proactivityTexts => { setDraft(d => ({ ...d, proactivityTexts })) } : undefined}
+      onSave={async (level, text) => {
+        const texts = { ...draft.proactivityTexts }
+        if (text === undefined) delete texts[level]
+        else texts[level] = text
+        return (await saveText({ action: 'role.proactivity-text.save', id: role?.id ?? '', level, text }, 'proactivityTexts', { ...draft, proactivityTexts: texts })) !== undefined
+      }} />
+    {draft.proactivity === 'high' && <p className="ql-note">高自主性下说“停”，AI 可能按人设继续；要立即停下请用暂停按钮或快捷键。</p>}
+    {!draft.motionActions?.length && !draft.motionRanges?.length && <p className="ql-note">无勾选＝动作和范围无特殊偏好，按用户要求、剧情和人设选择。</p>}
+    <ChoiceField label="偏好动作" hint="只是倾向，用户的要求优先；动作来自联动的动作库"
+      choices={actionChoices} labels={Object.fromEntries(actionChoices.map(name => [name, name]))} value={draft.motionActions}
+      onChange={(value) => { setDraft(({ motionActions: _, ...rest }) => value === undefined ? rest : { ...rest, motionActions: value }); setRoleDirty(true) }} />
+    <ChoiceField label="偏好范围" hint="只是倾向，用户的要求优先"
       choices={MOTION_RANGES} labels={MOTION_RANGE_LABELS} value={draft.motionRanges}
-      onChange={(value) => { setDraft(({ motionRanges: _, ...rest }) => value === undefined ? rest : { ...rest, motionRanges: value }); onDirty(true) }} />
-    <RoleToyPrompts active={toyOpen} value={draft.proactivityTexts} onChange={value => {
-      setDraft(({ proactivityTexts: _, ...rest }) => value === undefined ? rest : { ...rest, proactivityTexts: value })
-      onDirty(true)
-    }} />
+      onChange={(value) => { setDraft(({ motionRanges: _, ...rest }) => value === undefined ? rest : { ...rest, motionRanges: value }); setRoleDirty(true) }} />
     </div></details>}
     </div>
-    <div className="ql-savebar">
-      <span className="ql-save-status" role="status">{busy ? '保存中…' : create && saveStatus === '已保存' ? '尚未创建' : saveStatus}</span>
+    <div className="ql-savebar qq-settings-actions">
+      <span className="ql-save-status qq-settings-status" role="status">{busy ? '保存中…' : saveStatus}</span>
       <Button size="sm" variant="primary" disabled={busy} onClick={() => { void save() }}>{busy ? '保存中…' : create ? '创建角色' : '保存'}</Button>
-      {create && <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>取消</Button>}
+      {create && <Button size="sm" variant="outline" disabled={busy} onClick={onCancel}>取消</Button>}
       {!create && <FormMore disabled={busy} items={[
-        { id: 'default', label: isDefault ? '取消新会话默认' : '设为新会话默认' }, { id: 'remove', label: '删除角色', danger: true },
-      ]} onSelect={id => { if (id === 'remove') { clearError(); setConfirming(true) }
-        else void run(isDefault ? { action: 'role.default' } : { action: 'role.default', id: role.id }) }} />}
+        { id: 'remove', label: '删除角色', danger: true },
+      ]} onSelect={() => { clearError(); setConfirming(true) }} />}
     </div>
+    {personaEditor !== undefined && <Modal open headless title="角色设定" className={`${EDITOR_CLASS} ql-persona-dialog`} onClose={closePersona}>
+      <div className="ql-dialog-layout">
+        <header className="ql-heading"><h2>角色设定</h2></header>
+        <Button className="ql-close" size="sm" variant="ghost" aria-label="关闭" disabled={busy} onClick={closePersona}>×</Button>
+        <textarea className="ql-persona-text" aria-label="角色设定" data-modal-autofocus disabled={busy} value={personaEditor.text}
+          onChange={event => {
+            setPersonaEditor({ ...personaEditor, text: event.target.value })
+            setRoleDirty(true)
+          }} />
+        <div className="ql-savebar qq-settings-actions">
+          <span className="ql-save-status qq-settings-status" role="status">{busy ? '保存中…' : saveStatus}</span>
+          <Button size="sm" variant="primary" disabled={busy} onClick={() => { void save(personaEditor.text) }}>{busy ? '保存中…' : create ? '创建角色' : '保存'}</Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={closePersona}>取消</Button>
+        </div>
+        {discardPersona && <ActionDialog title="放弃未保存的改动？" cancelLabel="继续编辑" confirmLabel="放弃改动"
+          onCancel={() => { setDiscardPersona(false) }} onConfirm={leavePersona}>
+          还有未保存的改动，放弃后无法恢复。
+        </ActionDialog>}
+      </div>
+    </Modal>}
     {!create && confirming && <ActionDialog title={`删除“${role.name}”？`} busy={busy} error={removeError} confirmLabel="确认删除"
       onCancel={() => { clearError(); setConfirming(false) }}
       onConfirm={() => { void run({ action: 'role.remove', id: role.id }).then((ok) => { if (ok) onRemoved() }) }}>
@@ -379,10 +527,11 @@ function PresetForm({ view, busy, saveStatus, removeError, clearError, onDirty, 
     <Field label="名称">
       <input value={draft.name} data-modal-autofocus={create ? '' : undefined} onChange={(event) => { edit({ name: event.target.value }) }} />
     </Field>
+    {!create && <span className="ql-note">{users.length > 0 ? `被 ${users.length} 个角色使用` : '暂无角色使用'}</span>}
     <Field label="提示词" hint="放在系统提示词最前面，角色设定之前">
       <textarea rows={6} value={draft.head} onChange={(event) => { edit({ head: event.target.value }) }} />
     </Field>
-    <details className="ql-group"><summary><strong>高级</strong></summary><div className="ql-group-body">
+    <details className="ql-group qq-settings-fold"><summary><strong>高级</strong></summary><div className="ql-group-body">
     <Field label="中间" hint="紧跟在角色设定之后">
       <textarea rows={4} value={draft.mid} onChange={(event) => { edit({ mid: event.target.value }) }} />
     </Field>
@@ -391,24 +540,24 @@ function PresetForm({ view, busy, saveStatus, removeError, clearError, onDirty, 
     </Field>
     </div></details>
     </div>
-    <div className="ql-savebar">
-      <span className="ql-save-status" role="status">{busy ? '保存中…' : create && saveStatus === '已保存' ? '尚未创建' : saveStatus}</span>
-      <Button size="sm" variant="primary" disabled={busy} onClick={() => { void save() }}>{busy ? '保存中…' : create ? '创建预设' : '保存'}</Button>
-      {create && <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>取消</Button>}
+    <div className="ql-savebar qq-settings-actions">
+      <span className="ql-save-status qq-settings-status" role="status">{busy ? '保存中…' : saveStatus}</span>
+      <Button size="sm" variant="primary" disabled={busy} onClick={() => { void save() }}>{busy ? '保存中…' : create ? '创建模板' : '保存'}</Button>
+      {create && <Button size="sm" variant="outline" disabled={busy} onClick={onCancel}>取消</Button>}
       <Button size="sm" variant="outline" disabled={busy}
-        onClick={() => { const { id: _, ...copy } = draft; onCopy({ ...copy, name: uniqueName(`${draft.name || '预设'} 副本`, view.presets) }) }}>
-        复制为新预设
+        onClick={() => { const { id: _, ...copy } = draft; onCopy({ ...copy, name: uniqueName(`${draft.name || '提示词'} 副本`, view.presets) }) }}>
+        复制模板
       </Button>
       {!create && <FormMore disabled={busy} items={[
-        ...isDefault ? [] : [{ id: 'default', label: '设为新角色默认预设' }],
-        { id: 'remove', label: '删除预设', danger: true, disabled: view.presets.length <= 1 },
+        ...isDefault ? [] : [{ id: 'default', label: '设为新角色默认模板' }],
+        { id: 'remove', label: '删除模板', danger: true, disabled: view.presets.length <= 1 },
       ]} onSelect={id => { if (id === 'remove') { clearError(); setConfirming(true) }
         else void run({ action: 'preset.default', id: preset.id }) }} />}
     </div>
     {!create && confirming && <ActionDialog title={`删除“${preset.name}”？`} busy={busy} error={removeError} confirmLabel="确认删除"
       onCancel={() => { clearError(); setConfirming(false) }}
       onConfirm={() => { void run({ action: 'preset.remove', id: preset.id }).then((ok) => { if (ok) onRemoved() }) }}>
-      删除后不能恢复。{users.length > 0 && `${users.map(role => role.name).join('、')}将改用“${replacement?.name ?? '其他预设'}”。`}
+      删除后不能恢复。{users.length > 0 && `${users.map(role => role.name).join('、')}将改用“${replacement?.name ?? '其他提示词'}”。`}
     </ActionDialog>}
   </fieldset>
 }
@@ -416,8 +565,77 @@ function PresetForm({ view, busy, saveStatus, removeError, clearError, onDirty, 
 /** 列表里选中的条目：已有条目的 id，或一份还没保存的新条目。 */
 type Selection<T> = { readonly id: string } | { readonly draft: T }
 
+interface PromptDialogTarget {
+  readonly selection: Selection<LibraryPresetDraft>
+  readonly onCreated?: (id: string) => void
+}
+
+/** 模板独立保存；角色表单留在原处，打开或保存模板不重建角色草稿。 */
+function PromptTemplateDialog({ target, onClose, ...props }: FormProps & {
+  readonly target: PromptDialogTarget
+  readonly onClose: () => void
+}) {
+  const [selection, setSelection] = useState(target.selection)
+  const [dirty, setDirty] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const [pending, setPending] = useState<(() => void) | undefined>()
+  const { view, busy, clearError } = props
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (dirty || busy) { event.preventDefault(); event.returnValue = '' }
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty, busy])
+  const close = () => { go(() => { clearError(); onClose() }) }
+  const select = (next: Selection<LibraryPresetDraft>, edited = false) => {
+    clearError(); setDirty(edited); setSelection(next); setRevision(n => n + 1)
+  }
+  const go = (next: () => void) => {
+    if (busy || pending !== undefined) return
+    if (dirty) setPending(() => next)
+    else next()
+  }
+  const preset = 'id' in selection ? view.presets.find(p => p.id === selection.id) : undefined
+  const draftKey = 'draft' in selection ? `new:${selection.draft.name}` : selection.id
+  return <Modal open headless title="提示词模板" className={`${EDITOR_CLASS} ql-prompt-dialog`} onClose={close}>
+    <div className="ql-dialog-layout">
+      <header className="ql-heading"><h2>提示词模板</h2></header>
+      <Button className="ql-close" size="sm" variant="ghost" aria-label="关闭" disabled={busy} onClick={close}>×</Button>
+      <div className="ql-body"><div className="ql-page"><div className="ql-main">
+        <div className="ql-list">
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => { go(() => select({ draft: BLANK_PRESET })) }}>新建模板</Button>
+          {view.presets.map(p => <button key={p.id} type="button" className="ql-row" disabled={busy} aria-current={preset?.id === p.id}
+            onClick={() => { if (preset?.id !== p.id) go(() => select({ id: p.id })) }}>
+            <span className="ql-name">{p.name}</span>
+            {view.defaultPreset === p.id && <Tag tone="neutral">默认</Tag>}
+          </button>)}
+        </div>
+        {'id' in selection && preset === undefined
+          ? <div className="ql-empty">这份模板已经不在了，可能已被删除。</div>
+          : <PresetForm key={`${draftKey}:${revision}`} {...props} preset={preset}
+            saveStatus={dirty ? '有未保存的修改' : ''} onDirty={setDirty}
+            template={'draft' in selection ? selection.draft : BLANK_PRESET}
+            onSaved={id => {
+              if (preset === undefined && target.onCreated !== undefined) { target.onCreated(id); onClose() }
+              else select({ id })
+            }}
+            onRemoved={() => { select({ id: view.defaultPreset !== preset?.id ? view.defaultPreset : view.presets.find(p => p.id !== preset?.id)!.id }) }}
+            onCancel={close}
+            onCopy={draft => { go(() => select({ draft }, true)) }} />}
+      </div></div></div>
+      {pending !== undefined && <ActionDialog title="放弃未保存的改动？" cancelLabel="继续编辑" confirmLabel="放弃改动"
+        onCancel={() => { setPending(undefined) }} onConfirm={() => { const next = pending; setPending(undefined); next() }}>
+        还有未保存的改动，放弃后无法恢复。
+      </ActionDialog>}
+    </div>
+  </Modal>
+}
+
 /** 编辑器内容和关闭前的检查：有未保存的改动时，guard 先显示确认，确认后才执行。 */
-function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, extensions?: UiExtensions): { readonly guard: (next: () => void) => void; readonly content: ReactNode } {
+function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, extensions?: UiExtensions, memeGuide?: MemeGuide, maintenance?: MaintenanceClient, phoneGuide?: PhoneGuide): { readonly guard: (next: () => void) => void; readonly content: ReactNode } {
+  const dataVersion = useSyncExternalStore(maintenance?.subscribe ?? NO_SUBSCRIBE, maintenance?.getDataVersion ?? ZERO)
+  const seenVersion = useRef(dataVersion)
   const [view, setView] = useState<LibraryView | undefined>()
   const [loadError, setLoadError] = useState<string | undefined>()
   const [actionError, setActionError] = useState<{ message: string; removing: boolean }>()
@@ -425,44 +643,63 @@ function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, 
   const submitting = useRef(false)
   const [voiceBusy, setVoiceBusy] = useState(false)
   const [uiBusy, setUiBusy] = useState(false)
-  const [tab, setTab] = useState<EditorTab>(target.tab)
+  const [tab, setTab] = useState<EditorTab>(target.tab === 'presets' ? 'roles' : target.tab)
+  const [focusProactivity, setFocusProactivity] = useState(target.focusProactivity === true)
+  const [promptDialog, setPromptDialog] = useState<PromptDialogTarget | undefined>(target.tab === 'presets'
+    ? { selection: { id: target.id ?? '' } } : undefined)
+  useEffect(() => {
+    document.querySelector('.dsh-qqbot-library .ql-tabs [aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [tab])
   const [roleSel, setRoleSel] = useState<Selection<LibraryRoleDraft> | undefined>(
     target.tab === 'roles' && target.id !== undefined ? { id: target.id } : undefined)
-  const [presetSel, setPresetSel] = useState<Selection<LibraryPresetDraft> | undefined>(
-    target.tab === 'presets' && target.id !== undefined ? { id: target.id } : undefined)
   // 有未保存的改动时，切换和关闭要先确认。pending 是确认后要做的事。
   const [dirty, setDirty] = useState(false)
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (dirty || busy || uiBusy || voiceBusy) { event.preventDefault(); event.returnValue = '' } }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty, busy, uiBusy, voiceBusy])
   const [pending, setPending] = useState<(() => void) | undefined>()
   const [importOpen, setImportOpen] = useState(false)
   const [importNotice, setImportNotice] = useState('')
   // 保存后加一，表单换 key 重新挂载，读到服务端规范化后的内容。
   const [revision, setRevision] = useState(0)
+  useEffect(() => {
+    if (seenVersion.current === dataVersion) return
+    seenVersion.current = dataVersion
+    window.dispatchEvent(new Event('qqbot:discard-settings-drafts'))
+    setDirty(false); setPending(undefined); setImportOpen(false); setImportNotice('')
+    setRoleSel(undefined); setPromptDialog(undefined); setActionError(undefined); setLoadError(undefined)
+    setTab('data'); setRevision(n => n + 1); setView(undefined)
+  }, [dataVersion])
 
   useEffect(() => {
     const abort = new AbortController()
-    request(undefined, abort.signal).then(setView, (error: unknown) => { if (!abort.signal.aborted) setLoadError(messageOf(error)) })
+    request(undefined, abort.signal).then(next => { if (!abort.signal.aborted) setView(next) }, (error: unknown) => { if (!abort.signal.aborted) setLoadError(messageOf(error)) })
     return () => { abort.abort() }
-  }, [])
+  }, [tab, dataVersion])
 
-  const run = useCallback(async (action: LibraryAction): Promise<LibraryView | undefined> => {
+  const run = useCallback(async (action: LibraryAction, onError?: (message: string) => void): Promise<LibraryView | undefined> => {
     if (submitting.current) return undefined
     submitting.current = true
     setBusy(true)
     setActionError(undefined)
     try {
       const next = await request(action)
+      if (seenVersion.current !== dataVersion) return undefined
       setView(next)
       // 名称变了头像首字跟着变，删了角色要去掉头像，改了默认角色时还没开始的会话跟着变：让各会话重读当前角色。
-      if (action.action === 'role.save' || action.action === 'role.remove' || action.action === 'role.default') ui.forgetRoles()
+      if (action.action === 'role.save' || action.action === 'role.meme-prompt.save' || action.action === 'role.proactivity-text.save' || action.action === 'role.remove' || action.action === 'role.default') ui.forgetRoles()
       return next
     } catch (error) {
-      setActionError({ message: messageOf(error), removing: action.action === 'role.remove' || action.action === 'preset.remove' })
+      if (onError) onError(messageOf(error))
+      else setActionError({ message: messageOf(error), removing: action.action === 'role.remove' || action.action === 'preset.remove' })
       return undefined
     } finally {
       submitting.current = false
       setBusy(false)
     }
-  }, [ui])
+  }, [ui, dataVersion])
 
   const guard = (next: () => void) => {
     if (submitting.current || voiceBusy || uiBusy || pending !== undefined || importOpen) return
@@ -475,10 +712,15 @@ function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, 
   const body = (() => {
     if (loadError !== undefined) return <div className="ql-state ql-warn">{loadError}</div>
     if (view === undefined) return <div className="ql-empty">加载中…</div>
-    const formProps = { view, ui, voice, busy: busy || uiBusy, saveStatus: dirty ? '有未保存的修改' : '已保存', onBusy: setUiBusy, onDirty: setDirty, run,
+    const formProps = { view, ui, voice, memeGuide, busy: busy || uiBusy, saveStatus: dirty ? '有未保存的修改' : '', onBusy: setUiBusy, onDirty: setDirty, run,
       removeError: actionError?.removing === true ? actionError.message : undefined,
       clearError: () => { setActionError(undefined) } }
-    if (tab === 'ui') return <div className="ql-main"><UiForm ui={ui} onBusy={setUiBusy} exampleRole={view.roles[0]} extensions={extensions} /></div>
+    if (tab === 'data') return <DataSettings maintenance={maintenance} onBusy={setUiBusy} view={view} onImport={() => { setImportNotice(''); setImportOpen(true) }} />
+    if (tab === 'update') return <UpdateSettings />
+    if (tab === 'phone') return <PhoneSettings onBusy={setUiBusy} onDirty={setDirty} guide={phoneGuide} />
+    if (tab === 'toy' || tab === 'reply') return <div className="ql-main">{extensions && <UiExtensionFields extensions={extensions} page={tab} onBusy={setUiBusy} onDirty={setDirty}
+      {...tab === 'toy' ? { onOpenRoleProactivity: () => { go(() => { setFocusProactivity(true); setTab('roles') }) } } : {}} />}</div>
+    if (tab === 'ui') return <div className="ql-main"><UiForm ui={ui} onBusy={setUiBusy} onDirty={setDirty} exampleRole={view.roles[0]} extensions={extensions} /></div>
     if (tab === 'voice') return <VoicePage voice={voice} roles={view.roles} onDirty={setDirty} onBusy={setVoiceBusy} guard={guard}
       onAssignVoice={async (id, voiceId) => {
         // 绑定前重读角色，避免用打开语音页时的旧正文覆盖文件中的新改动。
@@ -496,7 +738,10 @@ function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, 
       return <div className="ql-main">
         <div className="ql-list">
           <Button size="sm" variant="outline" onClick={() => { go(() => { setRoleSel({ draft: BLANK_ROLE }) }) }}>新建角色</Button>
-          {view.roles.length === 0 && <div className="ql-empty">角色库是空的</div>}
+          {view.roles.length === 0 && <>
+            <div className="ql-empty">角色库是空的</div>
+            <Button size="sm" variant="outline" onClick={() => { setPromptDialog({ selection: { id: view.defaultPreset } }) }}>管理提示词模板</Button>
+          </>}
           {view.roles.map(r => <button key={r.id} type="button" className="ql-row" aria-current={role?.id === r.id}
             onClick={() => { if (role?.id !== r.id) go(() => { setRoleSel({ id: r.id }) }) }}>
             <span className="ql-name">{r.name}</span>
@@ -506,62 +751,48 @@ function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, 
         {selected === undefined ? <div className="ql-empty-pane" /> : 'id' in selected && role === undefined
           ? <div className="ql-empty">这个角色已经不在角色库里，可能已在文件里删除。</div>
           : <RoleForm key={`${role?.id ?? 'new'}:${revision}`} {...formProps} role={role}
+            focusProactivity={focusProactivity}
             template={'draft' in selected ? selected.draft : BLANK_ROLE}
             onSaved={(id) => { saved(() => { setRoleSel({ id }) }) }}
             onRemoved={() => { saved(() => { setRoleSel(undefined) }) }}
             onCancel={() => { go(() => { setRoleSel(undefined) }) }}
-            onManageVoices={() => { go(() => { setTab('voice') }) }} />}
+            onManageVoices={() => { go(() => { setTab('voice') }) }}
+            onManagePrompts={(selection, onCreated) => { setActionError(undefined); setPromptDialog({ selection, onCreated }) }} />}
       </div>
     }
-    const selected = presetSel ?? { id: view.defaultPreset }
-    const preset = 'id' in selected ? view.presets.find(p => p.id === selected.id) : undefined
-    // 新草稿按名称区分：复制出来的草稿名称不同，表单会重新挂载。
-    const draftKey = 'draft' in selected ? `new:${selected.draft.name}` : preset?.id ?? 'missing'
-    return <div className="ql-main">
-      <div className="ql-list">
-        <Button size="sm" variant="outline" onClick={() => { go(() => { setPresetSel({ draft: BLANK_PRESET }) }) }}>新建预设</Button>
-        {view.presets.map(p => <button key={p.id} type="button" className="ql-row" aria-current={preset?.id === p.id}
-          onClick={() => { if (preset?.id !== p.id) go(() => { setPresetSel({ id: p.id }) }) }}>
-          <span className="ql-name">{p.name}</span>
-          {view.defaultPreset === p.id && <Tag tone="neutral">默认</Tag>}
-        </button>)}
-      </div>
-      {'id' in selected && preset === undefined
-        ? <div className="ql-empty">这份预设已经不在了，可能已被删除。</div>
-        : <PresetForm key={`${draftKey}:${revision}`} {...formProps} preset={preset}
-          template={'draft' in selected ? selected.draft : BLANK_PRESET}
-          onSaved={(id) => { saved(() => { setPresetSel({ id }) }) }}
-          onRemoved={() => { saved(() => { setPresetSel(undefined) }) }}
-          onCancel={() => { go(() => { setPresetSel(undefined) }) }}
-          onCopy={(draft) => { go(() => { setPresetSel({ draft }); setDirty(true) }) }} />}
-    </div>
+    return null
   })()
 
   const content = <div className="ql-body">
-      <div className="ql-tabs">
-        <Button size="sm" variant={tab === 'roles' ? 'outline' : 'ghost'}
-          onClick={() => { if (tab !== 'roles') go(() => { setTab('roles') }) }}>角色</Button>
-        <Button size="sm" variant={tab === 'presets' ? 'outline' : 'ghost'}
-          onClick={() => { if (tab !== 'presets') go(() => { setTab('presets') }) }}>破限预设</Button>
-        <Button size="sm" variant={tab === 'ui' ? 'outline' : 'ghost'}
-          onClick={() => { if (tab !== 'ui') go(() => { setTab('ui') }) }}>界面</Button>
-        <Button size="sm" variant={tab === 'voice' ? 'outline' : 'ghost'}
-          onClick={() => { if (tab !== 'voice') go(() => { setTab('voice') }) }}>语音</Button>
-        <Button size="sm" variant="outline" className="ql-import-button" disabled={view === undefined || busy || voiceBusy || uiBusy}
-          onClick={() => { go(() => { setImportNotice(''); setImportOpen(true) }) }}>导入配置</Button>
-      </div>
+      <header className="ql-heading"><h2>QQ Bot 设置</h2><UpdateButton active={tab === 'update'} onClick={() => go(() => setTab('update'))} /></header>
+      <nav className="ql-tabs" aria-label="QQ Bot 设置">
+        {([['roles', '角色'], ['reply', '聊天辅助'], ['ui', '界面'], ['voice', '语音'], ['toy', '联动设备'], ['phone', '手机'], ['data', '数据']] as const).map(([key, label]) =>
+          <Button key={key} size="sm" variant={tab === key ? 'outline' : 'ghost'}
+            aria-current={tab === key ? 'page' : undefined}
+            onClick={() => { if (tab !== key) go(() => { setTab(key) }) }}>{label}</Button>)}
+      </nav>
       {importNotice && <div className="ql-state" role="status">{importNotice}</div>}
-      {body}
+      <div className="ql-page">{body}</div>
+      {view !== undefined && promptDialog !== undefined && <PromptTemplateDialog
+        target={'id' in promptDialog.selection && promptDialog.selection.id === ''
+          ? { ...promptDialog, selection: { id: view.defaultPreset } } : promptDialog}
+        view={view} ui={ui} voice={voice} busy={busy || uiBusy} saveStatus="" onBusy={setUiBusy} onDirty={setDirty} run={run}
+        removeError={actionError?.removing === true ? actionError.message : undefined}
+        clearError={() => { setActionError(undefined) }} onClose={() => { setPromptDialog(undefined) }} />}
       {importOpen && <ConfigImport onClose={() => { setImportOpen(false) }} onImported={(next, result) => {
         setView(next)
         ui.forgetRoles()
         setRevision(n => n + 1)
         setImportOpen(false)
-        setImportNotice(`已导入 ${result.presets} 份预设、${result.roles} 个角色，跳过 ${result.skipped} 项`)
+        setImportNotice(`已导入 ${result.presets} 份通用提示词、${result.roles} 个角色，跳过 ${result.skipped} 项`)
       }} />}
       {pending !== undefined && <ActionDialog title="放弃未保存的改动？" cancelLabel="继续编辑" confirmLabel="放弃改动"
         onCancel={() => { setPending(undefined) }}
-        onConfirm={() => { const next = pending; setPending(undefined); setDirty(false); next() }}>
+        onConfirm={() => {
+          const next = pending
+          window.dispatchEvent(new Event('qqbot:discard-settings-drafts'))
+          setPending(undefined); setDirty(false); next()
+        }}>
         还有未保存的改动，放弃后无法恢复。
       </ActionDialog>}
       {actionError !== undefined && !actionError.removing && <ActionDialog title="操作未完成" cancelLabel="知道了" onCancel={() => { setActionError(undefined) }}>
@@ -571,12 +802,12 @@ function useLibraryEditor(target: EditorTarget, ui: UiState, voice: VoiceState, 
   return { guard, content }
 }
 
-function LibraryDialog({ target, ui, voice, onClose, extensions }: {
-  readonly target: EditorTarget; readonly ui: UiState; readonly voice: VoiceState; readonly onClose: () => void; readonly extensions?: UiExtensions | undefined
+function LibraryDialog({ target, ui, voice, onClose, extensions, memeGuide, maintenance, phoneGuide }: {
+  readonly target: EditorTarget; readonly ui: UiState; readonly voice: VoiceState; readonly onClose: () => void; readonly extensions?: UiExtensions | undefined; readonly memeGuide?: MemeGuide | undefined; readonly maintenance?: MaintenanceClient | undefined; readonly phoneGuide?: PhoneGuide | undefined
 }) {
-  const { guard, content } = useLibraryEditor(target, ui, voice, extensions)
-  return <Modal open onClose={() => { guard(onClose) }} title="QQ Bot 设置" closeLabel="关闭" className={EDITOR_CLASS} contentClassName="ql-modal-content">
-    {content}
+  const { guard, content } = useLibraryEditor(target, ui, voice, extensions, memeGuide, maintenance, phoneGuide)
+  return <Modal open onClose={() => { guard(onClose) }} title="QQ Bot 设置" headless className={EDITOR_CLASS}>
+    <div className="ql-dialog-layout"><Button className="ql-close" size="sm" variant="ghost" aria-label="关闭" onClick={() => guard(onClose)}>×</Button>{content}</div>
   </Modal>
 }
 
@@ -603,12 +834,18 @@ export interface LibraryEditorInjected {
   readonly closeEditor: () => void
   readonly ui: UiState
   readonly voice: VoiceState
+  readonly memeGuide?: MemeGuide | undefined
   readonly extensions?: UiExtensions
+  readonly maintenance?: MaintenanceClient
+  readonly phoneGuide?: PhoneGuide | undefined
 }
 
+const NO_SUBSCRIBE = () => () => {}
+const ZERO = () => 0
+
 /** `shell.overlay` 里的常驻组件：没有打开时什么也不渲染。target 变化时换 key，重新加载。 */
-export function LibraryEditorHost({ useEditorTarget, closeEditor, ui, voice, extensions }: InjectFace<LibraryEditorInjected>) {
+export function LibraryEditorHost({ useEditorTarget, closeEditor, ui, voice, extensions, memeGuide, maintenance, phoneGuide }: InjectFace<LibraryEditorInjected>) {
   const target = useEditorTarget(state => state)
   if (target === null) return null
-  return <LibraryDialog key={`${target.tab}:${target.id ?? ''}`} target={target} ui={ui} voice={voice} extensions={extensions} onClose={closeEditor} />
+  return <LibraryDialog key={`${target.tab}:${target.id ?? ''}:${target.focusProactivity === true}`} target={target} ui={ui} voice={voice} extensions={extensions} memeGuide={memeGuide} maintenance={maintenance} phoneGuide={phoneGuide} onClose={closeEditor} />
 }

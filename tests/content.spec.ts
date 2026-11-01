@@ -256,7 +256,7 @@ describe('host service with data', () => {
         ['qqbot:jb-head', DEFAULT_JAILBREAK.head],
         ['qqbot:persona', '爱丽丝的设定。'],
         ['qqbot:format-segment', expect.stringContaining('[qq]')],
-        ['qqbot:format-voice', expect.stringContaining('语音条')],
+        ['qqbot:format-voice', expect.stringContaining('"voice":true')],
       ])
       // 角色卡写了 high；只有 send_meme 在场时才有表情规则。
       expect(assembleParts(content, store, { id: 's1' }, { meme: true }).find(p => p.name === 'qqbot:format-meme')?.text)
@@ -264,14 +264,14 @@ describe('host service with data', () => {
       expect(renderRuntime(store, { id: 's1' })).toBe(`role: 爱丽丝\nvoice: ${root.qqbot.voice.promptStatus('v-0000000a')}`)
       expect(renderRuntime(store, { id: 's2' })).toBe(`voice: ${root.qqbot.voice.promptStatus(undefined)}`)
       // 外部插件按会话读当前角色；角色卡没写 proactivity 时为不限。
-      expect(root.qqbot.role({ id: 's1' })).toEqual({ name: '爱丽丝' })
+      expect(root.qqbot.role({ id: 's1' })).toEqual({ id: 'alice', name: '爱丽丝' })
       expect(root.qqbot.role({ id: 's2' })).toBeUndefined()
       writeRole(join(home, 'qqbot', 'roles'), 'alice', ROLE_A.replace('memeFrequency: high', 'proactivity: situational'))
       content.roles.reload()
-      expect(root.qqbot.role({ id: 's1' })).toEqual({ name: '爱丽丝', proactivity: 'situational' })
+      expect(root.qqbot.role({ id: 's1' })).toEqual({ id: 'alice', name: '爱丽丝', proactivity: 'situational' })
       writeRole(join(home, 'qqbot', 'roles'), 'alice', ROLE_A.replace('memeFrequency: high', 'motionActions: slide\nmotionRanges: upper, full'))
       content.roles.reload()
-      expect(root.qqbot.role({ id: 's1' })).toEqual({ name: '爱丽丝', motionActions: ['slide'], motionRanges: ['full', 'upper'] })
+      expect(root.qqbot.role({ id: 's1' })).toEqual({ id: 'alice', name: '爱丽丝', motionActions: ['slide'], motionRanges: ['full', 'upper'] })
     } finally {
       process.env['DSH_HOME'] = previous
     }

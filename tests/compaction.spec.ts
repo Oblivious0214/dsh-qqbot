@@ -72,6 +72,37 @@ describe('qqbot compaction', () => {
     expect(await target(policy, { provider: 'other', model: 'x' })).toMatchObject({ provider: 'other', maxTokens: 4096 })
   })
 
+  it('waits for the parallel memory consolidation before returning the summary, unless aborted', async () => {
+    const order: string[] = []
+    let finish!: () => void
+    const consolidation = new Promise<{ kind: 'done' }>((resolve) => { finish = () => { order.push('memory'); resolve({ kind: 'done' }) } })
+    const engine = {
+      config: CONFIG,
+      ctx: {
+        llm: fakeLlm(textReply('摘要')),
+        logger: { warn: () => {} },
+        get: () => ({ memory: { consolidate: () => consolidation } }),
+      },
+    }
+    const summarize = (QqbotCompactionEngine.prototype as unknown as {
+      summarize(this: unknown, input: unknown, agent: unknown, signal?: AbortSignal): Promise<unknown>
+    }).summarize
+    const pending = summarize.call(engine, HISTORY, { ...agent(), id: 's1' }).then(() => { order.push('summary') })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(order).toEqual([])
+    finish()
+    await pending
+    expect(order).toEqual(['memory', 'summary'])
+
+    // 压缩被取消时不再等整理。
+    const abort = new AbortController()
+    const stuck = { ...engine, ctx: { ...engine.ctx, llm: fakeLlm(textReply('摘要')), get: () => ({ memory: { consolidate: () => new Promise(() => {}) } }) } }
+    const cancelled = summarize.call(stuck, HISTORY, { ...agent(), id: 's1' }, abort.signal)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    abort.abort()
+    await expect(cancelled).resolves.toBeDefined()
+  })
+
   it('fails closed on truncation, empty text, and errors', async () => {
     const run = (chunks: StreamChunk[]) => summarizeChat(fakeLlm(chunks), CONFIG, HISTORY, agent())
     await expect(run([{ type: 'finish', reason: { kind: 'max-tokens' } }] as StreamChunk[])).rejects.toThrow(/truncated/)

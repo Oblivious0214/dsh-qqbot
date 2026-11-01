@@ -10,9 +10,9 @@ import { SEGMENT_PROMPT } from './vendor/dialogue-timing/protocol.js'
 export const SEGMENT_RULE: string = SEGMENT_PROMPT
 
 /** 合成和播放仍由界面负责；让模型知道如何回应用户的语音请求。 */
-export const VOICE_RULE = `语音：以运行时 voice 状态为准。默认用文字，大部分消息保持文字；已启用语音也不代表每条都发语音。仅在用户要求语音，或按人设和语境偶尔适合用声音表达时，在对应 [qq] 段落加 "voice":true，text 写要说的话；未标记的段落和块外普通回复都是文字。一条回复可混合文字与语音，只有一句语音也用 [qq] 块。例如：
-[qq]{"version":1,"stages":[{"text":"我在呢。"},{"text":"晚安，做个好梦。","voice":true}]}[/qq]
-界面负责把标记的段落生成语音条，点击播放，无需工具。语音已启用时，用户要求发语音就把要说的那句标记为语音，不要声称无法发语音。若运行时为“全部转语音”，界面会自动转换所有可朗读回复，无需逐段标记。未启用或未配置时保持文字，按状态提示开启语音或为当前角色选择音色；生成或播放出错会在语音条上提示。`
+export const VOICE_RULE = `语音：可用状态见运行时 voice 行。默认发文字；语音可用且用户要求语音时，至少一个段落加 "voice":true。按人设和语境偶尔适合用声音时，也可选用语音。语音段在 [qq] 中先写 "voice":true，再写 text，text 写要说的话，不用调工具。一条回复可以文字和语音混发，只有一句语音也用 [qq] 块。例如：
+[qq]{"version":1,"stages":[{"text":"我在呢。"},{"voice":true,"text":"晚安，做个好梦。"}]}[/qq]
+运行时为“全部转语音”时界面自动转换，不用逐段标记。未启用或没有音色时发文字，按状态提示用户开启语音或给角色选音色。`
 
 /** dsh-meme 注册的发图工具。它的提示词段在 qqbot 会话里被 complete section 去掉，用法由这里补上。 */
 export const MEME_TOOL = 'send_meme'
@@ -35,6 +35,8 @@ export function isMemeFrequency(value: unknown): value is MemeFrequency {
  * 免得和 dsh-meme 的设置冲突；这里只管什么时候发、发多少。
  */
 export function memeRule(frequency: MemeFrequency, preferences?: MemePreferences): string {
+  // 不主动发时只留一句用法，用户要表情时仍能发；偏好和频率说明都用不上。
+  if (frequency === 'off') return `表情包：只在用户明确要求时，用 ${MEME_TOOL} 找一张贴合的按工具说明发出。`
   return [
     `表情包：用 ${MEME_TOOL} 按情绪或关键词找候选，挑贴合的一张，按工具说明的方式发出。`,
     '一次回复最多一张；用户在说正事时不发。',

@@ -1,0 +1,3 @@
+# 资产摘要按 UTF-8/LF 计算；Windows 检出也保留确定的字节。
+assets/motion-presets/* text eol=lf
+scripts/fixtures/motion-presets/*.json -text whitespace=cr-at-eol

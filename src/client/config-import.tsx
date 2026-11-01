@@ -1,4 +1,5 @@
 /** 文件只经认证的插件接口处理，不直接改磁盘；先预览，确认后才提交。 */
+import { writeHeaders } from './cleanup-epoch.ts'
 import { useEffect, useRef, useState } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CONFIG_PATH, type ConfigOptions, type ConfigPreview, type ConfigRequest, type ConfigResult } from '../config-types.ts'
@@ -7,7 +8,7 @@ import { ACTION_DIALOG_CLASS, ActionDialog } from './action-dialog.tsx'
 import { ConfigPasswordError, readConfigFile } from './config-file.ts'
 
 async function request(body: ConfigRequest, signal?: AbortSignal): Promise<{ preview?: ConfigPreview; imported?: ConfigResult; library?: LibraryView }> {
-  const response = await fetch(CONFIG_PATH, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), ...signal === undefined ? {} : { signal } })
+  const response = await fetch(CONFIG_PATH, { method: 'POST', headers: writeHeaders(), body: JSON.stringify(body), ...signal === undefined ? {} : { signal } })
   const result = await response.json() as { message?: string; preview?: ConfigPreview; imported?: ConfigResult; library?: LibraryView }
   if (!response.ok) throw new Error(result.message ?? '配置导入失败，请重试')
   return result
@@ -96,8 +97,8 @@ export function ConfigImport({ onClose, onImported }: {
         onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void choose(file) }} />
       <div><Button size="sm" variant="outline" disabled={busy || loading} onClick={() => { input.current?.click() }}>选择配置文件</Button></div>
       {fileName && <div className="qc-filename">{fileName}</div>}
-      {config !== undefined && <fieldset disabled={busy || loading} className="qc-options">
-        <label><input type="checkbox" checked={options.presets} onChange={e => { changeOptions({ ...options, presets: e.target.checked }) }} />破限预设</label>
+      {config !== undefined && <fieldset disabled={busy || loading} className="qc-options qq-settings-row">
+        <label><input type="checkbox" checked={options.presets} onChange={e => { changeOptions({ ...options, presets: e.target.checked }) }} />通用提示词</label>
         <label><input type="checkbox" checked={options.roles} onChange={e => { changeOptions({ ...options, roles: e.target.checked }) }} />角色</label>
         <label>重名时<select value={options.conflict} onChange={e => { changeOptions({ ...options, conflict: e.target.value === 'copy' ? 'copy' : 'skip' }) }}>
           <option value="skip">跳过已有内容</option><option value="copy">另存一份</option>
@@ -107,7 +108,7 @@ export function ConfigImport({ onClose, onImported }: {
       {preview !== undefined && <>
         <div role="status">新增 {additions} 项，跳过 {preview.entries.length - additions} 项</div>
         <ul className="qc-preview" aria-label="导入预览">{preview.entries.map((entry, index) => <li key={index}>
-          <span>{entry.kind === 'preset' ? '预设' : '角色'} · {entry.target}</span>
+          <span>{entry.kind === 'preset' ? '通用提示词' : '角色'} · {entry.target}</span>
           <small>{entry.status === 'skip' ? '跳过' : entry.name !== entry.target ? '另存' : '新增'}</small>
         </li>)}</ul>
       </>}
@@ -138,7 +139,7 @@ function PasswordDialog({ busy, error, onCancel, onUnlock }: {
   return <Modal open title="输入 ZIP 密码" closeLabel="关闭" className={ACTION_DIALOG_CLASS} backdropBlur={false} onClose={onCancel}
     footer={<><Button variant="outline" onClick={onCancel}>取消</Button>
       <Button variant="primary" disabled={busy || password.length === 0} onClick={submit}>{busy ? '正在解密…' : '解锁'}</Button></>}>
-    <label className="qc-password">密码<input ref={input} type="password" value={password} data-modal-autofocus="" autoComplete="off" disabled={busy}
+    <label className="qc-password qq-settings-field">密码<input ref={input} type="password" value={password} data-modal-autofocus="" autoComplete="off" disabled={busy}
       onChange={e => { setPassword(e.target.value) }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit() } }} /></label>
     {error !== undefined && <div className="qa-message qa-error" role="alert">{error}</div>}
   </Modal>

@@ -5,7 +5,7 @@
  * 计时和打断的行为迁移自 dsh-qq-skin（MIT，lispking）的 src/client/segments/，按本插件重写：
  * - [qq] 块沿用原段落时钟；显示时再按换行、表情标记拆气泡，普通回复也做同样清理。
  *   普通空格和标点不拆分；同一协议段拆出的气泡一起显示，不新增动作或计时。
- * - 段落间隔优先由外部插件提供，兜底按字数计算（ui-types.ts 的 segmentDelay）。
+ * - 段落间隔优先由外部插件提供，兜底按下一段字数模拟打字（ui-types.ts 的 segmentDelay），等待时显示“对方输入中…”。
  * - 外面包一层 REPLY_ATTRIBUTE 节点，带上这一轮回复时角色的头像或首字（`/role` 换人后旧消息不变），样式见 qq-style.ts。
  *   没有角色的回复不加 ROLE_ATTRIBUTE，不画头像。
  * - 历史消息直接全部显示；只有本页打开后生成的回复才按间隔逐段出现。计时在 reply-clock.ts，流式时第一段一闭合就显示。
@@ -20,19 +20,23 @@ import type { ChatNodeViewProps, PresentationInjected } from '@deepseek-ai/dsh-c
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { FactoryComponentPropsOf, InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Interruptions, chatActivity, submissionActivity } from '../vendor/dialogue-timing/interruptions.js'
-import { stripTimedReply, type TimedStream } from '../vendor/dialogue-timing/protocol.js'
+import { hasTimedBlock, stripTimedReply, type TimedStream } from '../vendor/dialogue-timing/protocol.js'
 import { segmentDelay } from '../ui-types.ts'
 import { decodeReply } from './decode.ts'
 import { bubbleStageIndices, splitTextBlocks } from './text-bubbles.ts'
 import { imageUrl, REPLY_ATTRIBUTE, ROLE_ATTRIBUTE } from './qq-style.ts'
+import { ReplyStatus } from './reply-status.tsx'
 import { ReplyClock } from './reply-clock.ts'
 import { SegmentsService } from './segments-service.ts'
 import { SegmentAnnotations, useSegmentAnnotations } from './segment-annotations.tsx'
 import type { SessionRole, UiState } from './ui-state.ts'
 import { useVoiceCards, type VoiceBubble } from './voice-cards.tsx'
-import { stageBlock, voiceBubbles, type DisplayBlock } from './voice-bubbles.ts'
+import { hidePerformanceCues, stageBlock, voiceBubbles, type DisplayBlock } from './voice-bubbles.ts'
 import type { VoicePlayer } from './voice-player.ts'
 import type { VoiceState } from './voice-state.ts'
+import { projectReplyOptions } from '../auto-reply/reply-options.ts'
+import { ReplyOptions } from './auto-reply/reply-options.tsx'
+import type { QuickReplyState } from './auto-reply/quick-state.ts'
 
 /** 语音条用到的共享状态，index.tsx 创建。 */
 export interface SegmentVoice {
@@ -62,7 +66,7 @@ class SegmentModel {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   getVersion = () => this.version
 
-  constructor(delay: (text: string) => number, onError: (error: unknown) => void) {
+  constructor(delay: (next: string) => number, onError: (error: unknown) => void) {
     this.clock = new ReplyClock({ delay, onError, onChange: () => { this.notify() } })
   }
 
@@ -111,7 +115,7 @@ function avatarStyle(ui: UiState, role: SessionRole | undefined): CSSProperties 
   return vars as CSSProperties
 }
 
-function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState, voice: SegmentVoice, Native: ComponentType<NativeProps>) {
+function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState, voice: SegmentVoice, Native: ComponentType<NativeProps>, quick: QuickReplyState | undefined) {
   // 包装后拿不到原渲染器的子槽位，改用 DSH 默认的内容工厂（和 dsh-qq-skin 相同）。
   const renderSlotFor = (props: ViewProps): NativeProps['renderSlot'] => (key, owner) => {
     if (key === 'conversation.chat.reasoning.body') {
@@ -131,7 +135,11 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     const role = ui.roleAt(props.sessionId, data.turn)
     useEffect(() => { ui.noteTurn(props.sessionId, data.turn) }, [props.sessionId, data.turn])
     const final = data.finalNode
-    const source = data.blocks.filter(block => block.kind === 'text').map(block => block.text).join('')
+    // Strip candidate metadata before timing, bubble splitting and speech projection.
+    // The original node/history remains intact; only this qqbot display is transformed.
+    const options = useMemo(() => projectReplyOptions(data.blocks, running), [data.blocks, running])
+    const bodyBlocks = options.blocks
+    const source = bodyBlocks.filter(block => block.kind === 'text').map(block => block.text).join('')
     const displayKey = `${props.sessionId}:${data.turn}:${data.step}`
     const frozen = model.frozen(displayKey, props.sessionId, final ?? data)
 
@@ -162,20 +170,34 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     const count = model.clock.count(props.sessionId, replyId) ?? (isLive ? 0 : undefined)
 
     // 流式输出时 [qq] 块还没闭合，先不显示 JSON；块外的文字照常显示。
-    const wrapped = /\[(?:qq\]|q?$)/.test(source)
+    const wrapped = hasTimedBlock(source)
+    // 角色用 Fish 音色时，模型写的 [委屈] 这类表演标记只给 TTS，不显示在气泡里。
+    const roleVoice = role === undefined || role === null ? undefined : voice.state.voice(role.voice)
+    const fishCues = roleVoice !== undefined && voice.state.engine(roleVoice.engine)?.kind === 'fish'
     const blocks = useMemo((): readonly DisplayBlock[] => {
-      const others = data.blocks.filter(block => block.kind !== 'text')
+      const others = bodyBlocks.filter(block => block.kind !== 'text')
+      const shown = (text: readonly DisplayBlock[]) => fishCues ? hidePerformanceCues(text) : text
       if (stream !== null) {
-        return [...others, ...splitTextBlocks(stream.stages.slice(0, count ?? stream.stages.length).map(stageBlock))]
+        return [...others, ...shown(splitTextBlocks(stream.stages.slice(0, count ?? stream.stages.length).map(stageBlock)))]
       }
-      if (!wrapped) return splitTextBlocks(data.blocks)
+      if (!wrapped) return shown(splitTextBlocks(bodyBlocks))
       const text = stripTimedReply(source)
-      return [...others, ...splitTextBlocks([{ kind: 'text' as const, text: text !== '' || running ? text : decoded.error || '分段回复没有完整生成，请重试。' }])]
-    }, [data.blocks, stream, running, count, wrapped, source, decoded.error])
+      return [...others, ...shown(splitTextBlocks([{ kind: 'text' as const, text: text !== '' || running ? text : decoded.error || '分段回复没有完整生成，请重试。' }]))]
+    }, [bodyBlocks, stream, running, count, wrapped, source, decoded.error, fishCues])
 
     const projected = frozen ?? blocks
     if (frozen === undefined) model.remember(displayKey, props.sessionId, projected)
     const node = projected === data.blocks ? props.node : { ...props.node, data: { ...data, blocks: projected } }
+
+    // dsh-meme 会把图片提到最近的 data-time-hover-root / data-chat-flow-key 行首。
+    // 宿主的一行包含整条回复；给 QQ 正文气泡单独划定边界，避免末段表情被移到第一句前，
+    // 也避免不同气泡的同款表情按整条回复去重。layout effect 先于它的 MutationObserver 执行。
+    // 只标记正文层，不碰推理、工具或标准会话；卸载此 QQ 包装时节点一起移除。
+    useLayoutEffect(() => {
+      for (const bubble of root.current?.querySelectorAll<HTMLElement>(':scope > div > div > [class*="_markdown_"]') ?? []) {
+        if (!bubble.hasAttribute('data-time-hover-root')) bubble.setAttribute('data-time-hover-root', '')
+      }
+    })
 
     // 默认只合成闭合段落上显式 voice:true 的内容；all 模式沿用全部可朗读文字合成。
     const playable = role === undefined || role === null ? undefined : voice.state.playable(role.voice)
@@ -187,7 +209,7 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
       if (playable === undefined || !settled) return []
       return voiceBubbles(projected, playable, displayKey, voice.state.settings.mode)
     }, [playable?.voice, playable?.revision, settled, projected, displayKey, voice.state.settings.mode])
-    const cards = useVoiceCards({
+    const voiceCards = useVoiceCards({
       root, owner: displayKey, items, player: voice.player, display: voice.state.settings.display,
       live: live.current || (final?.time ?? 0) > model.openedAt, pregenerate: voice.state.settings.pregenerate,
     })
@@ -198,13 +220,19 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
       stageIndices: bubbleStageIndices(stream?.stages ?? []),
       playback: () => model.clock.playback(props.sessionId, replyId),
     })
+    const typing = frozen === undefined && model.clock.playback(props.sessionId, replyId)?.typing === true
     const salvaged = stream?.stages.some(stage => stage.salvaged === true) === true
-    return <div ref={root} {...{ [REPLY_ATTRIBUTE]: '', ...hasRole ? { [ROLE_ATTRIBUTE]: '' } : {} }} style={avatarStyle(ui, role)}
+    const showOptions = quick !== undefined && data.status === 'settled' && frozen === undefined && decoded.error === ''
+      && (stream === null || (count ?? stream.stages.length) >= stream.stages.length)
+    return <><div ref={root} {...{ [REPLY_ATTRIBUTE]: '', ...hasRole ? { [ROLE_ATTRIBUTE]: '' } : {} }} style={avatarStyle(ui, role)}
       title={salvaged ? '格式有误，已尽量显示文字' : undefined}>
       {createElement(Native, { ...props, node, renderSlot: renderSlotFor(props) })}
-      {cards}
+      {voiceCards.cards}
       {annotations}
+      <ReplyStatus typing={typing} sendingVoice={frozen === undefined && voiceCards.sending} />
     </div>
+      {showOptions && <ReplyOptions {...props} key={replyId} quick={quick} replies={options.replies} turn={data.turn} step={data.step} />}
+    </>
   }
 
   return function SegmentView(props: ViewProps) {
@@ -232,8 +260,8 @@ function createInputObserver(model: SegmentModel, filter: QqbotSessionFilter) {
  * 包装 DSH 自带的 assistant-step 渲染器（按它声明的子槽位认出来），插件关闭时撤掉。
  * 只认自带的那一个，不去包装别的插件的包装，避免两个插件互相重包。
  */
-export function installSegments(ctx: Context, filter: QqbotSessionFilter, ui: UiState, voice: SegmentVoice): void {
-  const model = new SegmentModel(text => segmentDelay(text), (error) => { ctx.logger.warn('qqbot segments: %s', error) })
+export function installSegments(ctx: Context, filter: QqbotSessionFilter, ui: UiState, voice: SegmentVoice, quick?: QuickReplyState): void {
+  const model = new SegmentModel(text => segmentDelay(text, ui.settings), (error) => { ctx.logger.warn('qqbot segments: %s', error) })
   ctx.effect(() => () => { model.dispose() }, 'qqbot: segment model')
   ctx.plugin(SegmentsService, { clock: model.clock, annotations: model.annotations })
 
@@ -258,7 +286,7 @@ export function installSegments(ctx: Context, filter: QqbotSessionFilter, ui: Ui
       const inject = candidate.inject as unknown as () => PresentationInjected
       remove = ctx.slots.register({
         name: 'conversation.chat.node', key: 'assistant-step', priority: -30, locale: 'chat', inject, registrant: 'dsh-qqbot',
-      }, createView(model, filter, ui, voice, Native))
+      }, createView(model, filter, ui, voice, Native, quick))
     }
     const unsubscribe = ctx.slots.subscribe('conversation.chat.node', refresh)
     refresh()

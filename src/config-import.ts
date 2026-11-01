@@ -24,14 +24,14 @@ function parsePackage(value: unknown): ConfigPackage {
   keys(value, ['format', 'version', 'presets', 'roles'], '配置包')
   const items = (key: string): unknown[] => {
     const list = value[key] ?? []
-    if (!Array.isArray(list) || list.length > 100) throw new TypeError('每个配置包最多包含 100 个角色和 100 份预设')
+    if (!Array.isArray(list) || list.length > 100) throw new TypeError('每个配置包最多包含 100 个角色和 100 份通用提示词')
     return list
   }
   const presets = items('presets').map(item => {
-    if (!isRecord(item)) throw new TypeError('预设格式无效')
-    keys(item, ['name', 'head', 'mid', 'tail'], '预设')
+    if (!isRecord(item)) throw new TypeError('通用提示词格式无效')
+    keys(item, ['name', 'head', 'mid', 'tail'], '通用提示词')
     const draft = validatePreset({ ...item, mid: item['mid'] ?? '', tail: item['tail'] ?? '' }, true)
-    if (/[\u0000-\u001f\u007f]/.test(draft.name)) throw new TypeError('预设名称不能包含换行或控制字符')
+    if (/[\u0000-\u001f\u007f]/.test(draft.name)) throw new TypeError('通用提示词名称不能包含换行或控制字符')
     return draft
   })
   const roles = items('roles').map(item => {
@@ -42,13 +42,13 @@ function parsePackage(value: unknown): ConfigPackage {
       persona: typeof item['persona'] === 'string' ? item['persona'].replace(/\r\n/g, '\n') : item['persona'] })
     if (/[\u0000-\u001f\u007f]/.test(role.name)) throw new TypeError('角色名称不能包含控制字符')
     const preset = item['preset']
-    if (preset !== undefined && (typeof preset !== 'string' || preset.trim() === '')) throw new TypeError('角色的破限预设必须填写名称')
+    if (preset !== undefined && (typeof preset !== 'string' || preset.trim() === '')) throw new TypeError('角色的通用提示词必须填写名称')
     return { ...role, ...preset === undefined ? {} : { preset: (preset as string).trim() } }
   })
-  for (const [label, list] of [['预设', presets], ['角色', roles]] as const) {
+  for (const [label, list] of [['通用提示词', presets], ['角色', roles]] as const) {
     if (new Set(list.map(item => item.name)).size !== list.length) throw new TypeError(`配置包里有重名${label}，请先修改名称`)
   }
-  if (presets.length + roles.length === 0) throw new TypeError('配置包里没有可导入的角色或预设')
+  if (presets.length + roles.length === 0) throw new TypeError('配置包里没有可导入的角色或通用提示词')
   return { presets, roles }
 }
 
@@ -91,7 +91,7 @@ function planImport(data: QqbotData, value: unknown, rawOptions: unknown): Plan 
     roleNames.add(target)
     if (skip) continue
     const preset = role.preset === undefined ? undefined : mapping.get(role.preset) ?? role.preset
-    if (preset !== undefined && !presetNames.has(preset)) throw new TypeError(`角色“${role.name}”需要预设“${role.preset}”，请同时导入这份预设`)
+    if (preset !== undefined && !presetNames.has(preset)) throw new TypeError(`角色“${role.name}”需要通用提示词“${role.preset}”，请同时导入这份通用提示词`)
     roles.push({ ...role, name: target, ...preset === undefined ? {} : { preset } })
   }
   // 同一预览对应同一资料库和选项。其他窗口修改后要求重新预览，避免导入与预览不一致。

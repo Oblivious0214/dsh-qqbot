@@ -36,7 +36,7 @@ describe('QQ text bubbles', () => {
 
   it('keeps voice selection, nontext block order and original motion indices', () => {
     const stages = [
-      { text: '[表情: 开心]\n\n第一段\n下一行', voice: true, motion: { stop: true }, cycles: 3 },
+      { text: '[表情: 开心]\n\n第一段\n下一行', voice: true, motion: { stop: true } },
       { text: '第二段', voice: true },
     ]
     const reasoning = { kind: 'reasoning' as const, text: '思考不分段\n仍保留' }
@@ -49,7 +49,7 @@ describe('QQ text bubbles', () => {
     expect(voiceBubbles(blocks, { voice: 'v', revision: '1' }, 'reply', 'selective').map(item => item.clip?.text))
       .toEqual([undefined, '第一段', '下一行', '第二段'])
     expect(bubbleStageIndices(stages)).toEqual([undefined, undefined, 0, 1])
-    expect(stages[0].cycles).toBe(3)
+    expect(stages[0].motion).toEqual({ stop: true })
     expect(stages[0].text).toContain('\n\n')
   })
 })

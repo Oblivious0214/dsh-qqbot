@@ -1,7 +1,7 @@
 {
   "name": "dsh-qqbot",
-  "version": "0.1.31",
-  "description": "QQ 聊天角色扮演：注册独立的 qqbot Agent 预设，统一组装提示词，并为其他插件提供槽位。",
+  "version": "0.36.0",
+  "description": "QQ 聊天角色扮演：独立预设、角色、记忆、语音与可单独关闭的设备联动。",
   "keywords": [
     "deepseek-harness",
     "dsh",
@@ -44,8 +44,14 @@
     "LICENSE",
     "NOTICE",
     "README.md",
+    "docs/funscript-storage.md",
     "assets/*.png",
-    "examples/*.json"
+    "assets/*.gif",
+    "assets/motion-presets/**",
+    "examples/*.json",
+    "docs/usage.md",
+    "docs/development.md",
+    "docs/images/*"
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
@@ -67,7 +73,9 @@
         "@deepseek-ai/dsh-client-ui-chat",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-session"
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ]
     }
   },
@@ -91,11 +99,13 @@
     "@deepseek-ai/dsh-client-ui-session": "link:../../qqbot/src/deepseek-harness/packages/client/ui-session",
     "@deepseek-ai/dsh-client-ui-settings": "link:../../qqbot/src/deepseek-harness/packages/client/ui-settings",
     "@deepseek-ai/dsh-client-ui-sidebar": "link:../../qqbot/src/deepseek-harness/packages/client/ui-sidebar",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "link:../../qqbot/src/deepseek-harness/packages/client/ui-sidebar-right",
     "@deepseek-ai/dsh-client-ui-slots": "link:../../qqbot/src/deepseek-harness/packages/client/ui-slots",
     "@deepseek-ai/dsh-client-ui-workspace": "link:../../qqbot/src/deepseek-harness/packages/client/ui-workspace",
     "@deepseek-ai/dsh-commands": "link:../../qqbot/src/deepseek-harness/packages/interaction/commands",
     "@deepseek-ai/dsh-compaction": "link:../../qqbot/src/deepseek-harness/packages/compaction/compaction",
     "@deepseek-ai/dsh-compaction-basic": "link:../../qqbot/src/deepseek-harness/packages/compaction/compaction-basic",
+    "@deepseek-ai/dsh-host-webserver": "link:../../qqbot/src/deepseek-harness/packages/host/webserver",
     "@deepseek-ai/dsh-llm": "link:../../qqbot/src/deepseek-harness/packages/llm/llm",
     "@deepseek-ai/dsh-system-prompt": "link:../../qqbot/src/deepseek-harness/packages/core/system-prompt",
     "@deepseek-ai/dsh-tools": "link:../../qqbot/src/deepseek-harness/packages/core/tools",

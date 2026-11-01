@@ -4,7 +4,7 @@ import { NO_ROLE } from '../src/bindings.ts'
 import * as host from '../src/index.ts'
 import * as prompt from '../src/prompt.ts'
 import { assembleParts } from '../src/prompt.ts'
-import { SEGMENT_RULE, VOICE_RULE } from '../src/format.ts'
+import { memeRule, SEGMENT_RULE, VOICE_RULE } from '../src/format.ts'
 import { SECTION_NAME } from '../src/order.ts'
 import { QqbotRegistryStore } from '../src/registry.ts'
 import { DEFAULT_VOICE_SETTINGS } from '../src/voice-types.ts'
@@ -224,5 +224,13 @@ describe('prompt plugin', () => {
     await fake.disposePrompt()
     expect(fake.systemPrompt.sections.size).toBe(0)
     expect(fake.systemPrompt.contexts.size).toBe(0)
+  })
+})
+
+describe('meme rule', () => {
+  it('keeps only the request-only usage line when frequency is off', () => {
+    const off = memeRule('off', { memePacks: [{ id: 'p', name: '猫猫' }], memeTags: ['开心'], memePrompt: '多发猫' })
+    expect(off).toBe('表情包：只在用户明确要求时，用 send_meme 找一张贴合的按工具说明发出。')
+    expect(memeRule('medium')).toContain('表情频率：适中')
   })
 })

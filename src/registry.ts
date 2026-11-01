@@ -25,6 +25,8 @@ export interface QqbotExtensionEntry {
 
 /** 会话当前角色里给外部插件用的部分。 */
 export interface QqbotRoleInfo {
+  /** 0.23.0 起有。角色的内部键，改名不变，供外部插件做按角色存储的键；不要显示给用户。 */
+  readonly id: string
   readonly name: string
   /** 角色卡写的设备主动性上限；没写时为空，表示不限。 */
   readonly proactivity?: RoleProactivity

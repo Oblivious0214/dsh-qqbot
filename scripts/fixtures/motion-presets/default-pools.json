@@ -1,0 +1,112 @@
+{
+  "low": {
+    "base_preset": "classic",
+    "candidate_presets": [
+      "tease",
+      "rhythm",
+      "sugardaddy"
+    ],
+    "probability_levels": {
+      "normal": "low",
+      "mw": "low",
+      "classic": "high",
+      "deep": "low",
+      "tease": "low",
+      "edge": "low",
+      "rhythm": "low",
+      "zipper": "low",
+      "risingheat": "low",
+      "angelbounce": "low",
+      "psytrance": "low",
+      "girlwants": "low",
+      "cpr": "low",
+      "stepclimb": "low",
+      "tide": "low",
+      "slopburst": "low",
+      "gimmemore": "low",
+      "tikthots": "low",
+      "sugardaddy": "low",
+      "underground": "low",
+      "cyberdream": "low",
+      "swallowwave": "low",
+      "premiumwave": "low",
+      "takeit": "low"
+    },
+    "base_probability": 40
+  },
+  "medium": {
+    "base_preset": "classic",
+    "candidate_presets": [
+      "tease",
+      "rhythm",
+      "sugardaddy",
+      "takeit",
+      "premiumwave",
+      "tide",
+      "angelbounce"
+    ],
+    "probability_levels": {
+      "normal": "low",
+      "mw": "low",
+      "classic": "high",
+      "deep": "low",
+      "tease": "low",
+      "edge": "low",
+      "rhythm": "low",
+      "zipper": "low",
+      "risingheat": "low",
+      "angelbounce": "low",
+      "psytrance": "low",
+      "girlwants": "low",
+      "cpr": "low",
+      "stepclimb": "low",
+      "tide": "low",
+      "slopburst": "low",
+      "gimmemore": "low",
+      "tikthots": "low",
+      "sugardaddy": "low",
+      "underground": "low",
+      "cyberdream": "low",
+      "swallowwave": "low",
+      "premiumwave": "low",
+      "takeit": "low"
+    },
+    "base_probability": 40
+  },
+  "high": {
+    "base_preset": "normal",
+    "candidate_presets": [
+      "takeit",
+      "premiumwave",
+      "tide",
+      "angelbounce"
+    ],
+    "probability_levels": {
+      "normal": "high",
+      "mw": "low",
+      "classic": "low",
+      "deep": "low",
+      "tease": "low",
+      "edge": "low",
+      "rhythm": "low",
+      "zipper": "low",
+      "risingheat": "low",
+      "angelbounce": "low",
+      "psytrance": "low",
+      "girlwants": "low",
+      "cpr": "low",
+      "stepclimb": "low",
+      "tide": "low",
+      "slopburst": "low",
+      "gimmemore": "low",
+      "tikthots": "low",
+      "sugardaddy": "low",
+      "underground": "low",
+      "cyberdream": "low",
+      "swallowwave": "low",
+      "premiumwave": "low",
+      "takeit": "low"
+    },
+    "base_probability": 40
+  }
+}

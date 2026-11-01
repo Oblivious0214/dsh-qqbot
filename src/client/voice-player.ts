@@ -6,11 +6,12 @@
 
 import { requestSpeech } from './voice-state.ts'
 
-/** 一句要朗读的话。key 区分音频：同一音色、同一设置、同一句话共用一份。 */
+/** 一句要朗读的话。key 区分音频：同一音色、同一设置、同一句话、同一语气共用一份。 */
 export interface Clip {
   readonly key: string
   readonly voice: string
   readonly text: string
+  readonly tone?: string
 }
 
 export type ClipStatus =
@@ -47,6 +48,10 @@ const CONCURRENCY = 2
 /** 页面里最多留多少句的音频，多了先丢最久没用的。 */
 const ENTRY_LIMIT = 200
 const METADATA_TIMEOUT_MS = 15_000
+const READ_PREFIX = 'dsh-qqbot:voice-read:'
+function browserStorage(): Storage | undefined {
+  try { return globalThis.localStorage } catch { return undefined }
+}
 
 const abortError = () => new DOMException('已取消', 'AbortError')
 export const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError'
@@ -92,8 +97,9 @@ export class VoicePlayer {
 
   constructor(
     private readonly volume: () => number,
-    private readonly synth: (voice: string, text: string, signal: AbortSignal) => Promise<Blob> = requestSpeech,
+    private readonly synth: (voice: string, text: string, signal: AbortSignal, tone?: string) => Promise<Blob> = requestSpeech,
     private readonly makeAudio: () => AudioLike = () => new Audio(),
+    private readonly storage: Storage | undefined = browserStorage(),
   ) {}
 
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
@@ -120,7 +126,25 @@ export class VoicePlayer {
 
   /** 点开过的语音条显示文字（"语音条，点开显示文字"）。按气泡记，不按句子：两个气泡说了同一句话也分开。 */
   isRevealed(bubble: string): boolean {
+    try { if (this.storage?.getItem(READ_PREFIX + bubble) === '1') this.revealed.add(bubble) } catch { /* 内存记录仍可用。 */ }
     return this.revealed.has(bubble)
+  }
+
+  reveal(bubble: string): void {
+    this.revealed.add(bubble)
+    try { this.storage?.setItem(READ_PREFIX + bubble, '1') } catch { /* 存储不可用时保留本页状态。 */ }
+    this.notify()
+  }
+
+  clearReadState(): void {
+    this.revealed.clear()
+    if (this.storage !== undefined) {
+      for (let index = this.storage.length - 1; index >= 0; index--) {
+        const key = this.storage.key(index)
+        if (key?.startsWith(READ_PREFIX)) this.storage.removeItem(key)
+      }
+    }
+    this.notify()
   }
 
   private entry(clip: Clip): Entry {
@@ -196,7 +220,7 @@ export class VoicePlayer {
   private async load(entry: Entry, signal: AbortSignal): Promise<void> {
     // 取消后立刻放手，不等请求自己结束：语音条马上回到可以再点的状态。
     const aborted = new Promise<never>((_, reject) => { signal.addEventListener('abort', () => { reject(abortError()) }, { once: true }) })
-    const blob = await Promise.race([this.synth(entry.voice, entry.text, signal), aborted])
+    const blob = await Promise.race([this.synth(entry.voice, entry.text, signal, entry.tone), aborted])
     const url = URL.createObjectURL(blob)
     const audio = this.makeAudio()
     try {
@@ -216,7 +240,7 @@ export class VoicePlayer {
     for (let index = start; index < clips.length; index++) {
       const clip = clips[index]!
       const bubble = bubbles[index]
-      if (bubble !== undefined) this.revealed.add(bubble)
+      if (bubble !== undefined) this.reveal(bubble)
       this.active = { owner, key: clip.key }
       delete this.entry(clip).error
       this.notify()
@@ -287,12 +311,16 @@ export class VoicePlayer {
     if (this.active?.owner === owner) this.stop()
   }
 
-  dispose(): void {
+  clearCache(): void {
     this.stop()
     for (const entry of this.entries.values()) this.drop(entry)
     this.entries.clear()
-    this.revealed.clear()
     this.jobs.length = 0
+    this.notify()
+  }
+
+  dispose(): void {
+    this.clearCache()
     this.listeners.clear()
   }
 }

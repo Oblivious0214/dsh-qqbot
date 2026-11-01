@@ -1,13 +1,27 @@
 /** Copyright (c) 2026 yupaoa. MIT. 表情偏好流程参考 dsh-persona-switcher，按 QQ 角色编辑器重写。 */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DEFAULT_MEME_FREQUENCY, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS, MEME_PROMPT_LIMIT,
+import { DEFAULT_MEME_FREQUENCY, MEME_FREQUENCIES, MEME_FREQUENCY_LABELS,
   type LibraryRoleDraft } from '../library-types.ts'
 import { readMemeCatalogue, type MemeCatalogue } from './meme-catalogue.ts'
 
-export function MemeFields({ draft, active, available, onChange }: {
+export function MemeFrequencyField({ draft, onChange }: {
+  readonly draft: LibraryRoleDraft
+  readonly onChange: (draft: LibraryRoleDraft) => void
+}) {
+  return <label className="ql-field ql-inline"><span>表情频率</span><select aria-label="表情频率" value={draft.memeFrequency ?? ''} onChange={event => {
+    const { memeFrequency: _, ...rest } = draft
+    const value = MEME_FREQUENCIES.find(f => f === event.target.value)
+    onChange(value === undefined ? rest : { ...rest, memeFrequency: value })
+  }}><option value="">默认（{MEME_FREQUENCY_LABELS[DEFAULT_MEME_FREQUENCY]}）</option>
+    {MEME_FREQUENCIES.map(f => <option key={f} value={f}>{MEME_FREQUENCY_LABELS[f]}</option>)}
+  </select></label>
+}
+
+export function MemeFields({ draft, active, available, onChange, promptEditor }: {
   readonly draft: LibraryRoleDraft; readonly active: boolean; readonly available: boolean
   readonly onChange: (draft: LibraryRoleDraft) => void
+  readonly promptEditor: ReactNode
 }) {
   const [catalogue, setCatalogue] = useState<MemeCatalogue>()
   const [error, setError] = useState<string>()
@@ -34,10 +48,10 @@ export function MemeFields({ draft, active, available, onChange }: {
     onChange(values.length === 0 ? rest : { ...rest, memeTags: values })
   }
   return <>
-    {!available && <div className="ql-note">dsh-meme 未启用，已保存的偏好会保留。</div>}
+    {!available && <div className="ql-note">dsh-meme 未启用。</div>}
     {available && catalogue === undefined && error === undefined && <div className="ql-note" role="status">正在读取图库…</div>}
     {error !== undefined && <div className="ql-state ql-warn" role="alert"><span>{error}</span>
-      <Button size="sm" variant="ghost" onClick={() => { setAttempt(n => n + 1) }}>重试</Button></div>}
+      <Button size="sm" variant="outline" onClick={() => { setAttempt(n => n + 1) }}>重试</Button></div>}
     <fieldset className="qm-choices"><legend title="只优先使用，不限制其他图库；图库仍需在 dsh-meme 中启用">优先图库</legend>
       {[...packs.values()].map(pack => <label className="ql-toggle" key={pack.id}>
         <input type="checkbox" checked={selected.has(pack.id)} onChange={event => {
@@ -53,20 +67,9 @@ export function MemeFields({ draft, active, available, onChange }: {
         onChange={event => { setTags(event.target.checked ? [...draft.memeTags ?? [], tag] : (draft.memeTags ?? []).filter(t => t !== tag)) }} /><span>{tag}</span></label>)}
       {catalogue !== undefined && tags.length === 0 && <span className="ql-note">暂无标签</span>}
     </fieldset>
-    <label className="ql-field ql-inline"><span>表情频率</span><select value={draft.memeFrequency ?? ''} onChange={event => {
-      const { memeFrequency: _, ...rest } = draft
-      const value = MEME_FREQUENCIES.find(f => f === event.target.value)
-      onChange(value === undefined ? rest : { ...rest, memeFrequency: value })
-    }}><option value="">默认（{MEME_FREQUENCY_LABELS[DEFAULT_MEME_FREQUENCY]}）</option>
-      {MEME_FREQUENCIES.map(f => <option key={f} value={f}>{MEME_FREQUENCY_LABELS[f]}</option>)}
-    </select></label>
-    <label className="ql-field"><span title="仅在 QQ 会话中作为这个角色的表情要求">补充提示词</span>
-      <textarea rows={3} maxLength={MEME_PROMPT_LIMIT} value={draft.memePrompt ?? ''} onChange={event => {
-        const { memePrompt: _, ...rest } = draft
-        onChange(event.target.value === '' ? rest : { ...rest, memePrompt: event.target.value })
-      }} /></label>
-    <div className="ql-actions"><Button size="sm" variant="ghost" onClick={() => {
-      const { memePacks: _p, memeTags: _t, memePrompt: _s, memeFrequency: _f, ...rest } = draft
+    {promptEditor}
+    <div className="ql-actions"><Button size="sm" variant="outline" onClick={() => {
+      const { memePacks: _p, memeTags: _t, memeFrequency: _f, ...rest } = draft
       onChange(rest)
     }}>清空表情偏好</Button></div>
   </>

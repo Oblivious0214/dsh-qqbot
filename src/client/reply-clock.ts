@@ -3,7 +3,8 @@
  * 计时不依赖组件是否挂载：切走会话或滚动后，段落仍按时出现，外部插件（设备）仍按时收到通知。
  *
  * - 流式输出时第一段一闭合就显示，之后每段在上一段显示后过 holdMs 出现；到点了下一段还没生成出来，就等它生成出来再显示。
- * - holdMs 先问外部插件（SegmentHooks.durations，例如设备按 cycles 算出的时长），没有时用按字数计算的兜底间隔。
+ * - holdMs 先问外部插件（SegmentHooks.durations，例如设备运动时的段落间隔）。没有时模拟对方打字：
+ *   按下一段的字数从上一段显示时开始计时；下一段还没生成出来就等它出来再算，生成慢于打字时立即显示。
  * - 暂停（pause）时这个会话里的回复停在当前段，恢复后从剩余时间接着走。
  * - 用户发了新消息（interrupt）时没出现的段落不再出现。
  * - 历史回复（不是实时的）直接全部显示，不计时，也不通知外部插件。
@@ -14,9 +15,8 @@
 /** 交给外部插件的段落：文字和协议扩展字段，原样来自 [qq] 块。 */
 export interface SegmentStage {
   readonly text: string
-  readonly cycles?: number
   readonly motion?: unknown
-  /** 回复的 JSON 坏了，这一段是尽量抽出来的文字，没有 cycles 和 motion。设备插件应停止本条回复的动作。 */
+  /** 回复的 JSON 坏了，这一段是尽量抽出来的文字，没有 motion。设备插件应停止本条回复的动作。 */
   readonly salvaged?: true
 }
 
@@ -35,6 +35,8 @@ export interface SegmentPlayback {
   readonly index: number
   readonly status: 'history' | 'running' | 'paused' | SegmentEndReason
   readonly remainingMs: number
+  /** 正在按打字节奏等下一段（不是设备停留），界面显示“对方输入中…”。 */
+  readonly typing: boolean
 }
 
 /** 外部插件的回调。都是可选的；抛出的错误只记日志，不影响文字显示。 */
@@ -80,14 +82,22 @@ interface Row {
   due: number
   /** 暂停时还剩多久。 */
   left: number | undefined
+  /** 当前段显示的时间；打字计时从这里起算。 */
+  shownAt: number
+  /** 打字计时在等下一段生成出来才能算出 due。 */
+  awaiting: boolean
+  /** 等待中的是打字节奏，不是外部插件给的停留。 */
+  typing: boolean
+  /** 暂停时 awaiting 已经过去了多久。 */
+  elapsed: number | undefined
   timer: unknown
   ended: boolean
   reason?: SegmentEndReason
 }
 
 export interface ReplyClockOptions {
-  /** 外部插件没给停留时间时，按字数计算的兜底间隔。 */
-  readonly delay: (text: string) => number
+  /** 外部插件没给停留时间时，按下一段的文字算出的打字间隔。 */
+  readonly delay: (next: string) => number
   /** 显示的段数变了。 */
   readonly onChange: () => void
   readonly onError: (error: unknown) => void
@@ -125,7 +135,8 @@ export class ReplyClock {
       row = undefined
     }
     if (row === undefined) {
-      row = { session, reply, passive: !live, stages, complete, shown: 0, due: this.timers.now(), left: undefined, timer: undefined, ended: !live }
+      const now = this.timers.now()
+      row = { session, reply, passive: !live, stages, complete, shown: 0, due: now, left: undefined, shownAt: now, awaiting: false, typing: false, elapsed: undefined, timer: undefined, ended: !live }
       this.rows.set(key, row)
       this.trim()
       if (live) this.kick(row)
@@ -158,7 +169,8 @@ export class ReplyClock {
     return {
       index: row.shown - 1,
       status: row.passive ? 'history' : row.reason ?? (this.paused(session) ? 'paused' : 'running'),
-      remainingMs: row.ended ? 0 : row.left ?? Math.max(0, row.due - this.timers.now()),
+      remainingMs: row.ended || row.awaiting ? 0 : row.left ?? Math.max(0, row.due - this.timers.now()),
+      typing: !row.passive && !row.ended && row.typing && !this.paused(session),
     }
   }
 
@@ -174,7 +186,8 @@ export class ReplyClock {
     if (held === 0) {
       const now = this.timers.now()
       for (const row of this.active(session)) {
-        row.left = Math.max(0, row.due - now)
+        if (row.awaiting) row.elapsed = now - row.shownAt
+        else row.left = Math.max(0, row.due - now)
         this.clearTimer(row)
       }
       this.options.onChange()
@@ -189,7 +202,9 @@ export class ReplyClock {
       const now = this.timers.now()
       for (const row of this.active(session)) {
         if (row.left !== undefined) row.due = now + row.left
+        if (row.elapsed !== undefined) row.shownAt = now - row.elapsed
         row.left = undefined
+        row.elapsed = undefined
         if (row.shown < row.stages.length) this.kick(row)
         else if (row.complete) this.finish(row)
       }
@@ -215,6 +230,10 @@ export class ReplyClock {
   /** 有下一段可显示时排上计时器；暂停时什么也不做，恢复时再排。 */
   private kick(row: Row): void {
     if (row.ended || row.timer !== undefined || this.paused(row.session) || row.shown >= row.stages.length) return
+    if (row.awaiting) {
+      row.awaiting = false
+      row.due = row.shownAt + this.typingHold(row.stages[row.shown]!.text)
+    }
     row.timer = this.timers.set(() => { this.advance(row) }, Math.max(0, row.due - this.timers.now()))
   }
 
@@ -223,8 +242,15 @@ export class ReplyClock {
     if (row.ended || this.paused(row.session) || row.shown >= row.stages.length) return
     const index = row.shown++
     const stage = row.stages[index]!
-    const hold = this.hold(row, index)
-    row.due = this.timers.now() + hold
+    const now = this.timers.now()
+    const external = this.external(row, index)
+    const next = row.stages[index + 1]
+    row.shownAt = now
+    row.typing = external === undefined
+    row.awaiting = external === undefined && next === undefined && !row.complete
+    // 下一段还没生成时先按这一段估一个间隔交给外部插件（设备看门狗用），真正的出现时间等下一段到了再算。
+    const hold = external ?? this.typingHold(next?.text ?? stage.text)
+    row.due = now + hold
     const last = row.complete && row.shown === row.stages.length
     this.options.onChange()
     this.emit(hooks => hooks.revealed?.(row.session, row.reply, index, stage, last ? undefined : hold))
@@ -241,22 +267,22 @@ export class ReplyClock {
     this.end(row, 'complete')
   }
 
-  private hold(row: Row, index: number): number {
-    const stage = row.stages[index]!
-    let value: number | undefined
+  /** 外部插件给的停留时间；都没给时为 undefined。 */
+  private external(row: Row, index: number): number | undefined {
     for (const hooks of this.hooks) {
       if (hooks.durations === undefined) continue
       try {
         const result = hooks.durations(row.session, row.reply, row.stages, index)
-        if (typeof result === 'number' && Number.isFinite(result)) { value = result; break }
+        if (typeof result === 'number' && Number.isFinite(result)) return clampHold(result)
       } catch (error) {
         this.options.onError(error)
       }
     }
-    if (value === undefined) {
-      try { value = this.options.delay(stage.text) } catch (error) { this.options.onError(error) }
-    }
-    return Math.min(MAX_HOLD_MS, Math.max(0, value ?? 0))
+    return undefined
+  }
+
+  private typingHold(next: string): number {
+    try { return clampHold(this.options.delay(next)) } catch (error) { this.options.onError(error); return 0 }
   }
 
   private end(row: Row, reason: SegmentEndReason): void {
@@ -289,4 +315,5 @@ export class ReplyClock {
   }
 }
 
+const clampHold = (value: number) => Math.min(MAX_HOLD_MS, Math.max(0, Number.isFinite(value) ? value : 0))
 const keyOf = (session: string, reply: string) => `${session}\u0000${reply}`

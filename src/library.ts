@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type { QqbotData } from './content.ts'
 import type {} from './index.ts'
 import { MEME_TOOL } from './format.ts'
-import { LIBRARY_PATH, type LibraryError, type LibraryView } from './library-types.ts'
+import { LIBRARY_PATH, ROLE_PROACTIVITIES, type RoleProactivity, type LibraryError, type LibraryView } from './library-types.ts'
 import { outcomeMessage } from './memory-coordinator.ts'
 import { normalizeMemory } from './memory-format.ts'
 import { isRecord } from './storage.ts'
@@ -83,19 +83,49 @@ function requireRole(data: QqbotData, id: string): void {
 export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore): string | undefined {
   if (!isRecord(body)) throw new BadRequest('请求格式无效')
   switch (body['action']) {
+    case 'role.meme-prompt.save':
+    case 'role.proactivity-text.save': {
+      const id = text(body, 'id')
+      requireRole(data, id)
+      const current = data.roles.get(id)!
+      if (body['action'] === 'role.meme-prompt.save') {
+        if (typeof body['prompt'] !== 'string') throw new BadRequest('prompt 必须是文本')
+        const { memePrompt: _, ...rest } = current
+        return data.roles.save({ ...rest, ...body['prompt'] === '' ? {} : { memePrompt: body['prompt'] } }, false).id
+      }
+      if (!ROLE_PROACTIVITIES.includes(body['level'] as RoleProactivity)) throw new BadRequest('自主性档位无效')
+      if (body['text'] !== undefined && typeof body['text'] !== 'string') throw new BadRequest('自主性提示词必须是文本')
+      const texts = { ...current.proactivityTexts }
+      const level = body['level'] as RoleProactivity
+      if (body['text'] === undefined) delete texts[level]
+      else texts[level] = body['text'] as string
+      return data.roles.save({ ...current, proactivityTexts: texts }, false).id
+    }
+    case 'role.memory.save': {
+      const id = text(body, 'id')
+      requireRole(data, id)
+      if (typeof body['memory'] !== 'string') throw new BadRequest('memory 必须是文本')
+      data.memories.save(id, body['memory'])
+      // 手动改的记忆通常是纠正称呼、关系，已开始的对话也立即换上。
+      data.applyMemoryToRole(id)
+      return id
+    }
     case 'role.save': {
       const draft = body['role']
       const preset = isRecord(draft) ? draft['preset'] : undefined
       const memory = isRecord(draft) ? draft['memory'] : undefined
       // 写角色前先校验预设和记忆，失败不能创建半个角色；旧调用未传时保留原绑定和原记忆。
       if (preset !== undefined && (typeof preset !== 'string' || data.presets.get(preset) === undefined)) {
-        throw new Error('所选破限预设已不存在，请重新选择')
+        throw new Error('所选通用提示词已不存在，请重新选择')
       }
       if (memory !== undefined && typeof memory !== 'string') throw new BadRequest('memory 必须是文本')
       if (typeof memory === 'string') normalizeMemory(memory)
       const saved = data.roles.save(draft, flag(body, 'create')).id
       if (typeof preset === 'string') data.presets.assign(saved, preset)
-      if (typeof memory === 'string') data.memories.save(saved, memory)
+      if (typeof memory === 'string') {
+        data.memories.save(saved, memory)
+        data.applyMemoryToRole(saved)
+      }
       return saved
     }
     case 'role.remove':
@@ -152,7 +182,7 @@ export function apply(ctx: Context): void {
     path: CONFIG_PATH,
     methods: ['POST'],
     requestBody: 'buffered',
-    fetch: async request => {
+    fetch: ctx.qqbot.maintenance.route(async request => {
       const raw = await request.text()
       if (Buffer.byteLength(raw) > CONFIG_MAX_BYTES + 4096) return fail(413, 'bad-request', '配置文件不能超过 10 MB')
       let body: unknown
@@ -168,13 +198,13 @@ export function apply(ctx: Context): void {
       } catch (error) {
         return fail(error instanceof TypeError ? 400 : 409, error instanceof TypeError ? 'bad-request' : 'failed', error instanceof Error ? error.message : String(error))
       }
-    },
+    }),
   }), 'qqbot: config import route')
   ctx.effect(() => ctx.connection.fetch.register({
     path: LIBRARY_PATH,
     methods: ['GET', 'POST'],
     requestBody: 'buffered',
-    fetch: async (request) => {
+    fetch: ctx.qqbot.maintenance.route(async (request) => {
       let saved: string | undefined
       if (request.method === 'POST') {
         let body: unknown
@@ -190,6 +220,8 @@ export function apply(ctx: Context): void {
             requireRole(data, id)
             const problem = outcomeMessage(await ctx.qqbot.memory.consolidateRole(id))
             if (problem !== undefined) throw new Error(problem)
+            // 手动总结和手动修改一样，已开始的对话立即换上；自动整理等下次压缩。
+            data.applyMemoryToRole(id)
           } else {
             saved = applyLibraryAction(data, body, ctx.qqbot.ui)
           }
@@ -203,6 +235,6 @@ export function apply(ctx: Context): void {
         meme: ctx.get('tools')?.get(MEME_TOOL) !== undefined,
         toy: ctx.qqbot.store.snapshot().extensions.some(entry => entry.name === 'toy'),
       }))
-    },
+    }),
   }), 'qqbot: library route')
 }

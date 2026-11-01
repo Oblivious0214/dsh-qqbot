@@ -10,6 +10,6 @@
     "src"
   ],
   "exclude": [
-    "src/client"
+    "src/client", "src/toy/client"
   ]
 }

@@ -1,8 +1,5 @@
 /**
- * 会话的角色切换：新会话页 agent 预设右边一个（conversation.hero.options），会话开始后在输入栏左侧一个
- * （conversation.input.left，排在联动按钮左边）。两处只在 qqbot 会话里出现，同一时刻只显示一个：
- * 空白会话显示新会话页那个，发过消息后显示输入栏那个。
- * 选择写进 sessions.json 的会话绑定，下一轮组装时生效；空白会话选了以后第一轮就用它，不再取新会话默认角色。
+ * 空白 qqbot 会话可选择角色；开始后输入栏显示当前角色，点击打开 QQ Bot 设置。
  */
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
@@ -40,8 +37,6 @@ export interface RoleChipInjected {
   readonly openEditor: OpenEditor
 }
 
-type Place = 'hero' | 'input'
-
 type HeroProps = PropsRuntime<'conversation.hero.options'> & InjectFace<RoleChipInjected>
 type InputProps = PropsRuntime<'conversation.input.left'> & InjectFace<RoleChipInjected>
 
@@ -49,14 +44,26 @@ type InputProps = PropsRuntime<'conversation.input.left'> & InjectFace<RoleChipI
 export function HeroRoleChip(props: HeroProps) {
   const state = useSessionState(props)
   if (state !== 'blank') return null
-  return <RoleChip place="hero" sessionId={props.sessionId} ui={props.ui} openEditor={props.openEditor} />
+  return <RoleChip sessionId={props.sessionId} ui={props.ui} openEditor={props.openEditor} />
 }
 
 /** 输入栏：qqbot 会话发过消息以后出现。 */
 export function InputRoleChip(props: InputProps) {
   const state = useSessionState(props)
   if (state !== 'started') return null
-  return <RoleChip place="input" sessionId={props.sessionId} ui={props.ui} openEditor={props.openEditor} />
+  return <CurrentRoleSettings sessionId={props.sessionId} ui={props.ui} openEditor={props.openEditor} />
+}
+
+function CurrentRoleSettings({ sessionId, ui, openEditor }: { sessionId: string } & RoleChipInjected) {
+  useSyncExternalStore(ui.subscribe, ui.getVersion)
+  const current = ui.session(sessionId)?.role
+  return <span className={ROLE_CHIP_CLASS} data-place="input">
+    <button type="button" className="qr-trigger" aria-haspopup="dialog" title="QQ Bot 设置"
+      onClick={() => openEditor({ tab: 'roles', ...current == null ? {} : { id: current.id } })}>
+      <IconUserOutlineRegular size={16} />
+      <span className="qr-label">{current?.name ?? 'QQ Bot'}</span>
+    </button>
+  </span>
 }
 
 /** 不是 qqbot 会话时为 undefined。 */
@@ -69,7 +76,7 @@ function useSessionState({ sessionId, useSessions }: HeroProps | InputProps): 'b
   })
 }
 
-function RoleChip({ place, sessionId, ui, openEditor }: { readonly place: Place; readonly sessionId: string } & RoleChipInjected) {
+function RoleChip({ sessionId, ui, openEditor }: { readonly sessionId: string } & RoleChipInjected) {
   useSyncExternalStore(ui.subscribe, ui.getVersion)
   const view = ui.session(sessionId)
   const [open, setOpen] = useState(false)
@@ -81,7 +88,6 @@ function RoleChip({ place, sessionId, ui, openEditor }: { readonly place: Place;
 
   const current = view?.role ?? null
   const label = view === undefined ? '角色' : current === null ? '不用角色' : current.name
-  const hint = place === 'hero' ? '这个会话用的角色' : '切换角色，下一条消息起生效'
   const items: MenuEntry[] = [
     { id: NONE_ID, label: <span className={`${ROLE_CHIP_CLASS}-item`}><span>不用角色</span></span> },
     ...(view?.roster ?? []).map(role => ({
@@ -110,10 +116,10 @@ function RoleChip({ place, sessionId, ui, openEditor }: { readonly place: Place;
     )
   }
 
-  return <span className={ROLE_CHIP_CLASS} data-place={place}>
+  return <span className={ROLE_CHIP_CLASS} data-place="hero">
     <Menu open={open} onClose={() => { setOpen(false) }} items={items} selectedId={current?.id ?? NONE_ID}
-      onSelect={pick} align="start" side={place === 'input' ? 'top' : 'bottom'} portal
-      anchor={<button type="button" className="qr-trigger" aria-haspopup="menu" aria-expanded={open} title={hint}
+      onSelect={pick} align="start" side="bottom" portal
+      anchor={<button type="button" className="qr-trigger" aria-haspopup="menu" aria-expanded={open} title="这个会话用的角色"
         disabled={busy} onClick={() => { setOpen(value => !value) }}>
         <IconUserOutlineRegular size={16} />
         <span className="qr-label">{label}</span>

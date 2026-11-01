@@ -8,8 +8,10 @@ import {
   type EngineDraft, type EngineKind, type VoiceAction, type VoiceDraft, type VoiceEngineView,
   type VoiceEntry, type VoiceParams, type VoiceSettings,
 } from '../voice-types.ts'
-import { requestSpeech, requestVoice, type VoiceState } from './voice-state.ts'
+import { requestSpeech, type VoiceState } from './voice-state.ts'
 import { ActionDialog } from './action-dialog.tsx'
+import { VoiceHelp } from './voice-help.tsx'
+import { SwitchRow } from './switch.tsx'
 
 const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error)
 function freeName(base: string, taken: readonly { readonly name: string }[]): string {
@@ -20,35 +22,34 @@ function freeName(base: string, taken: readonly { readonly name: string }[]): st
 function fishReference(value: string): string {
   return /fish\.audio\/.*?\b([0-9a-f]{32})\b/i.exec(value)?.[1] ?? value
 }
-function useVoiceAction(voice: VoiceState, onBusy: (busy: boolean) => void) {
+function useVoiceAction(voice: VoiceState) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [saved, setSaved] = useState(false)
   const mounted = useRef(true)
   const submitting = useRef(false)
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; onBusy(false) } }, [onBusy])
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const run = async (action: VoiceAction): Promise<string | undefined | false> => {
     if (submitting.current) return false
-    submitting.current = true; onBusy(true)
+    submitting.current = true
     setBusy(true); setError(undefined); setSaved(false)
     try {
-      const view = await requestVoice(action)
-      voice.adopt(view)
+      const view = await voice.act(action)
       setSaved(true)
       if (!mounted.current) return false
       return view.saved
     } catch (caught) { setError(messageOf(caught)); return false }
-    finally { submitting.current = false; setBusy(false); onBusy(false) }
+    finally { submitting.current = false; setBusy(false) }
   }
   return { busy, error, saved, run, clearError: () => { setError(undefined) } }
 }
 function Field({ label, hint, children }: { readonly label: string; readonly hint?: string; readonly children: ReactNode }) {
-  return <label className="ql-field"><span title={hint}>{label}</span>{children}</label>
+  return <label className="ql-field qq-settings-field"><span title={hint}>{label}</span>{children}</label>
 }
 function ErrorMessage({ error }: { readonly error: string | undefined }) {
   const element = useRef<HTMLDivElement>(null)
   useEffect(() => { if (error !== undefined) element.current?.scrollIntoView({ block: 'nearest' }) }, [error])
-  return error === undefined ? null : <div ref={element} role="alert" className="ql-state ql-warn">{error}</div>
+  return error === undefined ? null : <div ref={element} role="alert" className="ql-state ql-warn qq-settings-status">{error}</div>
 }
 
 /** 页面上只挂载一个试听器；返回、切换音色或更改参数时停止并取消请求。 */
@@ -99,9 +100,9 @@ function Preview({ voice, draft, autoPlay = false, onStart, onSuccess }: {
   }, [signature])
   return <div className="qv-preview">
     <Field label="试听文字"><input value={text} maxLength={200} onChange={event => { setText(event.target.value) }} /></Field>
-    <div className="ql-actions"><Button size="sm" variant="outline" disabled={draft === undefined} onClick={() => { if (state === 'idle') void play(); else stop() }}>
+    <div className="ql-actions qq-settings-actions"><Button size="sm" variant="outline" disabled={draft === undefined} onClick={() => { if (state === 'idle') void play(); else stop() }}>
       {state === 'idle' ? '试听' : state === 'loading' ? '取消生成' : '停止播放'}
-    </Button>{state === 'loading' && <span className="qv-meta" role="status">生成中…</span>}</div>
+    </Button>{state === 'loading' && <span className="qv-meta qq-settings-status" role="status">生成中…</span>}</div>
     <ErrorMessage error={error} />
   </div>
 }
@@ -138,36 +139,36 @@ function EngineForm({ voice, engine, action, onDirty, onSaved, onCancel }: FormP
       setKind(next); setConfig(ENGINE_DEFAULTS[next]); setName(freeName(ENGINE_KIND_LABELS[next], voice.engines))
       setApiKey(''); setChangingKey(false); setRemoveKey(false); dirty()
     }}>{ENGINE_KINDS.map(k => <option key={k} value={k}>{ENGINE_KIND_LABELS[k]}</option>)}</select></Field>}
-    {kind !== 'fish' && <Field label="服务地址" hint={kind === 'gpt-sovits' ? '运行 api_v2.py 的地址' : '地址填到 /v1'}>
+    <Field label="名称"><input value={name} onChange={event => { setName(event.target.value); dirty() }} /></Field>
+    {kind !== 'gpt-sovits' && <Field label="模型"><input value={config.model} placeholder={ENGINE_DEFAULTS[kind].model}
+        onChange={event => { setConfig(c => ({ ...c, model: event.target.value })); dirty() }} /></Field>}
+    {kind !== 'fish' && <Field label="服务地址" hint={kind === 'gpt-sovits' ? '运行 api_v2.py 的服务地址，也可粘贴完整 /tts 接口；不要填 WebUI 网页地址' : '填写服务方提供的 API 基础地址（通常到 /v1），也可粘贴完整 /audio/speech 接口'}>
       <input value={config.baseUrl} placeholder={ENGINE_DEFAULTS[kind].baseUrl}
         onChange={event => { setConfig(c => ({ ...c, baseUrl: event.target.value })); dirty() }} />
     </Field>}
-    {keyMode !== 'none' && <div className="ql-field"><span>API 密钥{keyMode === 'optional' ? '（可选）' : ''}</span>
+    {kind === 'openai' && <SwitchRow label="支持语气说明" title="服务能读取 instructions 字段时打开，AI 写的语气会随台词发过去" checked={config.tone === true}
+      onChange={tone => { setConfig(c => ({ ...c, tone })); dirty() }} />}
+    {keyMode !== 'none' && <div className="ql-field qq-settings-field"><span>API 密钥{keyMode === 'optional' ? '（可选）' : ''}</span>
       {engine?.hasKey === true && !changingKey && !removeKey
-        ? <div className="ql-actions"><span className="qv-meta">已配置</span><Button size="sm" variant="outline" onClick={() => { setChangingKey(true) }}>更换</Button></div>
+        ? <div className="ql-actions qq-settings-actions"><span className="qv-meta">已配置</span><Button size="sm" variant="outline" onClick={() => { setChangingKey(true) }}>更换</Button></div>
         : removeKey ? <span className="qv-meta">保存后移除密钥</span>
           : <input type="password" autoComplete="off" aria-label="API 密钥" value={apiKey} disabled={!voice.keyStore}
             placeholder={!voice.keyStore ? 'DSH 凭据库不可用' : engine?.hasKey === true ? '留空保留原密钥' : keyMode === 'required' ? '填写 Fish Audio API 密钥' : '本地服务通常留空'}
             onChange={event => { setApiKey(event.target.value); dirty() }} />}
     </div>}
     {kind === 'fish' && <div className="qv-proxy">
-      <label className="qv-setting" title="填代理软件的 HTTP 或混合端口，不支持 SOCKS"><span>使用代理</span>
-        <input type="checkbox" checked={proxy.enabled} onChange={event => {
-          setConfig(c => ({ ...c, proxy: { ...proxy, enabled: event.target.checked } })); dirty()
-        }} /></label>
+      <SwitchRow label="使用代理" title="端口在科学上网软件的“设置 → 端口设置”里查看" checked={proxy.enabled} onChange={enabled => {
+        setConfig(c => ({ ...c, proxy: { ...proxy, enabled } })); dirty()
+      }} />
       {proxy.enabled && <Field label="代理地址"><input value={proxy.url} placeholder={DEFAULT_PROXY_URL}
         onChange={event => { setConfig(c => ({ ...c, proxy: { ...proxy, url: event.target.value } })); dirty() }} /></Field>}
     </div>}
-    <details className="qv-more"><summary>更多设置</summary><div className="qv-fields">
-      <Field label="名称"><input value={name} onChange={event => { setName(event.target.value); dirty() }} /></Field>
-      {kind !== 'gpt-sovits' && <Field label="模型"><input value={config.model} placeholder={ENGINE_DEFAULTS[kind].model}
-        onChange={event => { setConfig(c => ({ ...c, model: event.target.value })); dirty() }} /></Field>}
-      {engine?.hasKey === true && keyMode !== 'none' && <label className="ql-toggle">
-        <input type="checkbox" checked={removeKey} onChange={event => { setRemoveKey(event.target.checked); setApiKey(''); dirty() }} /><span>移除已保存的密钥</span>
-      </label>}
-    </div></details>
+    {engine?.hasKey === true && keyMode !== 'none' && <details className="qv-more qq-settings-fold"><summary>更多设置</summary><div className="qv-fields">
+      <SwitchRow label="移除密钥" checked={removeKey}
+        onChange={value => { setRemoveKey(value); setApiKey(''); dirty() }} />
+    </div></details>}
     <ErrorMessage error={error} />
-    <div className="qv-footer"><Button size="sm" variant="outline" onClick={onCancel}>取消</Button>
+    <div className="qv-footer qq-settings-actions"><Button size="sm" variant="outline" onClick={onCancel}>取消</Button>
       <Button size="sm" variant="primary" onClick={() => { void save() }}>{busy ? '保存中…' : '保存服务'}</Button></div>
   </fieldset>
 }
@@ -190,7 +191,7 @@ function VoiceForm({ voice, entry, initialEngine, action, onDirty, onSaved, onCa
   }
   return <fieldset className="qv-fields" disabled={busy}>
     <Field label="音色名称"><input value={name} onChange={event => { setName(event.target.value); onDirty(true) }} /></Field>
-    {voice.engines.length === 1 ? <div className="ql-field"><span>语音服务</span><span className="qv-meta">{engine?.name}</span></div>
+    {voice.engines.length === 1 ? <div className="ql-field qq-settings-field"><span>语音服务</span><span className="qv-meta">{engine?.name}</span></div>
       : <Field label="语音服务"><select value={engineId} onChange={event => {
         const next = voice.engine(event.target.value)
         if (next?.kind !== engine?.kind) setParams(BLANK_PARAMS)
@@ -216,39 +217,35 @@ function VoiceForm({ voice, entry, initialEngine, action, onDirty, onSaved, onCa
     </>}
     <Preview voice={voice} draft={draft} />
     <ErrorMessage error={error} />
-    <div className="qv-footer"><Button size="sm" variant="outline" onClick={onCancel}>取消</Button>
+    <div className="qv-footer qq-settings-actions"><Button size="sm" variant="outline" onClick={onCancel}>取消</Button>
       <Button size="sm" variant="primary" onClick={() => { void save() }}>{busy ? '保存中…' : '保存音色'}</Button></div>
   </fieldset>
 }
 
-function VoiceSettingsForm({ voice, action }: { readonly voice: VoiceState; readonly action: ActionRunner }) {
-  const settings = voice.settings
-  const [volume, setVolume] = useState(settings.volume)
-  useEffect(() => { setVolume(settings.volume) }, [settings.volume])
-  const save = async (patch: Partial<VoiceSettings>) => {
-    if (await action.run({ action: 'settings.save', settings: { ...voice.settings, ...patch } }) === false) setVolume(voice.settings.volume)
-  }
-  const commitVolume = () => { if (volume !== voice.settings.volume && !action.busy) void save({ volume }) }
-  return <fieldset className="qv-fields" disabled={action.busy || !settings.enabled}>
-    <label className="qv-setting"><span>发送方式</span><select aria-label="发送方式" value={settings.mode} onChange={event => {
-      const mode = VOICE_MODES.find(m => m === event.target.value); if (mode !== undefined) void save({ mode })
+function VoiceSettingsForm({ voice }: { readonly voice: VoiceState }) {
+  const settings = voice.draftSettings
+  const save = (patch: Partial<VoiceSettings>) => { void voice.saveSettings(patch) }
+  const commitVolume = () => { if (voice.settingsDirty) void voice.saveSettings() }
+  return <fieldset className="qv-fields" disabled={!settings.enabled}>
+    <label className="qv-setting qq-settings-row"><span>发送方式</span><select aria-label="发送方式" value={settings.mode} onChange={event => {
+      const mode = VOICE_MODES.find(m => m === event.target.value); if (mode !== undefined) save({ mode })
     }}>{VOICE_MODES.map(m => <option key={m} value={m}>{VOICE_MODE_LABELS[m]}</option>)}</select></label>
-    <label className="qv-setting"><span>显示方式</span><select value={settings.display} onChange={event => {
-      const display = VOICE_DISPLAYS.find(d => d === event.target.value); if (display !== undefined) void save({ display })
+    <label className="qv-setting qq-settings-row"><span>显示方式</span><select value={settings.display} onChange={event => {
+      const display = VOICE_DISPLAYS.find(d => d === event.target.value); if (display !== undefined) save({ display })
     }}>{VOICE_DISPLAYS.map(d => <option key={d} value={d}>{VOICE_DISPLAY_LABELS[d]}</option>)}</select></label>
-    <label className="qv-setting"><span>生成时机</span><select value={settings.pregenerate ? 'early' : 'click'}
-      onChange={event => { void save({ pregenerate: event.target.value === 'early' }) }}>
+    <label className="qv-setting qq-settings-row"><span>生成时机</span><select value={settings.pregenerate ? 'early' : 'click'}
+      onChange={event => { save({ pregenerate: event.target.value === 'early' }) }}>
       <option value="click">点击时生成</option><option value="early">新回复提前生成</option>
     </select></label>
-    <label className="qv-setting"><span>音量</span><span className="qv-volume"><input type="range" min={0} max={1} step={0.05}
-      value={volume} onChange={event => { setVolume(Number(event.target.value)) }}
-      onPointerUp={commitVolume} onKeyUp={commitVolume} onBlur={commitVolume} /><output>{Math.round(volume * 100)}%</output></span></label>
+    <label className="qv-setting qq-settings-row"><span>音量</span><span className="qv-volume"><input aria-label="音量" type="range" min={0} max={1} step={0.05}
+      value={settings.volume} onChange={event => { voice.editSettings({ volume: Number(event.target.value) }) }}
+      onPointerUp={commitVolume} onKeyUp={commitVolume} onBlur={commitVolume} /><output>{Math.round(settings.volume * 100)}%</output></span></label>
   </fieldset>
 }
 function MoreMenu({ name, disabled, onRemove }: { readonly name: string; readonly disabled: boolean; readonly onRemove: () => void }) {
   const [open, setOpen] = useState(false)
   return <Menu open={open} portal align="end" onClose={() => { setOpen(false) }}
-    anchor={<Button size="sm" variant="ghost" disabled={disabled} aria-label={`${name}的更多操作`} onClick={() => { setOpen(!open) }}>⋯</Button>}
+    anchor={<Button size="sm" variant="outline" disabled={disabled} aria-label={`${name}的更多操作`} onClick={() => { setOpen(!open) }}>⋯</Button>}
     items={[{ id: 'remove', label: '删除', danger: true }]} onSelect={() => { setOpen(false); onRemove() }} />
 }
 type Selection = { readonly kind: 'engine' | 'voice'; readonly id?: string; readonly engine?: string }
@@ -261,7 +258,9 @@ export function VoicePage({ voice, roles, onDirty, onBusy, guard, onOpenRole, on
   readonly onAssignVoice: (roleId: string, voiceId: string) => Promise<void>
 }) {
   useSyncExternalStore(voice.subscribe, voice.getVersion)
-  const action = useVoiceAction(voice, onBusy)
+  const action = useVoiceAction(voice)
+  const [formDirty, setFormDirty] = useState(false)
+  const [helpBusy, setHelpBusy] = useState(false)
   const [loadError, setLoadError] = useState<string>()
   const [selection, setSelection] = useState<Selection>()
   const [removing, setRemoving] = useState<Selection>()
@@ -271,41 +270,44 @@ export function VoicePage({ voice, roles, onDirty, onBusy, guard, onOpenRole, on
   const [assigning, setAssigning] = useState<string>()
   const [targetRole, setTargetRole] = useState('')
   const [assignBusy, setAssignBusy] = useState(false)
+  useEffect(() => { onDirty(formDirty || voice.settingsDirty); return () => onDirty(false) }, [formDirty, voice.settingsDirty, onDirty])
+  useEffect(() => { onBusy(action.busy || assignBusy || voice.settingsSaving || helpBusy); return () => onBusy(false) }, [action.busy, assignBusy, voice.settingsSaving, helpBusy, onBusy])
   const assignLock = useRef(false)
   const [assignError, setAssignError] = useState<string>()
   const assign = (id: string) => { setPreview(undefined); setTargetRole(''); setAssignError(undefined); setAssigning(id) }
   const confirmAssign = async () => {
     if (assignLock.current || assigning === undefined || targetRole === '') return
-    assignLock.current = true; setAssignBusy(true); onBusy(true); setAssignError(undefined)
+    assignLock.current = true; setAssignBusy(true); setAssignError(undefined)
     try {
       await onAssignVoice(targetRole, assigning)
       setNotice({ text: `已将“${voice.voice(assigning)?.name}”用于“${roles.find(r => r.id === targetRole)?.name}”` })
       setAssigning(undefined)
     } catch (error) { setAssignError(messageOf(error)) }
-    finally { assignLock.current = false; setAssignBusy(false); onBusy(false) }
+    finally { assignLock.current = false; setAssignBusy(false) }
   }
   useEffect(() => { voice.reload().catch((caught: unknown) => { setLoadError(messageOf(caught)) }) }, [voice])
+  useEffect(() => () => { voice.discardSettings() }, [voice])
   const go = (next?: Selection) => { guard(() => {
-    onDirty(false); action.clearError(); setPreview(undefined); setRemoving(undefined); setNotice(undefined); setSelection(next)
+    voice.discardSettings(); setFormDirty(false); action.clearError(); setPreview(undefined); setRemoving(undefined); setNotice(undefined); setSelection(next)
   }) }
   const done = (text: string, next: { engine?: string; voice?: string } = {}) => {
-    onDirty(false); action.clearError(); setTested([]); setSelection(undefined); setNotice({ text, ...next })
+    setFormDirty(false); action.clearError(); setTested([]); setSelection(undefined); setNotice({ text, ...next })
   }
   if (loadError !== undefined && !voice.ready) return <ErrorMessage error={loadError} />
   if (!voice.ready) return <div className="ql-empty">加载中…</div>
   const engine = selection?.id === undefined ? undefined : voice.engine(selection.id)
   const entry = selection?.id === undefined ? undefined : voice.voice(selection.id)
-  const formProps = { voice, action, onDirty, onCancel: () => { go() } }
+  const formProps = { voice, action, onDirty: setFormDirty, onCancel: () => { go() } }
   if (selection !== undefined) return <div className="qv-page">
-    <div className="qv-form-head"><Button size="sm" variant="ghost" disabled={action.busy} onClick={() => { go() }}>‹ 返回语音</Button>
+    <div className="qv-form-head"><Button size="sm" variant="outline" disabled={action.busy} onClick={() => { go() }}>‹ 返回语音</Button>
       <h3>{selection.kind === 'engine' ? engine?.name ?? '添加语音服务' : entry?.name ?? '添加音色'}</h3></div>
     <div className="qv-editor">
       {selection.id !== undefined && (selection.kind === 'engine' ? engine : entry) === undefined
         ? <div className="ql-empty">已被删除，请返回语音页。</div>
         : selection.kind === 'engine'
-          ? <EngineForm key={selection.id ?? 'new'} {...formProps} engine={engine} onSaved={id => { done('语音服务已保存', { engine: id }) }} />
+          ? <EngineForm key={selection.id ?? 'new'} {...formProps} engine={engine} onSaved={id => { done('', { engine: id }) }} />
           : <VoiceForm key={selection.id ?? 'new'} {...formProps} entry={entry} {...selection.engine === undefined ? {} : { initialEngine: selection.engine }}
-            onSaved={id => { done('音色已保存', { voice: id }) }} />}
+            onSaved={id => { done('', { voice: id }) }} />}
     </div>
   </div>
   const remove = async () => {
@@ -325,46 +327,46 @@ export function VoicePage({ voice, roles, onDirty, onBusy, guard, onOpenRole, on
       : removing.kind === 'engine' ? '会同时移除这个服务保存的密钥。' : usedRoles.length > 0 ? `${usedRoles.map(r => r.name).join('、')}将改为显示文字。` : '这个音色将从列表移除。'}
   </ActionDialog>
   return <div className="qv-page">
-    <div className="qv-heading"><h3>语音</h3></div>
-    <label className="ql-toggle"><span>启用语音</span><input type="checkbox"
-      checked={voice.settings.enabled} disabled={action.busy} onChange={event => {
-        if (!event.target.checked) { setPreview(undefined); setRemoving(undefined); setAssigning(undefined) }
-        void action.run({ action: 'settings.save', settings: { ...voice.settings, enabled: event.target.checked } })
-      }} /></label>
+    <div className="qv-heading"><h3>语音</h3><VoiceHelp voice={voice} onBusy={setHelpBusy} disabled={action.busy || assignBusy || voice.settingsSaving || voice.settingsDirty} /></div>
+    <div className="qq-settings-row"><SwitchRow label="启用语音" checked={voice.draftSettings.enabled} disabled={action.busy} onChange={enabled => {
+      if (!enabled) { setPreview(undefined); setRemoving(undefined); setAssigning(undefined) }
+      void voice.saveSettings({ enabled })
+    }} /></div>
     {removing === undefined && action.error !== undefined && <ActionDialog title="语音设置未保存" cancelLabel="知道了" onCancel={action.clearError}>
       {action.error}
     </ActionDialog>}
-    {voice.settings.enabled && <>
-    {notice !== undefined && <div className="qv-notice" role="status"><span>{notice.text}</span>
+    <ErrorMessage error={voice.settingsError || undefined} />
+    {voice.settingsError && <div className="qq-settings-actions"><Button size="sm" variant="outline" disabled={voice.settingsSaving} onClick={() => { void voice.saveSettings() }}>重试保存</Button></div>}
+    {voice.draftSettings.enabled && <>
+    {notice !== undefined && <div className="qv-notice" role="status">{notice.text && <span>{notice.text}</span>}
       {notice.engine !== undefined && <Button size="sm" variant="outline" onClick={() => { go({ kind: 'voice', engine: notice.engine! }) }}>添加音色</Button>}
       {notice.voice !== undefined && <Button size="sm" variant="outline" onClick={() => { assign(notice.voice!) }}>用于角色</Button>}
     </div>}
-    <details className="qv-section qv-services" open={voice.engines.length === 0}>
-      <summary>语音服务{voice.engines.length > 0 && <span className="qv-meta"> · {voice.engines.map(e => e.name).join('、')}</span>}</summary>
+    <section className="qv-section" aria-label="语音服务">
       <div className="qv-heading"><h3>语音服务</h3><Button size="sm" variant={voice.engines.length === 0 ? 'primary' : 'outline'}
         disabled={action.busy} onClick={() => { go({ kind: 'engine' }) }}>添加服务</Button></div>
       {voice.engines.length === 0 ? <p className="qv-meta">先添加一个语音服务，再选择音色。</p> : <div className="qv-cards">
-        {voice.engines.map(item => <div className="qv-card" key={item.id}>
+        {voice.engines.map(item => <div className="qv-card qq-settings-card" key={item.id}>
           <div className="qv-row"><div className="qv-info"><strong>{item.name}</strong><span className="qv-meta">
             {ENGINE_KIND_LABELS[item.kind]} · {ENGINE_KEY[item.kind] === 'none' ? '无需密钥' : item.hasKey ? '密钥已配置' : ENGINE_KEY[item.kind] === 'required' ? '未配置密钥' : '未配置密钥（可选）'}
             {item.kind === 'fish' && ` · ${item.config.proxy?.enabled === true ? '代理开启' : '跟随 DSH 网络设置'}`}
-          </span></div><div className="ql-actions"><Button size="sm" variant="outline" disabled={action.busy}
+          </span></div><div className="ql-actions qq-settings-actions"><Button size="sm" variant="outline" disabled={action.busy}
             onClick={() => { go({ kind: 'engine', id: item.id }) }}>设置</Button>
             <MoreMenu name={item.name} disabled={action.busy} onRemove={() => { action.clearError(); setPreview(undefined); setRemoving({ kind: 'engine', id: item.id }) }} /></div></div>
         </div>)}
       </div>}
-    </details>
+    </section>
     <section className="qv-section" aria-label="音色">
       <div className="qv-heading"><h3>音色</h3>{voice.engines.length > 0 && <Button size="sm" variant={voice.voices.length === 0 ? 'primary' : 'outline'}
         disabled={action.busy} onClick={() => { go({ kind: 'voice' }) }}>添加音色</Button>}</div>
       {voice.voices.length === 0 ? <p className="qv-meta">{voice.engines.length === 0 ? '添加服务后，可在这里管理音色。' : '添加一个喜欢的音色，试听后给角色使用。'}</p> : <div className="qv-cards">
         {voice.voices.map(item => {
           const users = roles.filter(r => r.voice === item.id)
-          return <div className="qv-card" key={item.id}>
+          return <div className="qv-card qq-settings-card" key={item.id}>
             <div className="qv-row"><div className="qv-info"><strong>{item.name}</strong><span className="qv-meta">
               {voice.engine(item.engine)?.name ?? '服务已删除'} · {users.length === 0 ? '暂无角色使用' : `${users.map(r => r.name).join('、')}正在使用`}
               {tested.includes(item.id) && ' · 上次试听成功'}
-            </span></div><div className="ql-actions">
+            </span></div><div className="ql-actions qq-settings-actions">
               <Button size="sm" variant="outline" disabled={action.busy} onClick={() => { setPreview(preview === item.id ? undefined : item.id) }}>{preview === item.id ? '收起试听' : '试听'}</Button>
               <Button size="sm" variant="outline" disabled={action.busy} onClick={() => { go({ kind: 'voice', id: item.id }) }}>编辑</Button>
               <Button size="sm" variant="outline" disabled={action.busy} onClick={() => { assign(item.id) }}>用于角色</Button>
@@ -377,18 +379,18 @@ export function VoicePage({ voice, roles, onDirty, onBusy, guard, onOpenRole, on
         })}
       </div>}
     </section>
-    <section className="qv-section" aria-label="朗读偏好"><div className="qv-heading"><h3>朗读偏好</h3><span className="qv-meta" role="status">{action.busy ? '保存中…' : action.saved ? '已保存' : '自动保存'}</span></div>
-      <VoiceSettingsForm voice={voice} action={action} />
+    <section className="qv-section" aria-label="朗读偏好"><div className="qv-heading"><h3>朗读偏好</h3></div>
+      <VoiceSettingsForm voice={voice} />
     </section>
     {removePrompt}
     {assigning !== undefined && <ActionDialog title={`将“${voice.voice(assigning)?.name}”用于角色`} busy={assignBusy} error={assignError}
       cancelLabel="取消" confirmLabel="确认使用" onCancel={() => { setAssigning(undefined) }}
       confirmDisabled={targetRole === ''} onConfirm={roles.length === 0 ? undefined : () => { void confirmAssign() }}>
-      {roles.length === 0 ? <><span>还没有角色。</span><Button size="sm" onClick={() => { setAssigning(undefined); onOpenRole() }}>去创建角色</Button></>
+      {roles.length === 0 ? <><span>还没有角色。</span><Button variant="outline" size="sm" onClick={() => { setAssigning(undefined); onOpenRole() }}>去创建角色</Button></>
         : <label className="qv-role-choice">选择角色<select aria-label="目标角色" value={targetRole} disabled={assignBusy}
           onChange={event => { setTargetRole(event.target.value); setAssignError(undefined) }}>
           <option value="">请选择角色</option>{roles.map(role => <option key={role.id} value={role.id}>{role.name}</option>)}
-        </select>{targetRole !== '' && <span>确认后替换这个角色当前的音色并保存。</span>}</label>}
+        </select></label>}
     </ActionDialog>}
     </>}
   </div>
@@ -402,10 +404,10 @@ export function RoleVoiceField({ voice, value, onChange, onManage }: {
   useSyncExternalStore(voice.subscribe, voice.getVersion)
   useEffect(() => { if (!voice.ready) voice.reload().catch(() => {}) }, [voice])
   const missing = value !== undefined && voice.ready && voice.voice(value) === undefined
-  return <div className="ql-field ql-inline"><span>音色</span><div className="ql-actions">
+  return <div className="ql-field ql-inline qq-settings-row"><span>音色</span><div className="ql-actions qq-settings-actions">
     <select value={value ?? ''} onChange={event => { onChange(event.target.value === '' ? undefined : event.target.value) }}>
       <option value="">不用语音</option>{missing && <option value={value}>（已删除）</option>}
       {voice.voices.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-    </select><Button size="sm" variant="ghost" onClick={onManage}>{voice.voices.length === 0 ? '添加音色' : '管理音色'}</Button>
+    </select><Button size="sm" variant="outline" onClick={onManage}>{voice.voices.length === 0 ? '添加音色' : '管理音色'}</Button>
   </div></div>
 }

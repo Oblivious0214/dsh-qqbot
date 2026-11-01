@@ -114,7 +114,7 @@ describe('portable configuration', () => {
     { ...config, settings: { authorized: true } },
     { ...config, presets: [{ ...config.presets[0], id: '../../escape' }] },
     { ...config, roles: [{ ...config.roles[0], voice: 'v-12345678' }] },
-    { ...config, roles: [{ ...config.roles[0], motionActions: ['unknown'] }] },
+    { ...config, roles: [{ ...config.roles[0], motionActions: ['a,b'] }] },
     { ...config, roles: [{ ...config.roles[0], proactivityTexts: { high: 1 } }] },
     { ...config, presets: [config.presets[0], config.presets[0]] },
     { ...config, roles: [config.roles[0], config.roles[0]] },

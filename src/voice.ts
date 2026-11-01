@@ -12,11 +12,29 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from './index.ts'
 import { isRecord, readJson, writeJson, type Warn } from './storage.ts'
 import { BadRequest } from './ui.ts'
-import { AUDIO_CONTENT_TYPES, normalizeBaseUrl, normalizeProxyUrl, synthesize, SynthError, type Audio, type Fetch } from './voice-engines.ts'
+import { toneOf } from './vendor/dialogue-timing/protocol.js'
+import { AUDIO_CONTENT_TYPES, effectiveTone, normalizeBaseUrl, normalizeProxyUrl, synthesize, SynthError, type Audio, type Fetch } from './voice-engines.ts'
 import {
-  DEFAULT_PROXY_URL, DEFAULT_VOICE_SETTINGS, ENGINE_DEFAULTS, ENGINE_KEY, ENGINE_KINDS, SOVITS_LANGS, ENGINE_ID_PATTERN, SPEAK_PATH, SPEAK_TEXT_LIMIT, VOICE_DISPLAYS, VOICE_MODES, VOICE_ID_PATTERN, VOICE_PATH,
-  type EngineConfig, type ProxyConfig, type VoiceEngine, type VoiceEntry, type VoiceError, type VoiceParams, type VoiceSettings, type VoiceView,
+  DEFAULT_PROXY_URL, DEFAULT_VOICE_SETTINGS, ENGINE_DEFAULTS, FISH_SOUND_TAGS, FISH_TONE_TAGS, toneStyle, ENGINE_KEY, ENGINE_KINDS, SOVITS_LANGS, ENGINE_ID_PATTERN, SPEAK_PATH, SPEAK_TEXT_LIMIT, VOICE_DISPLAYS, VOICE_MODES, VOICE_ID_PATTERN, VOICE_PATH,
+  type EngineConfig, type ProxyConfig, type VoiceEngine, type VoiceEntry, type VoiceError, type VoiceParams, type VoiceMode, type VoiceSettings, type VoiceView,
 } from './voice-types.ts'
+
+/**
+ * 语气说明按当前音色所属服务的写法进入 runtime，各服务一段，互不影响；稳定 section 保持原文。
+ * 不支持语气的服务不给说明，模型就不写 tone。
+ */
+function tonePrompt(engine: VoiceEngine, mode: VoiceMode): string {
+  const style = toneStyle(engine)
+  if (style === undefined) return ''
+  const scope = mode === 'all' ? '段落' : 'voice:true 的段落'
+  const voiceKey = mode === 'all' ? '' : '"voice":true,'
+  if (style === 'tags') {
+    return `语音语气：${scope}可加 "tone"，从 ${FISH_TONE_TAGS.join('、')} 中选一个；语气平常时不写。喘息、呻吟等声音写在 text 中发生的位置，用 ${FISH_SOUND_TAGS.map(tag => `[${tag}]`).join('、')}。例如：{${voiceKey}"tone":"happy","text":"终于等到你了！"}、{${voiceKey}"tone":"breathy","text":"慢一点[panting]……再慢一点。"}。`
+  }
+  const free = `语音语气：${scope}可加 "tone"，用几个字描述这段怎么说，如"轻声安慰，语速稍慢""压低声音，带点笑意""喘着气，声音发颤""贴着耳边低语，带点挑逗"；语气平常时不写。`
+  if (style === 'free') return `${free}例如：{${voiceKey}"tone":"轻声安慰","text":"我在这里，慢慢说。"}。`
+  return `${free}叹气、喘息、呻吟、停顿等声音写在 text 中发生的位置，如 [叹气]、[喘息]、[呻吟]、[短暂停顿]。例如：{${voiceKey}"tone":"轻声安慰","text":"我在这里。[短暂停顿]慢慢说。"}。`
+}
 
 export const name = 'qqbot-voice'
 
@@ -96,7 +114,8 @@ function validateConfig(kind: VoiceEngine['kind'], value: unknown): EngineConfig
   } catch (error) {
     throw new BadRequest(error instanceof Error ? error.message : String(error))
   }
-  return { baseUrl, model: kind === 'gpt-sovits' ? '' : model }
+  if (kind === 'gpt-sovits') return { baseUrl, model: '' }
+  return { baseUrl, model, tone: value['tone'] === true }
 }
 
 /** 没写时是关闭。只在打开时检查地址，关着的时候填了一半也能保存。 */
@@ -168,8 +187,18 @@ function freshId(prefix: 'e' | 'v', taken: readonly { readonly id: string }[]): 
 
 export class VoiceStore {
   private cache: VoiceFile | undefined
+  private actions: Promise<unknown> = Promise.resolve()
 
   constructor(readonly dir: string, private readonly warn: Warn) {}
+
+  /** 同一份资料的界面写操作排队，凭据写入期间不被另一页面覆盖。 */
+  action<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.actions.then(run, run)
+    this.actions = next.catch(() => {})
+    return next
+  }
+
+  clearCache(): void { this.cache = undefined }
 
   private get file(): string { return join(this.dir, 'voice.json') }
 
@@ -196,9 +225,12 @@ export class VoiceStore {
     if (id === undefined) return '未配置：当前角色未选择音色；需在角色设置中选择音色。'
     const voice = this.voice(id)
     if (voice === undefined || this.engine(voice.engine) === undefined) return '未配置：当前角色的音色或语音服务已失效；需在角色设置中重新选择音色。'
-    return this.settings.mode === 'all'
+    const engine = this.engine(voice.engine)!
+    const delivery = tonePrompt(engine, this.settings.mode)
+    const status = this.settings.mode === 'all'
       ? '已启用（全部转语音）：当前角色已配置音色，所有可朗读回复均由界面转成语音条。'
       : '已启用（由 AI 决定）：当前角色已配置音色，仅 voice:true 的段落生成语音条，其余保持文字。'
+    return status + (delivery ? `\n${delivery}` : '')
   }
 
   saveSettings(value: unknown): void {
@@ -207,6 +239,11 @@ export class VoiceStore {
 
   /** 新建或修改引擎，返回 id。修改时不能换类型：音色参数按类型解释，换了就对不上。 */
   saveEngine(value: unknown): VoiceEngine {
+    return this.commitEngine(this.draftEngine(value))
+  }
+
+  /** 仅校验并分配内部键；凭据成功保存后才提交配置。 */
+  draftEngine(value: unknown): VoiceEngine {
     if (!isRecord(value)) throw new BadRequest('引擎格式无效')
     const kind = oneOf(value['kind'], '引擎类型', ENGINE_KINDS)
     const engineName = entryName(value['name'], '连接名称')
@@ -222,8 +259,12 @@ export class VoiceStore {
       id = existing.id
     }
     if (engines.some(item => item.id !== id && item.name === engineName)) throw new Error(`已经有叫"${engineName}"的连接，换个名称`)
-    const engine: VoiceEngine = { id, name: engineName, kind, config }
-    const index = engines.findIndex(item => item.id === id)
+    return { id, name: engineName, kind, config }
+  }
+
+  commitEngine(engine: VoiceEngine): VoiceEngine {
+    const { engines } = this.data
+    const index = engines.findIndex(item => item.id === engine.id)
     this.write({ ...this.data, engines: index < 0 ? [...engines, engine] : engines.with(index, engine) })
     return engine
   }
@@ -282,6 +323,10 @@ export async function voiceView(store: VoiceStore, keys: KeyStore | undefined, s
 
 /** 执行一个操作，保存引擎或音色时返回 id。格式错误抛 BadRequest，操作失败抛 Error。 */
 export async function applyVoiceAction(store: VoiceStore, keys: KeyStore | undefined, body: unknown): Promise<string | undefined> {
+  return store.action(() => performVoiceAction(store, keys, body))
+}
+
+async function performVoiceAction(store: VoiceStore, keys: KeyStore | undefined, body: unknown): Promise<string | undefined> {
   if (!isRecord(body)) throw new BadRequest('请求格式无效')
   const id = () => {
     const value = body['id']
@@ -300,8 +345,25 @@ export async function applyVoiceAction(store: VoiceStore, keys: KeyStore | undef
       }
       if (apiKey !== undefined && keys === undefined) throw new Error('DSH 没有可用的凭据库，存不了 key')
       // 先校验、再存 key、最后写连接：key 存失败时不留下一个没有 key 的新连接。
-      const engine = store.saveEngine(draft)
-      if (apiKey !== undefined && ENGINE_KEY[engine.kind] !== 'none') await keys!.write(engine.id, apiKey === null ? null : apiKey.trim())
+      const engine = store.draftEngine(draft)
+      const changeKey = apiKey !== undefined && ENGINE_KEY[engine.kind] !== 'none'
+      let oldKey: string | undefined
+      if (changeKey) {
+        try {
+          oldKey = await keys!.read(engine.id)
+          await keys!.write(engine.id, apiKey === null ? null : (apiKey as string).trim())
+        } catch {
+          throw new Error('密钥未能保存，服务设置未更改。请检查 DSH 凭据库后重试')
+        }
+      }
+      try { store.commitEngine(engine) } catch {
+        if (changeKey) {
+          try { await keys!.write(engine.id, oldKey ?? null) } catch {
+            throw new Error('服务设置未能保存，密钥也未能恢复。请检查 DSH 数据目录和凭据库后重新保存密钥')
+          }
+        }
+        throw new Error('服务设置未能保存，请检查 DSH 数据目录是否可写后重试')
+      }
       return engine.id
     }
     case 'engine.remove': {
@@ -328,11 +390,13 @@ export class AudioCache {
 
   constructor(private readonly maxEntries = 64, private readonly maxBytes = 32 * 1024 * 1024) {}
 
-  static key(engine: VoiceEngine, params: VoiceParams, text: string): string {
-    // 代理只改路线，不改声音，不算进键里。
+  static key(engine: VoiceEngine, params: VoiceParams, text: string, tone = ''): string {
+    // 代理只改路线，不改声音，不算进键里。tone 用实际发出的值：不支持的服务同一句只合成一次。
     const { proxy: _, ...config } = engine.config
-    return createHash('sha256').update(JSON.stringify([engine.kind, config, params, text])).digest('hex')
+    return createHash('sha256').update(JSON.stringify([engine.kind, config, params, text, effectiveTone(engine, tone)])).digest('hex')
   }
+
+  clear(): void { this.entries.clear(); this.bytes = 0 }
 
   get(key: string): Audio | undefined {
     const found = this.entries.get(key)
@@ -359,6 +423,8 @@ const MAX_CONCURRENT = 3
 
 export class Speaker {
   private running = 0
+  private lifetime = new AbortController()
+  clearCache(): void { this.lifetime.abort(); this.lifetime = new AbortController(); this.cache.clear() }
 
   constructor(
     private readonly store: VoiceStore,
@@ -368,10 +434,12 @@ export class Speaker {
   ) {}
 
   /**
-   * body：`{ voice: <id>, text }` 读已保存的音色；`{ draft: <音色草稿>, text }` 试听还没保存的音色。
+   * body：`{ voice: <id>, text, tone? }` 读已保存的音色；`{ draft: <音色草稿>, text }` 试听还没保存的音色。
    * 格式错误抛 BadRequest，合成失败抛 SynthError。
    */
   async speak(body: unknown, signal?: AbortSignal): Promise<Audio> {
+    const cleanupSignal = this.lifetime.signal
+    signal = signal === undefined ? cleanupSignal : AbortSignal.any([signal, cleanupSignal])
     if (!isRecord(body)) throw new BadRequest('请求格式无效')
     const text = body['text']
     if (typeof text !== 'string' || text.trim() === '') throw new BadRequest('没有要朗读的文字')
@@ -386,7 +454,8 @@ export class Speaker {
     }
     const engine = this.store.engine(voice.engine)
     if (engine === undefined) throw new SynthError('这个音色的连接已经删掉了')
-    const key = AudioCache.key(engine, voice.params, text.trim())
+    const tone = toneOf(body['tone'])
+    const key = AudioCache.key(engine, voice.params, text.trim(), tone)
     const cached = this.cache.get(key)
     if (cached !== undefined) return cached
     if (this.running >= MAX_CONCURRENT) throw new SynthError('正在生成的语音太多，稍后再试')
@@ -401,7 +470,8 @@ export class Speaker {
           throw new SynthError('读不了 DSH 凭据库里的 key')
         }
       }
-      const audio = await synthesize({ engine, apiKey, params: voice.params, text: text.trim(), ...signal === undefined ? {} : { signal } }, this.fetchImpl)
+      const audio = await synthesize({ engine, apiKey, params: voice.params, text: text.trim(), ...tone === '' ? {} : { tone }, ...signal === undefined ? {} : { signal } }, this.fetchImpl)
+      signal.throwIfAborted()
       this.cache.set(key, audio)
       return audio
     } finally {
@@ -446,11 +516,25 @@ export function apply(ctx: Context): void {
     return credentials === undefined ? undefined : credentialKeyStore(credentials)
   }
   const speaker = new Speaker(store, keys)
+  ctx.effect(() => ctx.qqbot.maintenance.register({
+    cache: () => speaker.clearCache(),
+    prepare: () => speaker.clearCache(),
+    credentials: async () => {
+      const records = ctx.get('credentials' as never) as (CredentialRecords & { listRecords(): Promise<readonly { key: string }[]> }) | undefined
+      if (records === undefined) {
+        if (store.engines.length > 0) throw new Error('DSH 凭据库尚未就绪，无法清理语音凭据。')
+        return
+      }
+      for (const entry of await records.listRecords()) {
+        if (/^dsh-qqbot\/tts-[a-z][a-z0-9-]*$/.test(entry.key)) await records.deleteRecord(entry.key as never)
+      }
+    },
+  }), 'qqbot: reset voice')
   ctx.effect(() => ctx.connection.fetch.register({
     path: VOICE_PATH,
     methods: ['GET', 'POST'],
     requestBody: 'buffered',
-    fetch: async (request) => {
+    fetch: ctx.qqbot.maintenance.route(async (request) => {
       let saved: string | undefined
       try {
         if (request.method === 'POST') saved = await applyVoiceAction(store, keys(), await readBody(request))
@@ -459,7 +543,7 @@ export function apply(ctx: Context): void {
         return fail(409, 'failed', error instanceof Error ? error.message : String(error))
       }
       return json(200, await voiceView(store, keys(), saved))
-    },
+    }),
   }), 'qqbot: voice route')
   ctx.effect(() => ctx.connection.fetch.register({
     path: SPEAK_PATH,
@@ -467,6 +551,7 @@ export function apply(ctx: Context): void {
     requestBody: 'buffered',
     fetch: async (request) => {
       try {
+        ctx.qqbot.maintenance.assertAvailable()
         return audioResponse(await speaker.speak(await readBody(request), request.signal))
       } catch (error) {
         if (error instanceof BadRequest) return fail(400, 'bad-request', error.message)

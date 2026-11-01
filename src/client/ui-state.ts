@@ -3,6 +3,7 @@
  * 只在页面内存里，刷新后重新读取。
  */
 
+import { writeHeaders } from './cleanup-epoch.ts'
 import { DEFAULT_UI_SETTINGS, UI_PATH, type UiAction, type UiRole, type UiSessionView, type UiSettings, type UiView } from '../ui-types.ts'
 
 export type SessionRole = UiRole
@@ -11,7 +12,7 @@ export async function requestUi(action?: UiAction, session?: string, signal?: Ab
   const url = `${UI_PATH.slice(1)}${session === undefined ? '' : `?session=${encodeURIComponent(session)}`}`
   const init: RequestInit = action === undefined
     ? { cache: 'no-store' }
-    : { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action) }
+    : { method: 'POST', cache: 'no-store', headers: writeHeaders(), body: JSON.stringify(action) }
   if (signal !== undefined) init.signal = signal
   const response = await fetch(url, init)
   const body = await response.json().catch(() => undefined) as (UiView & { message?: string }) | undefined
@@ -29,6 +30,7 @@ export class UiState {
   private readonly listeners = new Set<() => void>()
   private version = 0
   private disposed = false
+  private generation = 0
 
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   getVersion = () => this.version
@@ -68,10 +70,13 @@ export class UiState {
 
   /** 设置会话的角色，下一轮组装时生效。失败时抛出，界面自己提示。 */
   async setRole(session: string, role: string | null): Promise<void> {
+    const generation = this.generation
+    const version = this.version
     const view = await requestUi({ action: 'session.role', session, role }, session)
-    if (this.disposed) return
+    if (this.disposed || generation !== this.generation) return
     this.roles.set(session, view.session ?? { role: null, roster: [], turns: [] })
-    this.adopt(view)
+    if (version === this.version) this.adopt(view)
+    else this.changed()
   }
 
   /** 渲染到某一轮的回复时调用；比之前见过的都新时重读角色。 */
@@ -92,10 +97,13 @@ export class UiState {
       return
     }
     this.loading.add(session)
+    const generation = this.generation
+    const version = this.version
     requestUi(undefined, session).then((view) => {
-      if (this.disposed) return
+      if (this.disposed || generation !== this.generation) return
       this.roles.set(session, view.session ?? { role: null, roster: [], turns: [] })
-      this.adopt(view)
+      if (version === this.version) this.adopt(view)
+      else this.changed()
     }, () => { /* 读不到时先不显示头像，下一轮再试 */ }).finally(() => {
       this.loading.delete(session)
       if (this.again.delete(session)) this.refreshRole(session)
@@ -104,19 +112,26 @@ export class UiState {
 
   /** 读设置和图片版本，不改各会话的角色。 */
   reload(): Promise<void> {
-    return requestUi().then((view) => { if (!this.disposed) this.adopt(view) })
+    const generation = this.generation
+    const version = this.version
+    return requestUi().then((view) => { if (!this.disposed && generation === this.generation && version === this.version) this.adopt(view) })
   }
 
   /** 编辑器提交操作后用返回值更新，不用再读一次。 */
   adopt(view: UiView): void {
     const { session: _, ...rest } = view
     this.view = rest
+    this.changed()
+  }
+
+  private changed(): void {
     this.version++
     for (const listener of this.listeners) listener()
   }
 
   /** 角色改了名或删了：清掉各会话缓存的角色，下次渲染时重读。 */
   forgetRoles(): void {
+    this.generation++
     this.roles.clear()
     this.version++
     for (const listener of this.listeners) listener()

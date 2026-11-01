@@ -2,12 +2,13 @@
  * 调用各家语音合成接口，返回音频字节。只在 host 端运行：key 不进浏览器，本地服务的地址也不用对浏览器开放。
  * 请求格式：
  * - fish：POST https://api.fish.audio/v1/tts，`model` 放在请求头（参考 dsh-fish-tts，MIT，MaRi23333 的 synthesize()）。
- * - openai：POST `<baseUrl>/audio/speech`，`{ model, input, voice, response_format }`。
+ * - openai：POST `<baseUrl>/audio/speech`，`{ model, input, voice, response_format }`；连接打开了语气支持时加 `instructions`。
+ * 段落的 tone：Fish 写成台词前的 `[tone]`，兼容接口放进 `instructions`，GPT-SoVITS 不支持。
  * - gpt-sovits：POST `<baseUrl>/tts`，api_v2.py 的请求体。
  * fish 可以单独指定 HTTP 代理（`config.proxy`）；没开时用 Node 的全局 fetch，DSH 的全局代理设置照常生效。
  */
 
-import type { EngineKind, VoiceEngine, VoiceParams } from './voice-types.ts'
+import { toneStyle, type EngineKind, type VoiceEngine, type VoiceParams } from './voice-types.ts'
 
 export const FISH_API_URL = 'https://api.fish.audio/v1/tts'
 /** 合成一句一般几秒；本地 GPT-SoVITS 第一次加载模型会慢一些。 */
@@ -35,7 +36,14 @@ export interface SynthRequest {
   readonly apiKey: string | undefined
   readonly params: VoiceParams
   readonly text: string
+  /** 段落的语气描述，已清理；服务不支持时由 synthesize 忽略。 */
+  readonly tone?: string
   readonly signal?: AbortSignal
+}
+
+/** 实际会发出去的语气：服务不支持时为空，缓存键也用它，避免同一句因无效语气重复合成。 */
+export function effectiveTone(engine: VoiceEngine, tone: string | undefined): string {
+  return tone === undefined || toneStyle(engine) === undefined ? '' : tone
 }
 
 /** 用户填的地址：只认 http/https，不带账号密码，去掉末尾的斜杠。不合规时抛出可以展示的错误。 */
@@ -50,6 +58,13 @@ export function normalizeBaseUrl(raw: string): string {
   if (url.username !== '' || url.password !== '') throw new SynthError('地址里不要带账号密码，key 填在下面')
   if (url.search !== '' || url.hash !== '') throw new SynthError('地址里不要带 ? 或 # 后面的部分')
   return url.href.replace(/\/+$/, '')
+}
+
+/** 同时接受服务根地址和完整合成接口，避免粘贴文档地址后重复追加路径。 */
+export function speechEndpoint(kind: 'openai' | 'gpt-sovits', raw: string): string {
+  const base = normalizeBaseUrl(raw)
+  const suffix = kind === 'openai' ? '/audio/speech' : '/tts'
+  return new URL(base).pathname.endsWith(suffix) ? base : `${base}${suffix}`
 }
 
 /** 代理地址：只认 HTTP 代理，可以省掉 http://，必须带端口。不合规时抛出可以展示的错误。 */
@@ -88,7 +103,10 @@ async function proxiedFetch(proxy: string): Promise<{ fetch: Fetch; close: () =>
 }
 
 function buildRequest(request: SynthRequest): { url: string; init: RequestInit } {
-  const { engine, apiKey, params, text } = request
+  const { engine, apiKey, params } = request
+  const tone = effectiveTone(engine, request.tone)
+  // Fish 把语气写成台词前的方括号；兼容接口走 instructions，正文不动。
+  const text = engine.kind === 'fish' && tone !== '' ? `[${tone}]${request.text}` : request.text
   const json = (body: unknown, headers: Record<string, string>) => ({
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
@@ -105,12 +123,15 @@ function buildRequest(request: SynthRequest): { url: string; init: RequestInit }
       }
     case 'openai':
       return {
-        url: `${normalizeBaseUrl(engine.config.baseUrl)}/audio/speech`,
-        init: json({ model: engine.config.model, input: text, voice: params.reference, response_format: 'mp3' }, bearer),
+        url: speechEndpoint('openai', engine.config.baseUrl),
+        init: json({
+          model: engine.config.model, input: text, voice: params.reference, response_format: 'mp3',
+          ...tone === '' ? {} : { instructions: tone },
+        }, bearer),
       }
     case 'gpt-sovits':
       return {
-        url: `${normalizeBaseUrl(engine.config.baseUrl)}/tts`,
+        url: speechEndpoint('gpt-sovits', engine.config.baseUrl),
         init: json({
           text, text_lang: params.textLang,
           ref_audio_path: params.reference, prompt_text: params.promptText, prompt_lang: params.promptLang,
@@ -137,18 +158,25 @@ const KIND_NAMES: Record<EngineKind, string> = { fish: 'Fish Audio', openai: '�
 
 function statusMessage(kind: EngineKind, status: number): string {
   const who = KIND_NAMES[kind]
-  if (status === 401 || status === 403) return `${who}拒绝了请求，检查 API key`
+  if (status === 401 || status === 403) return kind === 'gpt-sovits'
+    ? 'GPT-SoVITS 拒绝了请求，检查服务或网关的访问权限；本连接不支持密钥认证'
+    : `${who}拒绝了请求，检查 API key 和账户权限`
   if (status === 402) return `${who}账户余额不足`
   if (status === 404) return kind === 'fish' ? '找不到这个音色，检查音色 ID' : `${who}没有这个接口，检查地址`
   if (status === 429) return `${who}请求太频繁，稍后再试`
-  if (status === 400 || status === 422) return `${who}不接受这个请求，检查音色设置`
+  if (status === 400 || status === 422) return kind === 'gpt-sovits'
+    ? 'GPT-SoVITS 不接受这个请求，检查参考音频路径、语言和已加载的模型'
+    : `${who}不接受这个请求，检查音色设置和服务模型`
+  if (status === 407) return '代理要求认证，请使用不需要账号密码的 HTTP 或混合端口'
+  if (status >= 500) return `${who}暂时无法合成（${status}），稍后再试；本地服务请查看运行窗口`
   return `${who}出错了（${status}）`
 }
 
-/** 上游返回的错误详情，截短后附在提示后面；只取文本，不会带出 key。 */
-async function detail(response: Response): Promise<string> {
-  const text = (await response.text().catch(() => '')).replace(/\s+/g, ' ').trim()
+/** 只展示服务的错误字段；先清除可能回显的凭据，再截短。HTML 登录页不进入错误提示。 */
+function errorDetail(raw: string, apiKey: string | undefined): string {
+  const text = raw.trim()
   if (text === '') return ''
+  if (/^\s*</.test(text)) return '服务返回了网页，请检查是否填成了网页地址或登录入口'
   let message = text
   try {
     const body: unknown = JSON.parse(text)
@@ -160,15 +188,32 @@ async function detail(response: Response): Promise<string> {
         const nested = (record['error'] as Record<string, unknown>)['message']
         if (typeof nested === 'string') message = nested
       }
+      const exception = record['Exception']
+      if (typeof exception === 'string' && exception !== message) message += `：${exception}`
     }
   } catch { /* 不是 JSON，用原文 */ }
+  if (apiKey) message = message.split(apiKey).join('[已隐藏密钥]')
+  message = message.replace(/Bearer\s+[^\s"'<>]+/gi, 'Bearer [已隐藏密钥]').replace(/\s+/g, ' ').trim()
   return message.length > 160 ? `${message.slice(0, 160)}…` : message
 }
 
+/** 错误页最多读取 8 KiB；过大时仅显示状态解释，避免截断的密钥片段泄漏。 */
+async function detail(response: Response, apiKey: string | undefined): Promise<string> {
+  try {
+    return errorDetail(new TextDecoder().decode(await readLimited(response, 8192)), apiKey)
+  } catch (error) {
+    if (error instanceof SynthError) return ''
+    throw error
+  }
+}
+
 /** 读响应体，超过上限就停。 */
-async function readLimited(response: Response): Promise<Uint8Array> {
+async function readLimited(response: Response, limit = AUDIO_BYTE_LIMIT): Promise<Uint8Array> {
   const declared = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > AUDIO_BYTE_LIMIT) throw new SynthError('返回的音频太大')
+  if (Number.isFinite(declared) && declared > limit) {
+    await response.body?.cancel().catch(() => {})
+    throw new SynthError('返回的音频太大')
+  }
   if (response.body === null) return new Uint8Array()
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
@@ -177,7 +222,7 @@ async function readLimited(response: Response): Promise<Uint8Array> {
     const { done, value } = await reader.read()
     if (done) break
     total += value.length
-    if (total > AUDIO_BYTE_LIMIT) {
+    if (total > limit) {
       await reader.cancel().catch(() => {})
       throw new SynthError('返回的音频太大')
     }
@@ -190,7 +235,7 @@ async function readLimited(response: Response): Promise<Uint8Array> {
 }
 
 function networkMessage(kind: EngineKind, error: unknown, timedOut: boolean, proxy: string | undefined): string {
-  if (timedOut) return `${KIND_NAMES[kind]}超过 ${SYNTH_TIMEOUT_MS / 1000} 秒没有返回`
+  if (timedOut) return `${KIND_NAMES[kind]}超过 ${SYNTH_TIMEOUT_MS / 1000} 秒没有返回${kind === 'gpt-sovits' ? '，请先在服务端完成模型加载，再重试' : '，请检查网络或稍后重试'}`
   const code = (error as { cause?: { code?: unknown } } | undefined)?.cause?.code
   if (proxy !== undefined) {
     // 开了代理时连接只到代理为止，连不上就是代理软件没开或端口不对。
@@ -226,13 +271,16 @@ async function send(request: SynthRequest, url: string, init: RequestInit, fetch
     if (request.signal?.aborted === true) throw error
     throw new SynthError(networkMessage(kind, error, timeout.aborted, proxy))
   }
-  if (response.status >= 300 && response.status < 400) throw new SynthError('语音服务要求跳转到别的地址，请直接填最终地址')
-  if (!response.ok) {
-    const more = await detail(response)
-    throw new SynthError(`${statusMessage(kind, response.status)}${more === '' ? '' : `：${more}`}`)
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel().catch(() => {})
+    throw new SynthError('语音服务要求跳转到别的地址，请直接填最终地址')
   }
   let bytes: Uint8Array
   try {
+    if (!response.ok) {
+      const more = await detail(response, request.apiKey)
+      throw new SynthError(`${statusMessage(kind, response.status)}${more === '' ? '' : `：${more}`}`)
+    }
     bytes = await readLimited(response)
   } catch (error) {
     if (error instanceof SynthError || request.signal?.aborted === true) throw error
@@ -240,7 +288,7 @@ async function send(request: SynthRequest, url: string, init: RequestInit, fetch
   }
   const type = sniffAudio(bytes)
   if (type === undefined) {
-    const text = new TextDecoder().decode(bytes.subarray(0, 160)).replace(/\s+/g, ' ').trim()
+    const text = errorDetail(new TextDecoder().decode(bytes), request.apiKey)
     throw new SynthError(`返回的不是音频${text === '' ? '' : `：${text}`}`)
   }
   return { type, bytes }

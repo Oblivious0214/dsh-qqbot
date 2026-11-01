@@ -47,12 +47,12 @@ export type PresetDraft = Omit<JailbreakPreset, 'id'> & { readonly id?: string }
 export function validatePreset(value: unknown): JailbreakPreset
 export function validatePreset(value: unknown, optionalId: true): PresetDraft
 export function validatePreset(value: unknown, optionalId = false): PresetDraft {
-  if (!isRecord(value)) throw new TypeError('破限预设格式无效')
+  if (!isRecord(value)) throw new TypeError('通用提示词格式无效')
   const { id, name, head, mid, tail } = value
-  if (!(optionalId && id === undefined) && (typeof id !== 'string' || !PRESET_ID_PATTERN.test(id))) throw new TypeError('预设 id 无效')
-  if (typeof name !== 'string' || name.trim() === '' || name.length > NAME_LIMIT) throw new TypeError(`预设名称不能为空，最多 ${NAME_LIMIT} 个字符`)
+  if (!(optionalId && id === undefined) && (typeof id !== 'string' || !PRESET_ID_PATTERN.test(id))) throw new TypeError('通用提示词 id 无效')
+  if (typeof name !== 'string' || name.trim() === '' || name.length > NAME_LIMIT) throw new TypeError(`通用提示词名称不能为空，最多 ${NAME_LIMIT} 个字符`)
   for (const [label, text] of [['开头', head], ['中间', mid], ['结尾', tail]] as const) {
-    if (typeof text !== 'string' || text.length > TEXT_LIMIT) throw new TypeError(`预设${label}段必须是文本，最多 ${TEXT_LIMIT} 个字符`)
+    if (typeof text !== 'string' || text.length > TEXT_LIMIT) throw new TypeError(`通用提示词${label}段必须是文本，最多 ${TEXT_LIMIT} 个字符`)
   }
   return { ...id === undefined ? {} : { id: id as string }, name: name.trim(), head: head as string, mid: mid as string, tail: tail as string }
 }
@@ -63,6 +63,9 @@ export class JailbreakStore {
   constructor(private readonly file: string | undefined, private readonly warn: Warn) {
     this.state = file === undefined ? initialState() : this.load(file)
   }
+
+  /** 清理后读取新的初始预设。 */
+  reload(): void { this.state = this.file === undefined ? initialState() : this.load(this.file) }
 
   static at(dir: string, warn: Warn): JailbreakStore {
     return new JailbreakStore(join(dir, 'presets.json'), warn)
@@ -97,12 +100,12 @@ export class JailbreakStore {
    */
   save(value: unknown, create: boolean): JailbreakPreset {
     const draft = validatePreset(value, true)
-    if (!create && draft.id === undefined) throw new TypeError('缺少预设 id')
+    if (!create && draft.id === undefined) throw new TypeError('缺少通用提示词 id')
     const id = draft.id ?? this.freshId()
     const exists = this.get(id) !== undefined
-    if (create && exists) throw new Error('这份预设已经存在')
-    if (!create && !exists) throw new Error('这份预设已经不在了，可能已被删除')
-    if (this.state.presets.some(p => p.id !== id && p.name === draft.name)) throw new Error(`已经有叫"${draft.name}"的预设，换个名称`)
+    if (create && exists) throw new Error('这份通用提示词已经存在')
+    if (!create && !exists) throw new Error('这份通用提示词已经不在了，可能已被删除')
+    if (this.state.presets.some(p => p.id !== id && p.name === draft.name)) throw new Error(`已经有叫"${draft.name}"的通用提示词，换个名称`)
     const preset: JailbreakPreset = { ...draft, id }
     const presets = exists
       ? this.state.presets.map(p => p.id === id ? preset : p)
@@ -124,33 +127,33 @@ export class JailbreakStore {
     const names = new Set(this.state.presets.map(p => p.name))
     for (const item of presets) {
       const preset = validatePreset(item)
-      if (ids.has(preset.id) || names.has(preset.name)) throw new Error('预设库已变化，请重新预览配置')
+      if (ids.has(preset.id) || names.has(preset.name)) throw new Error('通用提示词库已变化，请重新预览配置')
       ids.add(preset.id)
       names.add(preset.name)
     }
     for (const [role, preset] of Object.entries(roles)) {
-      if (Object.hasOwn(this.state.roles, role) || !ids.has(preset)) throw new Error('角色预设选择已变化，请重新预览配置')
+      if (Object.hasOwn(this.state.roles, role) || !ids.has(preset)) throw new Error('角色通用提示词选择已变化，请重新预览配置')
     }
     this.commit({ ...this.state, presets: [...this.state.presets, ...presets], roles: { ...this.state.roles, ...roles } })
   }
 
   /** 删除预设。不能删最后一份；删的是默认预设时，默认改为剩下的第一份；选了它的角色改回跟随默认。 */
   remove(id: string): void {
-    if (this.get(id) === undefined) throw new Error('这份预设已经不在了，可能已被删除')
+    if (this.get(id) === undefined) throw new Error('这份通用提示词已经不在了，可能已被删除')
     const presets = this.state.presets.filter(p => p.id !== id)
-    if (presets.length === 0) throw new Error('至少要保留一份预设')
+    if (presets.length === 0) throw new Error('至少要保留一份通用提示词')
     const roles = Object.fromEntries(Object.entries(this.state.roles).filter(([, preset]) => preset !== id))
     this.commit({ ...this.state, presets, roles, default: this.state.default === id ? presets[0]!.id : this.state.default })
   }
 
   setDefault(id: string): void {
-    if (this.get(id) === undefined) throw new Error('这份预设已经不在了，可能已被删除')
+    if (this.get(id) === undefined) throw new Error('这份通用提示词已经不在了，可能已被删除')
     this.commit({ ...this.state, default: id })
   }
 
   /** 为角色选择预设；presetId 为空表示跟随默认。 */
   assign(roleId: string, presetId: string | undefined): void {
-    if (presetId !== undefined && this.get(presetId) === undefined) throw new Error('这份预设已经不在了，可能已被删除')
+    if (presetId !== undefined && this.get(presetId) === undefined) throw new Error('这份通用提示词已经不在了，可能已被删除')
     const roles = { ...this.state.roles }
     if (presetId === undefined) delete roles[roleId]
     else roles[roleId] = presetId

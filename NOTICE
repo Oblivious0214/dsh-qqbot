@@ -8,6 +8,10 @@ MIT License，见 LICENSE。
 
 本项目合并自以下 MIT 项目。迁移代码时，在对应条目下列出来源文件，并保留原版权声明。
 
+本工作区的 dsh-lan-web（dsh-qq-skin/vendor/lan-web，MIT）：
+- host.mjs、controller.mjs、gateway.mjs、views.mjs 的本地手机认证代理与入口管理方案，
+  在 src/phone/ 中按新插件和宿主公开 connection API 重写；不迁移旧设置或远程隧道逻辑。
+
 ------------------------------------------------------------
 dsh-qq-skin
 https://github.com/lispking/dsh-qq-skin
@@ -25,7 +29,10 @@ MIT License
   样式参考了它们的几何和选择器，按本插件重写；没有带原文件里的腾讯企鹅头像
 - src/client/settings-row.tsx、settings-ui.tsx：src/client/ui-editor.tsx 和 library-editor.tsx 的五套渐变
   代表色、色板卡片及自定义背景同组布局参考这些文件，按 QQ Bot 编辑器重写
-- src/settings-schema.ts 的显示间隔设置（随机区间、按字数对数）：src/ui-types.ts 的 segmentInterval 参考其算法
+- src/client/settings-ui.tsx 的 SettingsToggle：src/client/switch.tsx 的圆角开关尺寸、配色和滑块样式
+  原样迁移，全插件的开关设置共用
+- src/client/segments/config.ts、settings.tsx 的显示间隔设置（随机区间、按字数对数）：
+  src/ui-types.ts 的 segmentDelay 恢复其默认值与算法；src/client/ui-editor.tsx 按本插件界面重写设置
 - src/client/image-editor.ts：src/client/image-cropper.tsx 的裁剪弹窗（取景、缩放范围、键盘操作、背景比例选项、
   Cropper.js 参数）迁移自该文件，界面改用 DSH 的 Modal 和 Button 重写。Cropper.js 的声明见下文
 
@@ -97,7 +104,7 @@ MIT License，版权声明见原仓库 LICENSE
 ------------------------------------------------------------
 设计参考（未复制代码）
 
-- dsh-fish-tts，https://github.com/MaRi23333/dsh-fish-tts（MIT）：src/voice-engines.ts 的 Fish Audio 请求格式
+- dsh-fish-tts，https://github.com/MaRi23333/dsh-fish-tts（MIT）：src/voice-engines.ts 的 Fish Audio 请求格式；src/voice-types.ts 的 Fish 语气与声音标签名单（SPEECH_TAGS）
   （model 放请求头、reference_id、normalize、latency）参考了它的 synthesize()。
 
 - dsh-tavern，https://github.com/flizzywine/dsh-tavern：Agent 预设声明和隔离组压缩的写法。
@@ -163,3 +170,102 @@ Copyright (c) 2022 Gildas Lormeau. All rights reserved.
  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+------------------------------------------------------------
+0.2.0 内置设备联动模块
+
+来源：plugins/dsh-toy-buttplug/src/ → src/toy/；测试迁入 tests/toy/。
+分段协议共用 src/vendor/dialogue-timing/，不再复制第二份。
+以下保留来源仓库的完整许可与 NOTICE；其 src/ 路径对应本包 src/toy/，vendor 路径除外。
+
+MIT License
+
+Copyright (c) 2026 dsh-toy-buttplug contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+dsh-toy-buttplug
+Copyright (c) 2026 dsh-toy-buttplug contributors
+MIT License，见 LICENSE。
+
+本项目重写自同一作者未发布的 dsh-serveu（包名 dsh-toy-buttplug 0.2.0-preview，ServeU DSH 工作区
+dsh-serveu/，分支 feat/dsh-toy-buttplug）。旧仓库标记 UNLICENSED，由本项目作者以 MIT 重新发布。
+
+来源文件：
+- src/stage-display.js、src/client/stage-display.jsx：src/client/stage-display.ts、stage-badge.tsx 的只读标注和显示开关；
+  改用 qqbotSegments.annotate 挂点、QQbot 显示时钟和播放器现有安全超时，不迁移 durationMs 或第二套渲染包装。
+- src/definition-config.js、preview.js（speedBands）、config.js（withMaxSpeed）：src/core/config.ts
+- src/definition-protocol.js（reduceIntent、describeIntent）：src/core/intent.ts，去掉 protocol 标记字段
+- src/definition-motion.js、definition-output.js（packetizeLeg、outputRange）、live-player.js（livePackets）：
+  src/core/motion.ts，合并为一个生成器
+- src/live-stream.js（parseLiveStream）：流式读取移到共享的 dialogue-timing（parseTimedStream），src/core/replies.ts 调用它
+- src/definition-live.js（inheritLiveIntent、resolveLiveTiming）：src/core/replies.ts
+- src/live-player.js（LivePlayer 的发包循环）：src/client/player.ts，显示计时部分移到 dsh-qqbot
+- src/device.js（ButtplugConnection）：src/client/buttplug.ts
+- src/bluetooth.js：src/core/bluetooth-codec.ts、src/client/bluetooth.ts
+- src/preferences.js（validHotkey、hotkeyFromEvent、matchesHotkey）：src/core/hotkey.ts
+- src/live-conversation.js、conversation.js（接入、暂停的流程）：src/client/controller.ts 重写
+- src/client/index.jsx（ToyPanel、ToyButton、DualRange 分界刻度与范围）、style.css（速度分区颜色）、
+  controls.jsx（Authorization、ConversationSettings）：
+  src/client/panel.tsx 重写，设置改存 host
+- src/client/index.jsx（PresetMenu、Wave）和 style.css（三档入口、预设卡片及缩略曲线）：
+  src/toy/client/preset-library.tsx 按统一动作库重写，保留当前加权池和 funscript 数据结构。
+- src/client/definition-menu.jsx（范围偏好卡片与 RangeWave 对比示意）：
+  src/toy/client/panel.tsx 的高速偏好恢复标题与曲线分行的大卡片，沿用本节 MIT 授权与版权。
+- src/definition-protocol.js、definition-live.js、control-protocol.js 的提示词：src/core/rules.ts 重写
+
+0.6.0 按用户要求恢复 catalog.json、default-pools.json 中的 24 组内置轨迹及低中高默认池：
+- src/toy/motion-library/builtins.ts：源自 legacy/dsh-serveu/src/catalog.json、default-pools.json。
+  同一项目作者按本节 MIT 授权纳入；仅迁移内置数据，不导入用户设置。坐标和轨迹顺序保留，
+  累计时间取整为整数毫秒；zipper 末尾 [50,50,0] 空段省略。转换脚本及源摘要见
+  work/motion-library-integration-20261031/。新库的存储、编辑和播放器适配为本次新实现。
+
+0.7.0 将上述 24 组轨迹转换为 assets/motion-presets/*.funscript，名称与默认池单列于 index.json。
+- scripts/convert-motion-presets.mjs、verify-motion-presets.mjs 记录可复现转换及逐段校验；
+  scripts/fixtures/motion-presets/ 保留同一来源的两份内置 JSON，供仓库独立校验使用，不含用户资料。
+  授权与版权沿用本节，坐标、顺序、停留及累计毫秒取整规则保持。
+
+没有迁移旧的 position/speed 区间协议、[dsh] 和 [dsh-intent] 独立控制块，以及包装聊天渲染器的 HiddenControlView、
+TimelinePlayer（显示计时归 dsh-qqbot）。
+
+------------------------------------------------------------
+设备协议依据（只用于互操作，未复制源码）
+
+- Buttplug v3 协议：https://buttplug.io/docs/spec-v3/
+- ServeUOfficial/CentralForWindows（只读参考）：buttplug_ffi/src/server.rs、message.rs，
+  Services/Servers/ButtplugServer.cs，Services/DeviceService.cs。用于确认 Buttplug 模式的握手、
+  单轴 Position 设备的声明方式，以及 V0 蓝牙的 D0 布局和速度编码。
+- CentralForWeb 1.5.2 src/services/device-service.ts（经 AstrBot ServeU 插件 views/control/device.js 转述）：
+  ServeU、VorzePiston 的服务和特征 UUID、D0 应答布局、运动包格式。
+
+src/core/bluetooth-codec.ts 里的 UUID、字节布局和速度编码公式来自上面两项。公开发布前请确认
+ServeUOfficial 对这些协议数据的授权。
+
+------------------------------------------------------------
+dialogue-timing（[qq] 分段协议）
+ServeU DSH 工作区 shared/dialogue-timing/，MIT
+
+来源文件：src/vendor/dialogue-timing/ 原样复制，SHA-256 见该目录 README.md。
+parseTimedStream 的流式读取改写自 dsh-serveu 的 src/live-stream.js（parseLiveStream），同一作者，以 MIT 发布。
+
+
+0.17.0 设置统一：src/client/settings-style.ts 为本项目公共布局与控件样式，
+沿用上述来源的主题、卡片与滑条实现；src/client/switch.tsx 保留原 QQ NT 开关。
+角色自主性改为内嵌编辑，设置保存队列为本项目新增实现；既有版权与许可保持。

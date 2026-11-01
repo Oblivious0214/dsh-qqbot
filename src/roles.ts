@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { isMemeFrequency, type MemeFrequency } from './format.ts'
-import { MOTION_ACTIONS, MOTION_RANGES, ROLE_PROACTIVITIES, type MotionAction, type MotionRange, type RoleProactivity } from './library-types.ts'
+import { MOTION_ACTION_LIMIT, MOTION_RANGES, motionActionName, ROLE_PROACTIVITIES, type MotionAction, type MotionRange, type RoleProactivity } from './library-types.ts'
 import { isRecord, renameWithRetry, writeText, type Warn } from './storage.ts'
 import { VOICE_ID_PATTERN } from './voice-types.ts'
 import type { MemePreferences } from './library-types.ts'
@@ -98,7 +98,7 @@ export function parseRole(text: string, fallbackId: string): Role | undefined {
     const raw = rawScalar(front, 'proactivityTexts')
     if (raw !== undefined) proactivityTexts = validateProactivityTexts(JSON.parse(raw))
   } catch { /* 手写字段无效时沿用联动默认说明。 */ }
-  const motionActions = pickList(scalar(front, 'motionActions'), MOTION_ACTIONS)
+  const motionActions = actionNames(scalar(front, 'motionActions')?.split(/[,，]/), false)
   const motionRanges = pickList(scalar(front, 'motionRanges'), MOTION_RANGES)
   const voice = scalar(front, 'voice')?.trim()
   return {
@@ -171,7 +171,8 @@ export function validateRoleDraft(value: unknown): RoleDraft {
   if (memeFrequency !== undefined && !isMemeFrequency(memeFrequency)) throw new TypeError('表情频率无效')
   if (proactivity !== undefined && !isRoleProactivity(proactivity)) throw new TypeError('联动主动性无效')
   const proactivityTexts = validateProactivityTexts(value['proactivityTexts'])
-  const actions = validList(motionActions, MOTION_ACTIONS, '偏好动作无效')
+  if (motionActions !== undefined && !Array.isArray(motionActions)) throw new TypeError('偏好动作无效')
+  const actions = actionNames(motionActions, true)
   const ranges = validList(motionRanges, MOTION_RANGES, '偏好范围无效')
   if (voice !== undefined && (typeof voice !== 'string' || !VOICE_ID_PATTERN.test(voice))) throw new TypeError('音色无效')
   return {
@@ -184,6 +185,20 @@ export function validateRoleDraft(value: unknown): RoleDraft {
     ...ranges === undefined ? {} : { motionRanges: ranges },
     ...voice === undefined ? {} : { voice },
   }
+}
+
+/** 偏好动作名：去重、保留顺序、最多 MOTION_ACTION_LIMIT 个；strict 时不合规的名称报错，否则丢掉。空列表当作没写。 */
+function actionNames(values: readonly unknown[] | undefined, strict: boolean): string[] | undefined {
+  if (values === undefined) return undefined
+  const names: string[] = []
+  for (const value of values) {
+    const name = motionActionName(value)
+    if (name === undefined) { if (strict) throw new TypeError('偏好动作无效'); continue }
+    if (!names.includes(name)) names.push(name)
+  }
+  if (strict && names.length > MOTION_ACTION_LIMIT) throw new TypeError(`偏好动作最多 ${MOTION_ACTION_LIMIT} 个`)
+  const kept = names.slice(0, MOTION_ACTION_LIMIT)
+  return kept.length === 0 ? undefined : kept
 }
 
 /** 编辑界面提交的列表：每项都要认识；按 choices 的顺序去重，空列表当作没写。 */

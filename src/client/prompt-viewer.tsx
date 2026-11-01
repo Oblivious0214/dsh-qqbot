@@ -64,7 +64,8 @@ const JAILBREAK_PARTS: readonly string[] = [SECTION_NAME.JB_HEAD, SECTION_NAME.J
 /** 这段对应的编辑入口；外部插件和记忆说明没有。 */
 function editTarget(view: PromptView, part: PromptViewPart): { readonly label: string; readonly target: EditorTarget } | undefined {
   if (part.name === SECTION_NAME.PERSONA && view.roleId !== undefined) return { label: '编辑角色', target: { tab: 'roles', id: view.roleId } }
-  if (JAILBREAK_PARTS.includes(part.name)) return { label: '编辑破限预设', target: { tab: 'presets', id: view.presetId } }
+  if (JAILBREAK_PARTS.includes(part.name)) return { label: '编辑通用提示词', target: { tab: 'presets', id: view.presetId } }
+  if (part.name === `${SECTION_NAME.EXT_PREFIX}quick-replies`) return { label: '编辑回复建议', target: { tab: 'reply' } }
   return undefined
 }
 
@@ -174,7 +175,7 @@ function ViewerPage({ sessionId, onEdit }: { readonly sessionId: string; readonl
         <Button size="sm" variant={bySource ? 'ghost' : 'outline'} onClick={() => { setBySource(false) }}>按段落</Button>
         <Button size="sm" variant={bySource ? 'outline' : 'ghost'} onClick={() => { setBySource(true) }}>按来源</Button>
         <span className="qv-grow" />
-        <Button size="sm" variant="ghost" onClick={() => { onEdit(libraryTarget(load)) }}>角色与预设</Button>
+        <Button size="sm" variant="ghost" onClick={() => { onEdit(libraryTarget(load)) }}>角色与提示词</Button>
         <Button size="sm" variant="ghost" disabled={load.kind !== 'ready'} onClick={copy}>复制系统提示词</Button>
         <Button size="sm" variant="ghost" icon={<IconRefreshOutlineRegular size={14} />} onClick={() => { setGeneration(n => n + 1) }}>刷新</Button>
       </div>

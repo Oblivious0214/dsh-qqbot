@@ -36,6 +36,9 @@ export class MemoryStore {
 
   constructor(readonly dir: string | undefined, private readonly warn: Warn) {}
 
+  /** 释放旧资料副本，后续现读磁盘。 */
+  clearCache(): void { this.memory.clear(); this.warned.clear() }
+
   static at(dataDir: string, warn: Warn): MemoryStore {
     return new MemoryStore(join(dataDir, 'memories'), warn)
   }

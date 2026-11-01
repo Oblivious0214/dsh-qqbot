@@ -157,6 +157,53 @@ describe('session snapshot', () => {
     expect(memoryPart(content, 's1')).toContain('叫他阿林')
   })
 
+  it('reports a stale snapshot and applies the new memory to one session (compaction path)', () => {
+    const dir = temp()
+    const content = data(dir)
+    content.bindings.setDefaultRole('alice')
+    expect(content.memoryState('s1')).toBeUndefined()
+    content.memories.save('alice', MEMORY)
+    content.settle({ id: 's1' })
+    content.settle({ id: 's2' })
+    expect(content.memoryState('s1')).toEqual({ role: 'alice', stale: false })
+
+    // 自动整理只写记忆文件，会话快照不动，直到压缩时应用。
+    content.memories.save('alice', '## 关系\n已经是好朋友')
+    expect(content.memoryState('s1')).toEqual({ role: 'alice', stale: true })
+    content.applyMemory('s1', 'alice')
+    expect(content.memoryState('s1')).toEqual({ role: 'alice', stale: false })
+    expect(memoryPart(content, 's1')).toContain('已经是好朋友')
+    // 其他会话不受影响；重启后仍是应用后的版本。
+    expect(memoryPart(content, 's2')).toContain('叫他阿林')
+    expect(memoryPart(data(dir), 's1')).toContain('已经是好朋友')
+
+    // 会话已换成别的角色时不动别的角色的快照。
+    content.memories.save('alice', '## 关系\n又变了')
+    content.bindings.set('s1', 'bob')
+    content.applyMemory('s1', 'alice')
+    content.bindings.set('s1', 'alice')
+    expect(memoryPart(content, 's1')).toContain('已经是好朋友')
+  })
+
+  it('applies a manual memory edit to every session of that role', () => {
+    const content = data()
+    content.bindings.setDefaultRole('alice')
+    content.settle({ id: 's1' })
+    content.settle({ id: 's2' })
+    content.bindings.set('s3', 'bob')
+    content.settle({ id: 's3' })
+    content.memories.save('bob', '## 关系\n同事')
+    applyLibraryAction(content, { action: 'role.memory.save', id: 'alice', memory: MEMORY })
+    expect(memoryPart(content, 's1')).toContain('叫他阿林')
+    expect(memoryPart(content, 's2')).toContain('叫他阿林')
+    // 别的角色的会话不受影响。
+    expect(memoryPart(content, 's3')).toBeUndefined()
+    // 角色卡保存里带的记忆也一样。
+    const alice = libraryView(content).roles.find(role => role.id === 'alice')!
+    applyLibraryAction(content, { action: 'role.save', create: false, role: { ...alice, memory: '## 关系\n恋人' } })
+    expect(memoryPart(content, 's1')).toContain('恋人')
+  })
+
   it('places the memory between the extension slot and the jailbreak tail', () => {
     const content = data()
     content.bindings.setDefaultRole('alice')

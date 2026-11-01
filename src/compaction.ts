@@ -199,13 +199,27 @@ export class QqbotCompactionEngine extends BasicCompactionEngine {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<SummaryResult> {
-    // 旧历史即将被摘要换掉，先单独整理一次角色记忆。整理在触发时就取下了完整历史，
-    // 不等它完成，失败也不影响压缩（docs/architecture.md 第 6 节）。没有 dsh-qqbot 服务时跳过。
-    void this.ctx.get('qqbot')?.memory.consolidate(agent.id).then((outcome) => {
+    // 旧历史即将被摘要换掉，先单独整理一次角色记忆。整理在触发时就取下了完整历史，和摘要并行；
+    // 摘要完成后再等它结束，压缩提交时本会话换上新版记忆（qqbot-memory 监听提交）。
+    // 整理失败不影响压缩（docs/architecture.md 第 6 节）。没有 dsh-qqbot 服务时跳过。
+    const consolidation = this.ctx.get('qqbot')?.memory.consolidate(agent.id).then((outcome) => {
       if (outcome.kind === 'failed') this.ctx.logger.warn(`qqbot: 记忆整理失败：${outcome.error}`)
-    })
-    return summarizeChat(this.ctx.llm, this.config, input, agent, signal)
+    }, () => {})
+    const summary = await summarizeChat(this.ctx.llm, this.config, input, agent, signal)
+    if (consolidation !== undefined) await untilAborted(consolidation, signal)
+    return summary
   }
+}
+
+/** 等 promise 结束；压缩被取消时不再等。 */
+function untilAborted(promise: Promise<void>, signal?: AbortSignal): Promise<void> {
+  if (signal === undefined) return promise
+  if (signal.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = () => { signal.removeEventListener('abort', done); resolve() }
+    signal.addEventListener('abort', done, { once: true })
+    void promise.then(done)
+  })
 }
 
 export default QqbotCompactionEngine

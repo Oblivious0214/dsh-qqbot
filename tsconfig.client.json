@@ -5,6 +5,6 @@
     "types": []
   },
   "include": [
-    "src/client"
+    "src/client", "src/toy/client"
   ]
 }

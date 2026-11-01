@@ -31,6 +31,45 @@ function setup(synth?: (voice: string, text: string, signal: AbortSignal) => Pro
 }
 
 describe('voice player', () => {
+  it('keeps revealed bubbles across player recreation and cache cleanup, but resets all data', () => {
+    const values = new Map<string, string>()
+    const storage: Storage = {
+      get length() { return values.size },
+      key: index => [...values.keys()][index] ?? null,
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => { values.set(key, value) },
+      removeItem: key => { values.delete(key) },
+      clear: () => { values.clear() },
+    }
+    const first = new VoicePlayer(() => 1, undefined, undefined, storage)
+    first.reveal('session:turn:step:0')
+    first.clearCache()
+    expect(first.isRevealed('session:turn:step:0')).toBe(true)
+    first.dispose()
+    const reopened = new VoicePlayer(() => 1, undefined, undefined, storage)
+    expect(reopened.isRevealed('session:turn:step:0')).toBe(true)
+    expect(reopened.isRevealed('another-session:turn:step:0')).toBe(false)
+    storage.setItem('other-plugin', 'keep')
+    reopened.clearReadState()
+    expect(reopened.isRevealed('session:turn:step:0')).toBe(false)
+    expect(storage.getItem('other-plugin')).toBe('keep')
+    reopened.dispose()
+  })
+
+  it('clears generated audio and pending jobs without disposing the player', async () => {
+    const { player, requests } = setup()
+    let notifications = 0
+    const stop = player.subscribe(() => { notifications++ })
+    await player.prepare(clip('a'))
+    player.clearCache()
+    expect(player.status(clip('a').key)).toEqual({ state: 'idle' })
+    const before = notifications
+    await player.prepare(clip('a'))
+    expect(requests).toEqual(['a', 'a'])
+    expect(notifications).toBeGreaterThan(before)
+    stop(); player.dispose()
+  })
+
   it('generates each sentence once and reports its duration', async () => {
     const { player, requests } = setup()
     await Promise.all([player.prepare(clip('a')), player.prepare(clip('a'))])

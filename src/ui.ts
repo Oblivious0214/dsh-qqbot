@@ -8,12 +8,15 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync }
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { NO_ROLE } from './bindings.ts'
 import type { QqbotData } from './content.ts'
 import type {} from './index.ts'
 import { ROLE_ID_PATTERN } from './roles.ts'
 import { isRecord, readJson, renameWithRetry, writeJson, type Warn } from './storage.ts'
+import { TYPING_SPEEDS } from './pacing.ts'
 import {
   BACKGROUND_FITS, DEFAULT_UI_SETTINGS, IMAGE_BYTE_LIMIT, IMAGE_PATH, PALETTES, UI_LIMITS, UI_PATH,
   type UiError, type UiRole, type UiSettings, type UiView,
@@ -49,11 +52,15 @@ function bool(value: unknown, label: string): boolean {
 export function validateUiSettings(value: unknown): UiSettings {
   if (!isRecord(value)) throw new BadRequest('界面设置格式无效')
   return {
+    typingSpeed: value['typingSpeed'] === undefined ? DEFAULT_UI_SETTINGS.typingSpeed : oneOf(value['typingSpeed'], '打字速度', TYPING_SPEEDS),
     palette: oneOf(value['palette'], '色板', PALETTES),
     bubbleTail: bool(value['bubbleTail'], '气泡尾巴'),
     avatars: bool(value['avatars'], '头像'),
     chatMaxWidth: Math.round(numberIn(value['chatMaxWidth'], '聊天宽度', UI_LIMITS.chatMaxWidth)),
-    immersive: bool(value['immersive'], '沉浸模式'),
+    hideTools: bool(value['hideTools'] ?? value['immersive'] ?? true, '隐藏工具过程'),
+    hideCommands: bool(value['hideCommands'] ?? value['immersive'] ?? true, '隐藏成功命令'),
+    hideStats: bool(value['hideStats'] ?? value['immersive'] ?? true, '隐藏回合统计'),
+    hideThinking: bool(value['hideThinking'] ?? DEFAULT_UI_SETTINGS.hideThinking, '隐藏思考过程'),
     backgroundEnabled: value['backgroundEnabled'] === undefined ? true : bool(value['backgroundEnabled'], '自定义背景'),
     backgroundFit: oneOf(value['backgroundFit'], '背景显示方式', BACKGROUND_FITS),
   }
@@ -63,6 +70,9 @@ export function validateUiSettings(value: unknown): UiSettings {
 function looseSettings(value: unknown): UiSettings {
   if (!isRecord(value)) return DEFAULT_UI_SETTINGS
   const result: Record<string, unknown> = { ...DEFAULT_UI_SETTINGS }
+  for (const key of ['hideTools', 'hideCommands', 'hideStats']) {
+    if (!(key in value) && typeof value['immersive'] === 'boolean') result[key] = value['immersive']
+  }
   for (const key of Object.keys(DEFAULT_UI_SETTINGS) as (keyof UiSettings)[]) {
     if (!(key in value)) continue
     try {
@@ -131,6 +141,8 @@ export class UiStore {
   private settingsCache: UiSettings | undefined
 
   constructor(readonly dir: string, private readonly warn: Warn) {}
+
+  clearCache(): void { this.settingsCache = undefined }
 
   private get file(): string { return join(this.dir, 'ui.json') }
   private get imageDir(): string { return join(this.dir, 'images') }
@@ -239,6 +251,7 @@ export function applyUiAction(data: QqbotData, ui: UiStore, body: unknown): void
     case 'session.role': {
       const session = body['session']
       if (typeof session !== 'string' || !SESSION_ID_PATTERN.test(session)) throw new BadRequest('会话 id 无效')
+      if (data.bindings.turnsOf(session).length > 0) throw new Error('对话开始后不能切换角色，请新建对话选择角色。')
       data.bindings.set(session, body['role'] === null ? NO_ROLE : role())
       return
     }
@@ -288,15 +301,23 @@ export function imageResponse(ui: UiStore, request: Request): Response {
   })
 }
 
-export const inject = ['qqbot', 'connection']
+export const inject = ['qqbot', 'connection', 'agents', 'agentPresets']
 
 export function apply(ctx: Context): void {
   const { content: data, ui } = ctx.qqbot
   ctx.effect(() => ctx.connection.fetch.register({
+    path: '/api/qqbot/device-intro.gif',
+    methods: ['GET'],
+    requestBody: 'buffered',
+    fetch: async () => new Response(new Uint8Array(readFileSync(new URL('../assets/device-intro.gif', import.meta.url))), {
+      headers: { 'content-type': 'image/gif', 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' },
+    }),
+  }), 'qqbot: device introduction image')
+  ctx.effect(() => ctx.connection.fetch.register({
     path: UI_PATH,
     methods: ['GET', 'POST'],
     requestBody: 'buffered',
-    fetch: async (request) => {
+    fetch: ctx.qqbot.maintenance.route(async (request) => {
       if (request.method === 'POST') {
         let body: unknown
         try {
@@ -305,6 +326,13 @@ export function apply(ctx: Context): void {
           return fail(400, 'bad-request', '请求不是有效的 JSON')
         }
         try {
+          if (isRecord(body) && body['action'] === 'session.role') {
+            const id = body['session']
+            const agent = typeof id === 'string' ? ctx.agents.get(id as Parameters<typeof ctx.agents.get>[0]) : undefined
+            if (!agent || ctx.agentPresets.presetForSession(agent.session) !== 'qqbot') throw new Error('请在 QQ Bot 对话中选择角色。')
+            if (ctx.agents.turnBoundaryOf(agent.session).lastTurn > 0 || agent.status !== 'idle'
+              || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0) throw new Error('对话开始后不能切换角色，请新建对话选择角色。')
+          }
           applyUiAction(data, ui, body)
         } catch (error) {
           if (error instanceof BadRequest) return fail(400, 'bad-request', error.message)
@@ -312,7 +340,7 @@ export function apply(ctx: Context): void {
         }
       }
       return json(200, uiView(data, ui, sessionParam(request)))
-    },
+    }),
   }), 'qqbot: ui route')
   ctx.effect(() => ctx.connection.fetch.register({
     path: IMAGE_PATH,

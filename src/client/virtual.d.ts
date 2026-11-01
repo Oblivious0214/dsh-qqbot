@@ -3,3 +3,9 @@ declare module 'virtual:cropper-css' {
   const css: string
   export default css
 }
+
+/** 插件版本来自构建时的 package.json，不另行维护版本常量。 */
+declare module 'virtual:qqbot-version' {
+  const version: string
+  export default version
+}

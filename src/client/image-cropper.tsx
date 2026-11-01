@@ -173,11 +173,11 @@ export function ImageCropper({ kind, file, busy, error, onChangeFile, onCancel, 
     description={kind === 'avatar'
       ? '拖动图片取景，滚轮或滑条缩放。头像固定为正方形，显示时裁成圆形。'
       : '拖动图片或取景框取景，滚轮或滑条缩放，拖动取景框边角调整范围。'}
-    footer={<>
-      <Button size="sm" variant="ghost" className="qc-reset" disabled={!ready || busy} onClick={reset}>重置取景</Button>
+    footer={<div className="qc-footer">
+      <Button size="sm" variant="outline" className="qc-reset" disabled={!ready || busy} onClick={reset}>重置取景</Button>
       <Button size="sm" variant="outline" disabled={busy} onClick={onCancel}>取消</Button>
       <Button size="sm" variant="primary" disabled={!ready || busy} onClick={save}>{busy ? '正在保存…' : '裁剪并保存'}</Button>
-    </>}>
+    </div>}>
     <div className="qc-toolbar">
       <input ref={picker} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" hidden
         onChange={(event) => { const next = event.target.files?.[0]; event.target.value = ''; if (next !== undefined) onChangeFile(next) }} />
@@ -205,6 +205,8 @@ export function ImageCropper({ kind, file, busy, error, onChangeFile, onCancel, 
 /** 弹窗样式，全部在 CROPPER_CLASS 下；Cropper.js 自带的样式也在这个前缀下。 */
 export const CROPPER_CSS = `${cropperCss}
 [role="dialog"].${CROPPER_CLASS} { width: min(720px, 100%); max-height: 100%; font-size: 14px; line-height: 22px; }
+.${CROPPER_CLASS} .qc-footer { width: 100%; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.${CROPPER_CLASS} .qc-footer button, .${CROPPER_CLASS} .qc-toolbar button { font-size: 14px; line-height: 22px; min-height: 36px; }
 .${CROPPER_CLASS} .qc-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .${CROPPER_CLASS} .qc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
 .${CROPPER_CLASS} .qc-ratio { display: flex; align-items: center; gap: 6px; font-size: 14px; }

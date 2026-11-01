@@ -22,6 +22,7 @@
 <p>QQ Bot 由<strong>抚物工作室</strong>开发，推荐搭配我们自己的<strong>抚物联动杯</strong>。</p>
 <p>支持 AI 对话、视频和游戏联动，电脑和手机都能用。</p>
 <p><strong><a href="https://c.tb.cn/h.jU11PcxxOvQ1F3G?tk=IoorTANS3Nc">前往淘宝购买</a></strong>，或在淘宝搜索 <strong>「抚物工作室」</strong>。</p>
+<p><a href="https://pages.tmall.com/wow/a/act/tmall/dailygroup/16355/16802/wupr?wh_pid=daily-465056&amp;disableNav=YES&amp;status_bar_transparent=true&amp;sellerId=2453368311&amp;activityId=b6fd1bd2fc4f46e680067de51b48b9f8&amp;toolName=shopCoupon"><img src="images/coupon-button.svg" alt="领取优惠券" width="152" height="38"></a></p>
 <p>🍚 <strong>大肥鱼的白饭补给</strong>：下单前找客服报口令 <strong>「大肥鱼」</strong>，享购买优惠。</p>
 </td>
 <td width="160"><img src="images/device-cutout.jpg" alt="抚物联动杯" width="150"></td>

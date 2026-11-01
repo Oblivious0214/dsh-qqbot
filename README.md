@@ -2,7 +2,7 @@
 
 像 QQ 里一样和 AI 聊天：可配置人设、表情包、发语音。兼容 DSH 正常用途，不混淆工作区／界面。以前用 QQ 小号养鱼，动不动就被电鱼（封小号），搬到 DSH 上就不怕了。
 
-DSH养鱼交流欢迎加群639395026
+DSH养鱼交流欢迎加群639395026  
 DSH草鱼交流欢迎加群691443603
 
 <p align="center"><img src="docs/images/chat-preview-devices.png" alt="QQ Bot 电脑端与手机端聊天效果" width="900"></p>

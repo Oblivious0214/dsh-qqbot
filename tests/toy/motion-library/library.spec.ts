@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createStandbySample, deserializeLibrary, emptyLibrary, mapScene, parseFunscript, parseLibrary, previewScript, resolveScene, saveClip, serializeLibrary, sliceScript, SCRIPT_LIMITS } from '../../../src/toy/motion-library/index.ts'
+import { closeLoop, createStandbySample, deserializeLibrary, emptyLibrary, mapScene, parseFunscript, parseLibrary, previewScript, resolveScene, saveClip, serializeLibrary, sliceScript, SCRIPT_LIMITS, updateClip } from '../../../src/toy/motion-library/index.ts'
 
 const raw = JSON.stringify({ version: '1.0', actions: [{ at: 1000, pos: 0 }, { at: 2000, pos: 100 }, { at: 3000, pos: 100 }, { at: 4000, pos: 0 }] })
 const script = () => parseFunscript(raw)
@@ -45,6 +45,38 @@ describe('funscript data and slicing', () => {
     }
     expect(() => sliceScript({ points: [{ at: 0, pos: 0 }, { at: 600001, pos: 1 }] }, 0, 600001)).toThrow('600')
   })
+
+  it('closes a loop by returning to the start at the ending speed', () => {
+    expect(closeLoop([{ at: 0, pos: 0 }, { at: 1000, pos: 100 }, { at: 2000, pos: 50 }])).toEqual([
+      { at: 0, pos: 0 }, { at: 1000, pos: 100 }, { at: 2000, pos: 50 }, { at: 3000, pos: 0 },
+    ])
+    const closed = [{ at: 0, pos: 0 }, { at: 1000, pos: 100 }, { at: 2000, pos: 0 }]
+    expect(closeLoop(closed)).toEqual(closed)
+    expect(closeLoop([{ at: 0, pos: 0 }, { at: 1000, pos: 100 }, { at: 2000, pos: 100 }])).toEqual([
+      { at: 0, pos: 0 }, { at: 1000, pos: 100 }, { at: 2000, pos: 100 }, { at: 3000, pos: 0 },
+    ])
+    const nearLimit = [{ at: 0, pos: 0 }, { at: 599000, pos: 100 }, { at: 599600, pos: 50 }]
+    const repaired = closeLoop(nearLimit)
+    expect(repaired.at(-1)).toEqual({ at: 599600, pos: 0 })
+    expect(repaired.slice(0, 2)).toEqual(nearLimit.slice(0, 2))
+  })
+
+  it('repairs only the tail at duration or point limits, preserving the source and every valid bound', () => {
+    const full = [{ at: 0, pos: 0 }, { at: 600000, pos: 100 }]
+    expect(closeLoop(full)).toEqual([{ at: 0, pos: 0 }, { at: 540000, pos: 90 }, { at: 600000, pos: 0 }])
+    expect(full.at(-1)!.pos).toBe(100)
+    const dense = Array.from({ length: 20000 }, (_, at) => ({ at, pos: at / 200 }))
+    const fixed = closeLoop(dense)
+    expect(fixed.length).toBeLessThanOrEqual(20000)
+    expect(fixed.at(-1)).toEqual({ at: 19999, pos: 0 })
+    expect(fixed.filter(p => p.at < 18000)).toEqual(dense.filter(p => p.at < 18000))
+    for (const points of [full, dense, [{ at: 0, pos: 25 }, { at: 1, pos: 75 }]]) {
+      const loop = closeLoop(points)
+      expect(loop[0]!.pos).toBe(loop.at(-1)!.pos)
+      expect(loop.every((p, i) => Number.isSafeInteger(p.at) && p.pos >= 0 && p.pos <= 100 && (!i || p.at > loop[i-1]!.at))).toBe(true)
+      expect(closeLoop(loop)).toEqual(loop)
+    }
+  })
 })
 
 describe('snapshot library and explicit scene mapping', () => {
@@ -65,7 +97,7 @@ describe('snapshot library and explicit scene mapping', () => {
 
   it('checks normalized names and broken references without overwriting existing entries', () => {
     const saved = saveClip(emptyLibrary(), 'Demo', script(), 1000, 2000)
-    expect(() => saveClip(saved, ' ＤＥＭＯ ', script(), 2000, 3000)).toThrow('名称已存在')
+    expect(() => saveClip(saved, ' ＤＥＭＯ ', script(), 2000, 3000)).toThrow('已有同名动作')
     for (const label of ['', 'a\nb', 'a'.repeat(61)]) expect(() => saveClip(saved, label, script(), 1000, 2000)).toThrow('名称')
     expect(() => mapScene(saved, '演示', '缺失')).toThrow('找不到')
     const mapped = mapScene(saved, 'demo', 'demo')
@@ -76,13 +108,26 @@ describe('snapshot library and explicit scene mapping', () => {
     expect(saved.clips).toHaveLength(1)
   })
 
-  it('rejects excessive library size and invalid normalized clip times', () => {
+  it('keeps each clip within its own point limit without a shared library total', () => {
     const saved = saveClip(emptyLibrary(), '示例', script(), 1000, 2000)
     expect(() => parseLibrary({ ...saved, clips: Array(101).fill(saved.clips[0]) })).toThrow('100')
     expect(() => parseLibrary({ ...saved, mappings: Array(101).fill({ scene: 'x', clipId: 'motion-1' }) })).toThrow('100')
     expect(() => parseLibrary({ ...saved, clips: [{ ...saved.clips[0], points: script().points }] })).toThrow('从零')
     const points = Array.from({ length: 11000 }, (_, at) => ({ at, pos: 50 }))
-    expect(() => parseLibrary({ ...saved, clips: [{ id: 'motion-1', name: 'a', points }, { id: 'motion-2', name: 'b', points }] })).toThrow('总数')
+    expect(parseLibrary({ ...saved, clips: [{ source: 'custom', kind: 'segment', id: 'motion-1', name: 'a', points }, { source: 'custom', kind: 'segment', id: 'motion-2', name: 'b', points }] }).clips).toHaveLength(2)
+  })
+
+  it('appends a closing point when saving or editing a loop whose ends differ', () => {
+    const open = { points: [{ at: 0, pos: 0 }, { at: 1000, pos: 100 }, { at: 2000, pos: 40 }] }
+    const saved = saveClip(emptyLibrary(), '开环', open, 0, 2000, { kind: 'loop' })
+    expect(saved.clips[0]!.points.at(-1)).toEqual({ at: 2667, pos: 0 })
+    const edited = saveClip(saved, '改截取', open, 0, 2000)
+    expect(edited.clips[1]!.points).toEqual(open.points)
+    const trimmed = updateClip(saved, '开环', { points: [{ at: 0, pos: 0 }, { at: 1000, pos: 100 }, { at: 1500, pos: 70 }] })
+    expect(trimmed.clips[0]!.points.at(-1)).toEqual({ at: 2667, pos: 0 })
+    const segment = saveClip(emptyLibrary(), '片段', open, 0, 2000)
+    expect(updateClip(segment, '片段', { playback: 'loop' }).clips[0]!.points.at(-1)).toEqual({ at: 2667, pos: 0 })
+    expect(saveClip(emptyLibrary(), '停住', { points: [{ at: 0, pos: 0 }, { at: 1000, pos: 100 }, { at: 2000, pos: 100 }] }, 0, 2000, { kind: 'loop' }).clips[0]!.points.at(-1)).toEqual({ at: 3000, pos: 0 })
   })
 })
 
@@ -149,7 +194,7 @@ describe('bounded preview, never playback', () => {
     })
     expect(previewScript(sample, limits).executable).toBe(false)
     expect(() => createStandbySample({ ...options, cycles: 21 })).toThrow()
-    expect(() => createStandbySample({ ...options, cycles: 20, highRange: [100, 100], speedRange: [2, 2] })).toThrow('120')
+    expect(() => createStandbySample({ ...options, cycles: 20, highRange: [100, 100], speedRange: [2, 2] })).toThrow('600')
     expect(() => createStandbySample({ ...options, speedRange: [50, 20] })).toThrow()
   })
 })

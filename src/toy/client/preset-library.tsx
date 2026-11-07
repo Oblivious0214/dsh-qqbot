@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { burstTier, HARD_LIMITS, TIERS, tierBudget, type Tier } from '../core/config.ts'
 import { BURST_SECONDS, DEFAULT_BURST, type BurstSettings } from '../api-types.ts'
 import { parseActionLibrary, type ActionLibrary } from '../motion-library/config.ts'
 import { parseFunscript, sliceScript, type MotionScript } from '../motion-library/script.ts'
+import { prepareLoopSelection } from '../motion-library/loop-selection.ts'
 import { saveClip, updateClip, type MotionClip } from '../motion-library/library.ts'
-import { analyzeLoops } from '../motion-library/analysis.ts'
+import { buildHeatmap, heatmapColor } from '../motion-library/heatmap.ts'
 import { POOL_WEIGHTS, type PoolWeight, type PresetPool } from '../motion-library/catalog.ts'
 
 import { mergeActionLibrary } from './settings-merge.ts'
@@ -201,6 +202,8 @@ function PoolEditor({ value, tier, fallbackTier = 'high', controller, highPrefer
   close: () => void
 }) {
   const [libraryOpen, setLibraryOpen] = useState(false)
+  const [editId,setEditId] = useState<string>()
+  const [importOpen, setImportOpen] = useState(false)
   const [preview, setPreview] = useState<MotionClip>()
   const [pool, setPool] = useState(poolOf(value, tier, fallbackTier))
   const base = useRef(value)
@@ -258,11 +261,13 @@ function PoolEditor({ value, tier, fallbackTier = 'high', controller, highPrefer
         <Button variant="outline" disabled={saving} onClick={close}>取消</Button>
         <Button variant="primary" disabled={saving} onClick={() => { void save() }}>{saving ? '保存中…' : '保存'}</Button>
       </div>}>
-      <div className="tb-preset-toolbar">
-        <Button variant="ghost" size="sm" disabled={saving} onClick={() => { setLibraryOpen(true) }}>管理动作库</Button>
-      </div>
       {tier === 'high' && highPreference !== undefined && <div className="tb-preset-high-preference">{highPreference}</div>}
-      <div className="tb-preset-grid">{value.library.clips.map(clip => {
+      {(['custom', 'builtin'] as const).map(source => <section className="tb-preset-source" aria-label={source === 'custom' ? '自定义预设' : '内置预设'} key={source}>
+        <div className="tb-preset-toolbar">
+          <h3>{source === 'custom' ? '自定义预设' : '内置预设'}</h3>
+          {source === 'custom' && <Button variant="outline" size="sm" disabled={saving} onClick={() => { setImportOpen(true) }}>导入／粘贴脚本</Button>}
+        </div>
+        <div className="tb-preset-grid">{value.library.clips.filter(c => (c.source ?? 'builtin') === source).map(clip => {
         const selected = pool.find(entry => entry.name === clip.name)
         const lastSelected = selected !== undefined && pool.length === 1
         return <section className="tb-preset-card qq-settings-card" data-selected={selected !== undefined || undefined} key={clip.id}
@@ -281,8 +286,10 @@ function PoolEditor({ value, tier, fallbackTier = 'high', controller, highPrefer
           </label>
           <button type="button" className="tb-preset-thumbnail" aria-label={`放大${clip.name}轨迹图`} title="放大轨迹图"
             onClick={event => { event.stopPropagation(); setPreview(clip) }}>
-            <Curve script={clip} label={`${clip.name}轨迹图`} />
+            {clip.kind === 'segment' ? <Heatmap script={clip} /> : <Curve script={clip} label={`${clip.name}轨迹图`} />}
+            <small>源时长 {(clip.points.at(-1)!.at / 1000).toFixed(3)} 秒</small>
           </button>
+          <Button size="sm" variant="ghost" onClick={() => { setEditId(clip.id); setLibraryOpen(true) }}>编辑</Button>
           {selected !== undefined && <div className="tb-preset-frequency" role="group" aria-label={`${clip.name}出现频率`}>
             <div className="tb-preset-frequency-buttons">{(Object.keys(WEIGHTS) as PoolWeight[]).map(weight => <Button key={weight}
               disabled={saving} size="sm" variant={selected.weight === weight ? 'primary' : 'ghost'} aria-label={`${clip.name}出现频率：${WEIGHTS[weight]}`}
@@ -292,9 +299,10 @@ function PoolEditor({ value, tier, fallbackTier = 'high', controller, highPrefer
             <output aria-label={`${clip.name}抽中比例`}>{Number((POOL_WEIGHTS[selected.weight] / totalWeight * 100).toFixed(1))}%</output>
           </div>}
         </section>
-      })}</div>
+      })}</div></section>)}
     </Modal>
-    {libraryOpen && <LibraryEditor value={value} controller={controller} close={() => { setLibraryOpen(false) }} />}
+    {importOpen && <Modal open title="导入／粘贴脚本" closeLabel="关闭导入" onClose={() => setImportOpen(false)} className="dsh-toy-buttplug qq-settings-scope tb-library-window" contentClassName="tb-preset-content"><ImportClip value={value} accept={async next => { await controller.saveActionLibrary(next, value); setImportOpen(false) }} /></Modal>}
+    {libraryOpen && <LibraryEditor initialId={editId} value={value} controller={controller} close={() => { setLibraryOpen(false) }} />}
     {preview !== undefined && <Modal open title={`${preview.name} · 轨迹预览`} closeLabel="关闭轨迹预览" onClose={() => { setPreview(undefined) }}
       className="dsh-toy-buttplug tb-preset-window tb-preset-preview qq-settings-scope" contentClassName="tb-preset-content" backdropBlur={false}>
       <Curve script={preview} label={`${preview.name}轨迹图`} />
@@ -310,11 +318,11 @@ function Curve({ script, label = '行程随时间变化曲线' }: { script: Moti
   return <svg className="tb-library-curve" viewBox="0 0 400 100" preserveAspectRatio="none" role="img" aria-label={label}><path d="M0 100H400M0 50H400M0 0H400" fill="none" stroke="currentColor" opacity=".12" /><polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" /></svg>
 }
 
-function LibraryEditor({ value, close, controller }: { value: ActionLibrary; close: () => void; controller: ToyController }) {
+function LibraryEditor({ value, close, controller, initialId }: { value: ActionLibrary; close: () => void; controller: ToyController; initialId?: string | undefined }) {
   const base = useRef(value)
   const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState(value)
-  const [selected, setSelected] = useState(value.library.clips[0]?.id)
+  const [selected, setSelected] = useState(initialId ?? value.library.clips[0]?.id)
   const [error, setError] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -324,16 +332,16 @@ function LibraryEditor({ value, close, controller }: { value: ActionLibrary; clo
     try { setDraft(parseActionLibrary(next)); setError(''); return true }
     catch (error) { setError(reason(error)); return false }
   }
-  const edit = (name: string, description: string, playback: 'once' | 'loop') => {
+  const edit = (name: string, description: string, playback: 'once' | 'loop' | 'legacy', points?: MotionScript['points']) => {
     if (!clip) return undefined
     try {
-      const library = updateClip(draft.library, clip.name, { name, description, playback })
+      const library = updateClip(draft.library, clip.name, { name, description, ...(points ? {points} : {}), ...(playback === 'legacy' || (!clip.legacyAiRepeat && playback === clip.playback) ? {} : { playback }) })
       const renamed = name.normalize('NFKC').trim()
       const pools = mapPools(tier => draft.pools[tier].map(entry => entry.name === clip.name ? { ...entry, name: renamed } : entry))
       const rename = (pool: PresetPool | undefined) => pool?.map(entry => entry.name === clip.name ? { ...entry, name: renamed } : entry)
       const burstPool = rename(draft.burstPool), aftercarePool = rename(draft.aftercarePool)
       const next = { ...draft, library, pools, ...(burstPool === undefined ? {} : { burstPool }), ...(aftercarePool === undefined ? {} : { aftercarePool }) }
-      return commit(next) ? next : undefined
+      setError(''); return parseActionLibrary(next)
     } catch (error) { setError(reason(error)) }
   }
   const persist = async (next: ActionLibrary) => {
@@ -378,83 +386,198 @@ function LibraryEditor({ value, close, controller }: { value: ActionLibrary; clo
   </>}>
     <fieldset disabled={saving} className="tb-draft tb-library-editor">
       <div className="tb-row qq-settings-row"><select aria-label="选择动作" value={selected ?? ''} disabled={importing} onChange={event => {
-        if (clip && applyCurrent.current?.() === undefined) return
+        if (clip) { const next = applyCurrent.current?.(); if (!next || !commit(next)) return }
         setSelected(event.target.value); setDeleting(false); setError('')
       }}>{draft.library.clips.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select><Button variant="outline" size="sm" onClick={() => {
-        if (!importing && clip && applyCurrent.current?.() === undefined) return
+        if (!importing && clip) { const next = applyCurrent.current?.(); if (!next || !commit(next)) return }
         setImporting(!importing)
       }}>{importing ? '取消导入' : '导入脚本'}</Button></div>
       {importing && <ImportClip value={draft} accept={persist} />}
-      {clip && !importing && <ClipEditor key={`${clip.id}:${clip.name}:${clip.description}:${clip.playback}`} clip={clip} save={edit} apply={applyCurrent} />}
+      {clip && !importing && <ClipEditor key={clip.id} clip={clip} save={edit} apply={applyCurrent} />}
       {clip && !importing && <div className="tb-row qq-settings-row">{deleting ? <><span>删除“{clip.name}”及其情景关联？</span><Button variant="outline" size="sm" onClick={remove}>确认删除</Button><Button size="sm" variant="outline" onClick={() => { setDeleting(false) }}>取消</Button></> : <Button size="sm" variant="outline" onClick={() => { setDeleting(true) }}>删除动作</Button>}</div>}
       {error && <p className="tb-error" role="alert">{error}</p>}
     </fieldset>
   </Modal>
 }
 
-function ClipEditor({ clip, save, apply }: { clip: MotionClip; save: (name: string, description: string, playback: 'once' | 'loop') => ActionLibrary | undefined; apply: MutableRefObject<(() => ActionLibrary | undefined) | undefined> }) {
+function ClipEditor({ clip: initialClip, save, apply }: { clip: MotionClip; save: (name: string, description: string, playback: 'once' | 'loop' | 'legacy', points?: MotionScript['points']) => ActionLibrary | undefined; apply: MutableRefObject<(() => ActionLibrary | undefined) | undefined> }) {
+  // 此次编辑的源不可随持久化失败或订阅刷新而改变。
+  const [clip] = useState(initialClip)
   const [name, setName] = useState(clip.name)
   const [description, setDescription] = useState(clip.description)
-  const [playback, setPlayback] = useState(clip.playback)
-  apply.current = () => save(name, description, playback)
+  const [playback, setPlayback] = useState<'once' | 'loop' | 'legacy'>(clip.legacyAiRepeat ? 'legacy' : clip.playback)
+  const [from,setFrom] = useState(0), [to,setTo] = useState(Math.min(clip.points.at(-1)!.at, 600000))
+  const loop = playback === 'loop' || clip.kind === 'loop'
+  apply.current = () => save(name, description, playback, from === 0 && to === clip.points.at(-1)!.at && playback === (clip.legacyAiRepeat ? 'legacy' : clip.playback)
+    ? undefined : loop ? prepareLoopSelection(clip,from,to).points : sliceScript(clip,from,to).points)
   return <div className="tb-library-editor">
-    <Curve script={clip} /><small>{(clip.points.at(-1)!.at / 1000).toFixed(2)} 秒</small>
+    <RangeEditor script={clip} from={from} to={to} loop={loop} change={(a,b)=>{setFrom(a);setTo(b)}} /><small>原始时长 {(clip.points.at(-1)!.at / 1000).toFixed(2)} 秒</small>
     <label className="tb-library-field qq-settings-field">名称<input value={name} maxLength={60} onChange={event => { setName(event.target.value) }} /></label>
     <label className="tb-library-field tb-library-description qq-settings-field">描述<textarea className="qq-text-input" aria-label="动作描述" rows={4} value={description} maxLength={240} onChange={event => { setDescription(event.target.value) }} /></label>
-    <label className="tb-library-field qq-settings-field">播放方式<select value={playback} onChange={event => { setPlayback(event.target.value as 'once' | 'loop') }}><option value="once">单次</option><option value="loop">循环</option></select></label>
+    <label className="tb-library-field qq-settings-field">播放方式<select value={playback} onChange={event => { setPlayback(event.target.value as 'once' | 'loop' | 'legacy') }}>{clip.legacyAiRepeat && <option value="legacy">连续播放（原设置）</option>}<option value="once">单次</option><option value="loop">循环</option></select></label>
+  </div>
+}
+
+function Heatmap({ script, children }: { script: MotionScript; children?: ReactNode }) {
+  const id = useId()
+  const buckets = useMemo(() => buildHeatmap(script, script.points[0]!.at, script.points.at(-1)!.at, 333), [script])
+  const peak = Math.max(0, ...buckets.map(b => b.movement))
+  const start = script.points[0]!.at, duration = script.points.at(-1)!.at - start
+  const x = (at: number) => (at - start) / duration * 240
+  const envelope = [...buckets.flatMap(b => [`${x(b.fromMs)},${100-b.max}`, `${x(b.toMs)},${100-b.max}`]),
+    ...buckets.slice().reverse().flatMap(b => [`${x(b.toMs)},${100-b.min}`, `${x(b.fromMs)},${100-b.min}`])].join(' ')
+  return <svg className="tb-library-curve tb-heatmap" viewBox="0 0 240 100" preserveAspectRatio="none" role="img" aria-label="片段相对运动热力图">
+    <defs><linearGradient id={id} x1="0%" x2="100%" y1="50%" y2="50%">{buckets.flatMap((b, i) => {
+      const color = heatmapColor(b.movement, peak)
+      return [<stop key={`${i}-a`} offset={`${x(b.fromMs)/2.4}%`} stopColor={color} />, <stop key={`${i}-b`} offset={`${x(b.toMs)/2.4}%`} stopColor={color} />]
+    })}</linearGradient></defs>
+    <polygon points={envelope} fill={`url(#${id})`} stroke="var(--dsw-alias-label-secondary,#687181)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+    {children}
+  </svg>
+}
+
+type SourceRange = { from: number; to: number }
+function RangeEditor({ script, from, to, change, loop = false }: { script: MotionScript; from: number; to: number; change: (a: number,b: number) => void; loop?: boolean }) {
+  const min = script.points[0]!.at, max = script.points.at(-1)!.at
+  const track = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ id: number; edge: 'from' | 'to'; x: number; y: number; from: number; to: number; active: boolean; width: number }>()
+  const [preview, setPreview] = useState<SourceRange>()
+  const shown = preview ?? { from, to }
+  const bounds = (edge: 'from' | 'to', range = { from, to }) => edge === 'from'
+    ? [Math.max(min, range.to - 600000), range.to - 1] as const
+    : [range.from + 1, Math.min(max, range.from + 600000)] as const
+  const adjusted = (edge: 'from' | 'to', n: number, range = { from, to }) => {
+    const [low, high] = bounds(edge, range)
+    return { ...range, [edge]: Math.max(low, Math.min(high, Math.round(n))) }
+  }
+  const set = (edge: 'from' | 'to', n: number) => {
+    if (!Number.isFinite(n)) return
+    const next = adjusted(edge, n); change(next.from, next.to)
+  }
+  const position = (n: number) => (n - min) / (max - min) * 100
+  const prepared = useMemo(() => { try { return loop ? prepareLoopSelection(script,shown.from,shown.to) : undefined } catch { return undefined } },[script,shown.from,shown.to,loop])
+  const selected = useMemo(() => { try { return prepared ?? sliceScript(script, shown.from,shown.to) } catch { return undefined } },[script,shown.from,shown.to,prepared])
+  const cancel = () => { drag.current = undefined; setPreview(undefined) }
+  return <div className="tb-library-editor">
+    <div className="tb-source-timeline" aria-label="源轨迹时间轴">
+      <div className="tb-source-track" ref={track}>
+        <Heatmap script={script}>
+          <rect data-selection-mask="before" x={0} y={0} width={position(shown.from)*2.4} height={100} fill="var(--dsw-alias-bg-layer-1,#fff)" opacity={.75} />
+          <rect data-selection-mask="after" x={position(shown.to)*2.4} y={0} width={(100-position(shown.to))*2.4} height={100} fill="var(--dsw-alias-bg-layer-1,#fff)" opacity={.75} />
+          <rect data-selection-range="" x={position(shown.from)*2.4} y={0} width={(position(shown.to)-position(shown.from))*2.4} height={100} fill="none" stroke="currentColor" />
+          {prepared && <rect data-loop-range="" x={position(prepared.fromMs)*2.4} y={2} width={(position(prepared.toMs)-position(prepared.fromMs))*2.4} height={96} fill="none" stroke="#c38513" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />}
+        </Heatmap>
+        {(['from','to'] as const).map(edge => <button key={edge} type="button" role="slider" aria-label={edge === 'from' ? '选区起点' : '选区终点'}
+          aria-valuemin={bounds(edge)[0]} aria-valuemax={bounds(edge)[1]} aria-valuenow={shown[edge]} aria-valuetext={`${shown[edge]/1000} 秒`}
+          className="tb-range-handle" style={{left:`${position(shown[edge])}%`}}
+          onKeyDown={e => {
+            const step = e.shiftKey ? 1000 : 1
+            const n = e.key === 'Home' ? bounds(edge)[0] : e.key === 'End' ? bounds(edge)[1]
+              : ['ArrowRight','ArrowUp'].includes(e.key) ? shown[edge]+step : ['ArrowLeft','ArrowDown'].includes(e.key) ? shown[edge]-step : undefined
+            if (n !== undefined) { e.preventDefault(); set(edge,n) }
+            if (e.key === 'Escape') cancel()
+          }}
+          onPointerDown={e => {
+            if (e.button !== 0 || drag.current) return
+            const width = track.current!.getBoundingClientRect().width
+            drag.current = { id:e.pointerId, edge, x:e.clientX, y:e.clientY, from, to, active:e.pointerType !== 'touch', width }
+            e.currentTarget.setPointerCapture(e.pointerId)
+          }}
+          onPointerMove={e => {
+            const d = drag.current
+            if (!d || d.id !== e.pointerId) return
+            const dx = e.clientX-d.x, dy = e.clientY-d.y
+            if (!d.active) {
+              if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 6) { cancel(); return }
+              if (Math.abs(dx) < 6) return
+              d.active = true
+            }
+            setPreview(adjusted(d.edge,d[d.edge]+dx/d.width*(max-min),d))
+          }}
+          onPointerUp={e => {
+            const d = drag.current
+            if (d?.id !== e.pointerId) return
+            if (d.active) {
+              const next = adjusted(d.edge,d[d.edge]+(e.clientX-d.x)/d.width*(max-min),d)
+              change(next.from,next.to)
+            }
+            cancel()
+          }} onPointerCancel={cancel} onLostPointerCapture={cancel}>
+          <span aria-hidden="true">{edge === 'from' ? '始' : '终'}</span>
+        </button>)}
+      </div>
+      <div className="tb-preset-axis"><span>{min/1000} 秒</span><span>{(min+max)/2000} 秒</span><span>{max/1000} 秒</span></div>
+    </div>
+    <div className="tb-library-field">{(['from','to'] as const).map(edge => <label key={edge}>{edge === 'from' ? '从' : '到'} <input aria-label={edge === 'from' ? '片段开始秒数' : '片段结束秒数'} type="number" step="0.001" min={bounds(edge)[0]/1000} max={bounds(edge)[1]/1000} value={(edge === 'from' ? from : to)/1000} onChange={e => set(edge,Number(e.target.value)*1000)} /> 秒</label>)}</div>
+    {selected && <div className="tb-loop-preview" data-from-ms={prepared?.fromMs} data-to-ms={prepared?.toMs} data-method={prepared?.method}>
+      {prepared && <output aria-label="循环最终范围">循环范围 {prepared.fromMs/1000}–{prepared.toMs/1000} 秒 · 一圈 {prepared.points.at(-1)!.at/1000} 秒</output>}
+      <Curve script={selected} label={loop ? '循环效果折线图' : '选中部分的脚本折线图'} />
+    </div>}
   </div>
 }
 
 function ImportClip({ value, accept }: { value: ActionLibrary; accept: (value: ActionLibrary) => Promise<void> }) {
-  const [script, setScript] = useState<MotionScript>()
-  const [name, setName] = useState('')
-  const [from, setFrom] = useState(0)
-  const [to, setTo] = useState(0)
-  const [loop, setLoop] = useState(false)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [script,setScript] = useState<MotionScript>()
+  const [text,setText] = useState(''), [name,setName] = useState('')
+  const [description,setDescription] = useState('')
+  const [from,setFrom] = useState(0), [to,setTo] = useState(0)
+  const [error,setError] = useState(''), [loading,setLoading] = useState(false)
+  const latest = useRef(value); useEffect(() => { latest.current = value }, [value])
   const sequence = useRef(0)
-  const preview = useMemo(() => {
-    if (!script) return undefined
-    try { return sliceScript(script, Math.round(from * 1000), Math.round(to * 1000)) } catch { return undefined }
-  }, [script, from, to])
-  const loops = useMemo(() => script === undefined ? [] : analyzeLoops(script).candidates, [script])
-  return <section className="tb-card tb-library-editor qq-settings-card" aria-label="导入动作片段">
-    <input type="file" accept=".funscript,.json" aria-label="选择动作脚本" onChange={event => {
-      const file = event.target.files?.[0]
-      if (!file) return
-      const token = ++sequence.current
-      setError(''); setLoading(true); setScript(undefined)
-      void (async () => {
-        try {
-          if (file.size > 2_000_000) throw new Error('脚本文件不能超过 2 MB')
-          const source = parseFunscript(await file.text())
-          if (token !== sequence.current) return
-          setScript(source); setName(file.name.replace(/\.[^.]+$/u, '')); setFrom(source.points[0]!.at / 1000); setTo(Math.min(source.points.at(-1)!.at, source.points[0]!.at + 600000) / 1000); setLoop(false)
-        } catch (error) { if (token === sequence.current) setError(reason(error)) }
-        finally { if (token === sequence.current) setLoading(false) }
-      })()
+  const load = (raw: string, label: string) => {
+    const parsed = parseFunscript(raw)
+    setDescription(''); setScript(parsed); setName(label); setFrom(parsed.points[0]!.at);setTo(Math.min(parsed.points.at(-1)!.at,parsed.points[0]!.at+600000));setError('')
+  }
+  const save = async (loop: boolean) => {
+    if (!script) return
+    setLoading(true)
+    try {
+      const label = name.normalize('NFKC').trim()
+      if (latest.current.library.clips.some(c => c.name.normalize('NFKC').trim().toLowerCase() === label.toLowerCase())) throw new Error(`已有同名动作“${label}”，换个名字`)
+      const selected = loop ? prepareLoopSelection(script,from,to) : sliceScript(script,from,to)
+      const next = {...latest.current,library:saveClip(latest.current.library,name,selected,0,selected.points.at(-1)!.at,{kind:loop?'loop':'segment',...(description ? {description} : {})})}
+      await accept(next); latest.current = next; setError('')
+    } catch(e) { setError(reason(e)) } finally {setLoading(false)}
+  }
+  return <section className="tb-library-editor tb-import-editor" aria-label="导入动作片段">
+    <div className="tb-import-source">
+    <input type="file" accept=".funscript,.json" aria-label="选择动作脚本" disabled={loading} onChange={e => {
+      const file = e.target.files?.[0]; if (!file) return
+      const token=++sequence.current;setLoading(true)
+      void (async()=>{try { if(file.size>2000000)throw new Error('脚本文件不能超过 2 MB'); const raw=await file.text();if(token===sequence.current)load(raw,file.name.replace(/\.[^.]+$/u,'')) }catch(e){setError(reason(e))}finally{setLoading(false)}})()
     }} />
-    {script && <>
-      <label className="tb-library-field qq-settings-field">名称<input value={name} maxLength={60} onChange={event => { setName(event.target.value) }} /></label>
-      <div className="tb-row qq-settings-row"><label>从 <input aria-label="片段开始秒数" type="number" step="0.001" value={from} onChange={event => { setFrom(Number(event.target.value)) }} /> 秒</label><label>到 <input aria-label="片段结束秒数" type="number" step="0.001" value={to} onChange={event => { setTo(Number(event.target.value)) }} /> 秒</label></div>
-      {loops.map(candidate => <Button variant="outline" size="sm" key={candidate.fromMs} onClick={() => { setFrom(candidate.fromMs / 1000); setTo(candidate.toMs / 1000); setLoop(true) }}>循环候选：{candidate.fromMs / 1000}–{candidate.toMs / 1000} 秒</Button>)}
-      {preview ? <Curve script={preview} /> : <p className="tb-error">请选择脚本内大于零且不超过 600 秒的片段</p>}
-      <label><input type="checkbox" checked={loop} onChange={event => { setLoop(event.target.checked) }} />循环播放</label>
-      <Button variant="outline" size="sm" disabled={!preview || loading} onClick={() => {
-        void (async () => {
-          setLoading(true)
-          try { await accept({ ...value, library: saveClip(value.library, name, script, Math.round(from * 1000), Math.round(to * 1000), { playback: loop ? 'loop' : 'once' }) }); setError('') }
-          catch (error) { setError(`保存失败：${reason(error)}`) }
-          finally { setLoading(false) }
-        })()
-      }}>加入动作库</Button>
-    </>}
-    {error && <p className="tb-error" role="alert">{error}</p>}
+    <textarea aria-label="粘贴脚本" placeholder="粘贴脚本内容" value={text} onChange={e=>setText(e.target.value)} />
+    <Button variant="outline" disabled={loading} onClick={()=>{++sequence.current;try{load(text,'新片段')}catch(e){setError(reason(e))}}}>读取粘贴脚本</Button>
+    </div>
+    {script && <><RangeEditor script={script} from={from} to={to} loop change={(a,b)=>{setFrom(a);setTo(b)}} />
+      <label className="tb-import-field">名称<input value={name} maxLength={60} onChange={e=>{setName(e.target.value);setError('')}} /></label>
+      <label className="tb-import-field">描述<textarea aria-label="片段描述" value={description} maxLength={240} onChange={e=>setDescription(e.target.value)} /></label>
+      <div className="tb-import-save-actions" role="group" aria-label="保存选中范围">
+        <Button variant="outline" disabled={loading} onClick={()=>{void save(true)}}>保存为循环</Button>
+        <Button variant="outline" disabled={loading} onClick={()=>{void save(false)}}>保存完整片段</Button>
+      </div>
+    </>}{error && <p role="status">{error}</p>}
   </section>
 }
 
 export const PRESET_LIBRARY_CSS = `
+.dsh-toy-buttplug .tb-source-timeline { padding:0 20px; }
+.dsh-toy-buttplug .tb-source-track { position:relative; margin-block:8px; }
+.dsh-toy-buttplug .tb-source-track > svg { display:block; }
+.dsh-toy-buttplug .tb-heatmap { border:1px solid var(--dsw-alias-border-l2); border-radius:6px; background-color:var(--dsw-alias-bg-layer-2,#f4f6f9); background-image:conic-gradient(var(--dsw-alias-border-l2,#e5e8ed) 25%,transparent 0 50%,var(--dsw-alias-border-l2,#e5e8ed) 0 75%,transparent 0); background-size:20px 20px; }
+.dsh-toy-buttplug .tb-import-save-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+.dsh-toy-buttplug .tb-import-editor { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; min-width:0; }
+.dsh-toy-buttplug .tb-import-source { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; justify-items:start; min-width:0; }
+.dsh-toy-buttplug .tb-import-source > input { width:100%; min-width:0; }
+.dsh-toy-buttplug .tb-import-source > textarea { width:min(100%,480px); min-height:80px; box-sizing:border-box; }
+.dsh-toy-buttplug .tb-loop-preview output { display:block; font-size:12px; color:var(--dsw-alias-label-secondary); overflow-wrap:anywhere; }
+.dsh-toy-buttplug .tb-range-handle { position:absolute; top:0; bottom:0; width:40px; transform:translateX(-50%); padding:0; border:0; background:transparent; color:inherit; cursor:ew-resize; touch-action:pan-y; }
+.dsh-toy-buttplug .tb-range-handle::before { content:''; position:absolute; top:0; bottom:0; left:19px; width:2px; background:var(--dsw-alias-brand-primary,#7299ee); }
+.dsh-toy-buttplug .tb-range-handle span { position:relative; display:inline-block; padding:3px; background:var(--dsw-alias-bg-layer-1,#fff); border:1px solid currentColor; border-radius:4px; }
+.dsh-toy-buttplug .tb-range-handle:focus-visible { outline:2px solid var(--dsw-alias-brand-primary,#7299ee); }
+.dsh-toy-buttplug .tb-preset-toolbar h3 { margin:0; }
+.dsh-toy-buttplug .tb-preset-source { min-width:0; padding:16px; margin-bottom:16px; border:1px solid var(--dsw-alias-border-l2); border-radius:var(--dsw-radius-md,12px); }
+.dsh-toy-buttplug .tb-library-editor label { min-width:0; }
 .dsh-toy-buttplug .tb-burst-settings { display:grid; gap:16px; min-width:0; border:0; margin:0; padding:0; }
 .dsh-toy-buttplug .tb-climax-section { display:grid; gap:12px; min-width:0; }
 .dsh-toy-buttplug .tb-climax-section + .tb-climax-section { padding-top:16px; border-top:1px solid var(--dsw-alias-border-l2); }
@@ -492,7 +615,7 @@ export const PRESET_LIBRARY_CSS = `
 .dsh-toy-buttplug .tb-preset-name input { flex:none; margin:0; accent-color:var(--tb-pool-color); }
 .dsh-toy-buttplug .tb-preset-thumbnail { display:block; width:100%; padding:0; border:0; border-radius:4px; background:transparent; color:inherit; cursor:zoom-in; }
 .dsh-toy-buttplug .tb-preset-thumbnail .tb-library-curve { display:block; height:72px; color:color-mix(in srgb,var(--tb-pool-color),var(--dsw-alias-label-primary) 22%); }
-.dsh-toy-buttplug .tb-preset-frequency { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; }
+.dsh-toy-buttplug .tb-preset-frequency { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .dsh-toy-buttplug .tb-preset-frequency-buttons { display:flex; flex-wrap:wrap; gap:2px; }
 .dsh-toy-buttplug .tb-preset-frequency-buttons button { padding-inline:7px; }
 .dsh-toy-buttplug .tb-preset-frequency output { font-size:12px; color:var(--dsw-alias-label-secondary); font-variant-numeric:tabular-nums; }
@@ -503,12 +626,15 @@ export const PRESET_LIBRARY_CSS = `
 .dsh-toy-buttplug .tb-library-field { display:flex; align-items:stretch; flex-wrap:wrap; gap:8px; margin:10px 0; }
 .dsh-toy-buttplug .tb-library-field > select, .dsh-toy-buttplug .tb-library-field > textarea { flex:1; min-width:140px; }
 .dsh-toy-buttplug .tb-library-field > input[type=number] { width:76px; }
-.dsh-toy-buttplug .tb-library-editor { display:flex; flex-direction:column; gap:12px; min-width:0; }
+.dsh-toy-buttplug .tb-library-editor button { height:auto; min-height:28px; white-space:normal; text-align:left; }
 .dsh-toy-buttplug .tb-library-curve { width:100%; height:120px; color:var(--dsw-alias-brand-primary,#7299ee); overflow:visible; }
 .dsh-toy-buttplug .tb-library-editor input[type=number] { width:90px; }
 .dsh-toy-buttplug .tb-library-editor input, .dsh-toy-buttplug .tb-library-editor select, .dsh-toy-buttplug .tb-library-editor textarea { max-width:100%; }
 .dsh-toy-buttplug .tb-library-editor textarea { min-height:72px; }
+.dsh-toy-buttplug .tb-import-field { display:flex; flex-direction:column; align-items:flex-start; gap:6px; }
+.dsh-toy-buttplug .tb-import-field > input, .dsh-toy-buttplug .tb-import-field > textarea { width:min(100%,480px); box-sizing:border-box; }
 @media (max-width:480px) {
+  .dsh-toy-buttplug .tb-source-timeline { padding:0 14px; }
   .dsh-toy-buttplug .tb-preset-tier-buttons { gap:6px; }
   .dsh-toy-buttplug .tb-preset-tier { padding:8px 4px; gap:4px; font-size:12px; }
   .dsh-toy-buttplug .tb-preset-count { display:block; font-size:11px; }

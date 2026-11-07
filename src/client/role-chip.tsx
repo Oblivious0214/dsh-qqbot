@@ -99,8 +99,9 @@ function RoleChip({ sessionId, ui, openEditor, place, blocked }: { readonly sess
   ]
 
   const pick = (id: string) => {
-    if (blocked || busy) return
+    if (busy) return
     setOpen(false)
+    if (blocked) return
     if (id === MANAGE_ID) {
       openEditor({ tab: 'roles', ...current === null ? {} : { id: current.id } })
       return

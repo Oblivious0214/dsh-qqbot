@@ -14,7 +14,7 @@
 
 import { burstTier, tierBudget, type MotionConfig, type Tier } from '../core/config.ts'
 import type { BurstSpeed } from '../api-types.ts'
-import { AUTO_ACTION, sameIntent, type Intent } from '../core/intent.ts'
+import { AUTO_ACTION, type Intent } from '../core/intent.ts'
 import { gentleSpeed, liveMotion, manualPackets, NO_ADJUST, type LiveAdjust, type Packet } from '../core/motion.ts'
 import { LAST_STAGE_STOP_MS, STAGE_GRACE_MS } from '../core/safety.ts'
 import type { Transport, TransportState } from './transport.ts'
@@ -66,10 +66,24 @@ export class MotionPlayer {
   private config: MotionConfig | undefined
   private library: ActionLibrary | undefined
   private preset: PresetPlayback | undefined
-  /** 每次新选择抽一次；暂停恢复、快调都用同一个种子，池里抽到的动作不变。 */
+  /** 仅新选择抽取；后续使用不可变片段快照。 */
   private presetSeed = 0
+  private selectedClip: MotionClip | undefined
+  private completedIntent: Intent | undefined
+  private remapPending = false
+  private replacement: { clip: MotionClip } | undefined
+  get completed(): boolean { return this.completedIntent !== undefined }
+  get sourceCursor() { return this.preset?.cursor() }
+  private sameSelection(intent: Intent): boolean {
+    const normalize = (s: string) => s.normalize('NFKC').trim().toLowerCase()
+    const selected = this.replacement?.clip ?? this.selectedClip
+    return selected !== undefined && (intent.action === AUTO_ACTION || normalize(intent.action) === normalize(selected.name)
+      || normalize(intent.action) === normalize(this.requestedAction ?? ''))
+  }
+  isCompletedSelection(intent: Intent): boolean { return this.completed && this.sameSelection(intent) }
   /** 抽到或点名的动作名。 */
   private chosenName: string | undefined
+  private requestedAction: string | undefined
   private adjust: LiveAdjust = NO_ADJUST
   private speedLimit: number | undefined
   /** 安全词的临时速度上限；不重启轨迹、不延长计时。 */
@@ -132,7 +146,7 @@ export class MotionPlayer {
     let first = true
     this.unsubscribe = transport.subscribe((state: TransportState) => {
       if (first) { first = false; return }
-      if (state.phase !== 'ready' && (this.intent !== null || this.generator !== undefined)) this.stop('disconnected')
+      if (state.phase !== 'ready' && (this.intent !== null || this.generator !== undefined || this.completed)) this.stop('disconnected')
     })
   }
 
@@ -146,28 +160,48 @@ export class MotionPlayer {
     if (this.config !== undefined && JSON.stringify(this.config) === JSON.stringify(config)) return
     this.config = config
     if (this.intent === null) return
-    // 用同一个种子按新限制重建轨迹，抽到的动作不变。
-    if (this.program === undefined) this.preset = undefined
-    if (this.paused) return
     this.halt()
-    this.start()
+    if (this.program === undefined) { this.remapPending = true; this.applyPending() }
+    if (!this.paused) this.start()
   }
 
   /** 动作库变化时，AI 选的动作停止；用户在右栏发起的动作不受影响。 */
   configureLibrary(library: ActionLibrary | undefined): void {
     if (JSON.stringify(this.library) === JSON.stringify(library)) return
-    if (this.intent !== null && this.program === undefined) this.stop('user')
+    if ((this.intent !== null || this.completed) && this.program === undefined) this.stop('user')
     this.library = library
   }
 
   /** 按选择取播放源：名称在该档动作池里就用它，否则（含 auto）按权重抽一个。 */
   private sourceFor(intent: Intent, seed: number, adjust: LiveAdjust): { readonly name: string; readonly preset: PresetPlayback } {
     if (this.library === undefined) throw new Error('动作库尚未就绪')
-    const clip = selectAction(this.library.library, this.library.pools[intent.tier], seed, intent.action === AUTO_ACTION ? undefined : intent.action)
+    const clip = this.selectedClip ?? selectAction(this.library.library, this.library.pools[intent.tier], seed, intent.action === AUTO_ACTION ? undefined : intent.action)
+    this.selectedClip = structuredClone(clip)
     const preset = new PresetPlayback(intent, this.config!, clip, this.transport.profile, adjust)
-    // AI 动作在段落停留期间一直重复，单次动作播完从头再播；持续多久由看门狗决定。
-    preset.repeat()
+    if (clip.legacyAiRepeat === true) preset.repeat()
     return { name: clip.name, preset }
+  }
+
+  /** 仅在旧包已消费、或 halt 已提交半包后读取游标。 */
+  private applyPending(): void {
+    try { this.remapSource() }
+    catch (error) { this.stop('error', error instanceof Error ? error : new Error(String(error))) }
+  }
+
+  private remapSource(): void {
+    if (this.replacement !== undefined) {
+      this.selectedClip = this.replacement.clip
+      this.chosenName = this.selectedClip.name
+      this.preset = undefined
+      this.replacement = undefined
+      this.remapPending = false
+      if (this.intent !== null) this.choose(this.intent)
+    } else if (this.remapPending && this.intent !== null && this.selectedClip !== undefined && this.config !== undefined) {
+      const cursor = this.preset?.cursor()
+      this.preset = new PresetPlayback(this.intent, this.config, this.selectedClip, this.transport.profile, this.adjust, cursor)
+      if (this.selectedClip.legacyAiRepeat === true) this.preset.repeat()
+      this.remapPending = false
+    }
   }
 
   /**
@@ -194,6 +228,7 @@ export class MotionPlayer {
     if (this.deadline !== undefined) this.remaining = Math.max(0, this.deadline - this.clock.now())
     this.clearWatchdog()
     this.halt()
+    this.applyPending()
   }
 
   resume(): void {
@@ -213,17 +248,22 @@ export class MotionPlayer {
     return this.paused ? this.remaining : this.deadline === undefined ? this.remaining : Math.max(0, this.deadline - this.clock.now())
   }
 
-  /** 立即停止并清掉选择。 */
+  /** 立即停止并清掉选择；模型停止保留用户暂停，后续选择等显式继续。 */
   stop(cause: StopCause, error?: Error): void {
-    const wasActive = this.intent !== null || this.generator !== undefined || this.paused
+    const wasActive = this.intent !== null || this.generator !== undefined || this.paused || this.completed
     this.endedMode = this.mode
     this.intent = null
-    this.paused = false
+    if (cause !== 'model') this.paused = false
     this.remaining = undefined
     this.clearWatchdog()
     this.halt()
     this.preset = undefined
     this.chosenName = undefined
+    this.requestedAction = undefined
+    this.selectedClip = undefined
+    this.completedIntent = undefined
+    this.remapPending = false
+    this.replacement = undefined
     this.program = undefined
     if (wasActive || cause === 'error') this.events.onStop?.(cause, error)
   }
@@ -234,21 +274,30 @@ export class MotionPlayer {
   }
 
   private setIntent(intent: Intent | null): void {
-    if (this.program === undefined && sameIntent(intent, this.intent)) return
-    this.program = undefined
-    this.intent = intent
-    this.preset = undefined
-    this.chosenName = undefined
-    this.presetSeed = randomSeed()
-    if (this.paused) return
-    if (intent === null) {
-      this.halt()
-      return
+    if (intent === null) { this.stop('model'); return }
+    if (this.program === undefined && this.sameSelection(intent)) {
+      if (this.completed) return
+      if (JSON.stringify(intent) !== JSON.stringify(this.intent)) { this.intent = intent; this.remapPending = true }
+    } else {
+      if (this.library === undefined) { this.stop('error', new Error('动作库尚未就绪')); return }
+      const seed = randomSeed()
+      const clip = selectAction(this.library.library, this.library.pools[intent.tier], seed, intent.action === AUTO_ACTION ? undefined : intent.action)
+      if (this.program === undefined && clip.id === this.selectedClip?.id) {
+        if (this.completed) return
+        this.intent = intent
+        this.replacement = undefined
+        this.remapPending = true
+      } else {
+        this.completedIntent = undefined
+        this.program = undefined
+        this.presetSeed = seed
+        this.intent = intent
+        this.replacement = { clip: structuredClone(clip) }
+      }
+      this.requestedAction = intent.action
     }
-    // 换目标时，等正在走的那一包结束再接上新的轨迹，不打断它。
-    this.generator = undefined
-    this.choose(intent)
-    if (this.preset !== undefined && this.motionTimer === undefined && !this.pending) void this.pump()
+    if (this.paused) { this.applyPending(); return }
+    if (this.idle()) { this.applyPending(); if (this.preset !== undefined) void this.pump() }
   }
 
   /** 建好当前选择的轨迹；暂停恢复时沿用原进度。出错时停止。 */
@@ -305,15 +354,16 @@ export class MotionPlayer {
     if (this.intent === null || this.config === undefined) return
     const program = this.program
     if (program?.kind === 'manual' || program?.kind === 'aftercare' || program?.kind === 'standby') return
-    // 暂停时重建播放源但不发包，恢复后才执行新参数。
-    let ok: boolean
-    if (program !== undefined) ok = this.useSource(() => program.source(true))
-    else {
-      // 同一个种子重建，池里抽到的动作不变。
-      const intent = this.intent
-      ok = this.useSource(() => this.sourceFor(intent, this.presetSeed, adjust))
+    if (program !== undefined) {
+      const ok = this.useSource(() => program.source(true))
+      if (ok && !this.paused && this.idle()) void this.pump()
+    } else {
+      this.remapPending = true
+      if (this.paused || this.idle()) {
+        this.applyPending()
+        if (!this.paused && this.idle()) void this.pump()
+      }
     }
-    if (ok && !this.paused && this.idle()) void this.pump()
   }
 
   /** 手动定位：打断当前动作，慢速移到 position（已在总设置行程内）后停住。暂停中不执行。 */
@@ -369,6 +419,10 @@ export class MotionPlayer {
   private startProgram(program: Program, budgetMs: number): void {
     // 连续拖动手动定位时接在当前一包之后，其余情况立即打断当前动作。
     if (!(program.kind === 'manual' && this.program?.kind === 'manual')) this.halt()
+    this.completedIntent = undefined
+    this.selectedClip = undefined
+    this.replacement = undefined
+    this.remapPending = false
     this.program = program
     this.intent = PROGRAM_INTENT
     if (!this.useSource(() => program.source(true))) return
@@ -458,6 +512,7 @@ export class MotionPlayer {
       }
       // 页面曾被冻结时，运动唤醒可能先于看门狗消息到达；过期后不再补发旧动作。
       if (this.deadline !== undefined && this.clock.now() >= this.deadline) { this.expire(); return }
+      this.applyPending()
       const generator = this.generator
       const config = this.config
       const source = this.preset
@@ -468,7 +523,17 @@ export class MotionPlayer {
       if (packet === undefined) {
         const program = this.program
         if (program?.renew !== undefined && this.useSource(() => program.renew!())) { void this.pump(); return }
-        if (this.intent !== null) this.stop(this.endCause('complete'))
+        if (this.intent !== null) {
+          if (this.program === undefined) {
+            this.completedIntent = this.intent
+            this.intent = null
+            this.endedMode = 'ai'
+            this.clearWatchdog()
+            this.remaining = undefined
+            this.halt()
+            this.events.onStop?.('complete')
+          } else this.stop(this.endCause('complete'))
+        }
         return
       }
       if (!packet.hold && this.speedLimit !== undefined && packet.speed > this.speedLimit) {

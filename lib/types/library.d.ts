@@ -16,6 +16,6 @@ export declare class BadRequest extends Error {
  * 执行一个操作。格式错误抛 BadRequest，操作失败（重名、找不到、写不了盘）抛 Error。
  * 保存角色或预设时返回保存的 id。
  */
-export declare function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore): string | undefined;
+export declare function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore): string | undefined | Promise<string | undefined>;
 export declare const inject: string[];
 export declare function apply(ctx: Context): void;

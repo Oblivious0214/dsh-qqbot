@@ -38,6 +38,8 @@ export class MemoryStore {
 
   /** 释放旧资料副本，后续现读磁盘。 */
   clearCache(): void { this.memory.clear(); this.warned.clear() }
+  /** 仅供同 stamp 数据事务登记关联文件。 */
+  filePath(roleId: string): string | undefined { return this.dir === undefined ? undefined : this.file(roleId) }
 
   static at(dataDir: string, warn: Warn): MemoryStore {
     return new MemoryStore(join(dataDir, 'memories'), warn)

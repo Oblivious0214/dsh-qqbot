@@ -74,6 +74,93 @@ async function setup(patch: Partial<ToySettings> = {}) {
 }
 
 describe('toy controller: attach and segments', () => {
+  it.each([false, true])('keeps callback actions paused after model stop until explicit resume (pending move: %s)', async delayed => {
+    const { controller, segments, clock, transport, api } = await setup()
+    const originalMove = transport.move.bind(transport)
+    const pending = deferred<void>()
+    let delay = delayed
+    transport.move = async (...args) => {
+      const result = await originalMove(...args)
+      if (delay) await pending.promise
+      return result
+    }
+    await controller.attach('s1')
+    segments.show('s1', 'r1', [{ text: '开始', motion: full }])
+    await clock.advance(1500)
+    controller.pause()
+    const count = transport.moves.length
+    segments.show('s1', 'r2', [{ text: '停止', motion: { stop: true } }])
+    expect(controller.getSnapshot().paused).toBe(true)
+    expect(controller.getSnapshot().activity).toBe('model-stop')
+    expect(controller.getSnapshot().notice).toContain('要求停止')
+    segments.show('s1', 'r3', [{ text: '重新选择', motion: full }])
+    controller.setLiveMotion({ speed: 70, bounds: [35, 55] })
+    api.host.settings.save({ ...api.host.settings.value, motion: { ...api.host.settings.value.motion, minPosition: 30, maxPosition: 60, maxSpeed: 100 } })
+    await controller.load()
+    delay = false
+    pending.resolve()
+    await clock.advance(10000)
+    expect(transport.moves).toHaveLength(count)
+    expect(controller.getSnapshot().paused).toBe(true)
+    expect(segments.pauses).toBe(1)
+    controller.resume()
+    await flush()
+    expect(transport.moves).toHaveLength(count + 1)
+    expect(transport.moves[count]!.position).toBe(35)
+    expect(segments.pauses).toBe(0)
+    controller.dispose()
+  })
+
+  it('preserves model-stop status while moving and permits the same choice to restart from its entry', async () => {
+    const { controller, segments, clock, transport } = await setup()
+    await controller.attach('s1')
+    segments.show('s1', 'r1', [{ text: '开始', motion: full }])
+    await clock.advance(1500)
+    segments.show('s1', 'r2', [{ text: '停止', motion: { stop: true } }])
+    expect(controller.getSnapshot().activity).toBe('model-stop')
+    expect(controller.getSnapshot().notice).toContain('要求停止')
+    const count = transport.moves.length
+    segments.show('s1', 'r3', [{ text: '重新开始', motion: full }])
+    await flush()
+    expect(transport.moves).toHaveLength(count + 1)
+    expect(transport.moves[count]!.position).toBe(0)
+    controller.dispose()
+  })
+
+  it('keeps completed single clips stopped across current-run and next-reply inheritance with static pacing', async () => {
+    const { controller, api, segments, clock, transport } = await setup()
+    const value = api.host.view(undefined).actionLibrary!
+    const changed = { ...value, library: { ...value.library, clips: value.library.clips.map(c => c.name === full.action ? { ...c, playback: 'once' as const } : c) } }
+    api.host.apply({ action: 'library.save', library: changed })
+    await controller.load()
+    await controller.attach('s1')
+    const stages = [{ text: '开始', motion: full }, { text: '沿用' }, { text: '完整同动作', motion: full }, { text: '只调档', motion: { tier: 'medium' as const } }]
+    segments.show('s1', 'r1', stages, 0, 1)
+    await clock.advance(5000)
+    const count = transport.moves.length
+    expect(controller.livePlayback('s1')!.speed).toBeUndefined()
+    expect(controller.getSnapshot().activity).not.toBe('moving')
+    for (let i = 1; i < stages.length; i++) {
+      expect(segments.hooks!.durations!('s1', 'r1', stages, i)).toBeUndefined()
+      segments.show('s1', 'r1', stages, i, i + 1)
+      await clock.advance(1000)
+    }
+    // 流式结尾重复通知、首段无动作、下一回复完整同动作均不复活。
+    segments.show('s1', 'r1', stages, 3, 4)
+    segments.show('s1', 'r2', [{ text: '继承' }])
+    segments.show('s1', 'r3', [{ text: '相同完整动作', motion: full }])
+    await clock.advance(1000)
+    expect(transport.moves).toHaveLength(count)
+    expect(controller.livePlayback('s1')!.remainingMs).toBeUndefined()
+    expect(controller.getSnapshot().activity).not.toBe('moving')
+    // 显式换到当前池内的另一动作；池外旧别名会随机回退，可能再次抽中已完成片段。
+    const different = value.pools.low.find(entry => entry.name !== full.action)!.name
+    segments.show('s1', 'r4', [{ text: '换动作', motion: { ...full, action: different } }])
+    await clock.advance(1)
+    expect(transport.moves.length).toBeGreaterThan(count)
+    controller.dispose()
+  })
+
   it('distinguishes connection, attachment, absent/invalid actions and protection in the sidebar', async () => {
     const { controller, segments, clock, transport } = await setup()
     // 此夹具没有登记服务，显示断言中补上已存在的 QQbot host。

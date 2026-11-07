@@ -10,7 +10,12 @@ import { QqbotRegistryStore, type QqbotExtensionEntry, type QqbotRegistry, type 
 import * as ui from './ui.ts';
 import * as voice from './voice.ts';
 import * as maintenance from './maintenance.ts';
+import { MemeSource } from './meme-source.ts';
+import { DynamicsHost } from './role-dynamics/host.ts';
+import type { DynamicsPublic } from './role-dynamics/api-types.ts';
 export type { QqbotExtensionEntry, QqbotRegistry, QqbotRoleInfo, QqbotSession, QqbotText } from './registry.ts';
+export type { DynamicsPublic, DynamicsSource, PublicOperation, StateView } from './role-dynamics/api-types.ts';
+export type { Snapshot as DynamicsSnapshot, Target as DynamicsTarget } from './role-dynamics/contracts.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
         qqbot: QqbotService;
@@ -21,6 +26,7 @@ declare module '@deepseek-ai/cordis' {
  * 是 cordis Service，所以方法里的 `this.ctx` 是调用方的 Context，登记时能记下来源插件。
  */
 export declare class QqbotService extends Service implements QqbotRegistry {
+    readonly memes: MemeSource;
     readonly store: QqbotRegistryStore;
     readonly maintenance: maintenance.Maintenance;
     /** 角色库、会话绑定和破限预设，数据在 `<DSH_HOME>/qqbot/`。 */
@@ -31,6 +37,9 @@ export declare class QqbotService extends Service implements QqbotRegistry {
     readonly voice: voice.VoiceStore;
     /** 角色记忆整理的调度。会话由预设内的 memory-agent 登记。 */
     readonly memory: MemoryCoordinator;
+    readonly dynamicsHost: DynamicsHost;
+    lastDynamics: WeakMap<object, string>;
+    get dynamics(): DynamicsPublic;
     /**
      * 每个 agent 上一次真实组装出的系统提示词，供查看器对比"上一轮发出的"和"下一轮要发的"。
      * 以 agent 对象为键，agent 释放后自动回收；重启后为空。

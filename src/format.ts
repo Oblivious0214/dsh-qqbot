@@ -41,7 +41,7 @@ export function memeRule(frequency: MemeFrequency, preferences?: MemePreferences
     `表情包：用 ${MEME_TOOL} 按情绪或关键词找候选，挑贴合的一张，按工具说明的方式发出。`,
     '一次回复最多一张；用户在说正事时不发。',
     FREQUENCY_TEXT[frequency],
-    preferences?.memePacks?.length ? `优先图库：${preferences.memePacks.map(pack => JSON.stringify(pack.name)).join('、')}；从已启用图库中优先挑选，没有合适的可用其他图库。` : '',
+    preferences?.memePacks?.length ? `可用图库：${preferences.memePacks.map(pack => JSON.stringify(pack.name)).join('、')}。没有合适的表情时继续文字回应。` : '当前角色未选图库，使用文字回应。',
     preferences?.memeTags?.length ? `偏好标签：${preferences.memeTags.map(tag => JSON.stringify(tag)).join('、')}。` : '',
     preferences?.memePrompt ? `表情补充要求：\n${preferences.memePrompt}` : '',
   ].filter(Boolean).join('\n')

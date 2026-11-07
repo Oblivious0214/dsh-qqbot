@@ -5,22 +5,14 @@ import type { MaintenanceClient } from './maintenance.ts'
 import type { CleanupKind } from '../maintenance-types.ts'
 import type { LibraryView } from '../library-types.ts'
 import { CONFIG_MAX_BYTES } from '../config-types.ts'
+import { serializeConfigurationPackage } from '../config-package.ts'
 
 export function DataSettings({ view, onImport, maintenance, onBusy }: { view: LibraryView; onImport(): void; maintenance?: MaintenanceClient | undefined; onBusy(busy: boolean): void }) {
   const [error, setError] = useState('')
   function download(kind: 'roles' | 'presets' | 'all') {
     try {
-      const roles = kind === 'presets' ? [] : view.roles.map(role => {
-        const { name, description, persona, memeFrequency, memeTags, memePrompt, proactivity, proactivityTexts, motionActions, motionRanges } = role
-        const preset = view.presets.find(item => item.id === role.preset)?.name
-        return { name, description, persona, memeFrequency, memeTags, memePrompt, proactivity, proactivityTexts, motionActions, motionRanges, preset }
-      })
-      const used = new Set(roles.map(role => role.preset))
-      const presets = view.presets.filter(item => kind !== 'roles' || used.has(item.name))
-        .map(({ name, head, mid, tail }) => ({ name, head, mid, tail }))
-      if (!roles.length && !presets.length) throw new Error('没有可导出的配置。')
-      if (roles.length > 100 || presets.length > 100) throw new Error('每份配置最多包含 100 个角色和 100 份通用提示词。')
-      const blob = new Blob([JSON.stringify({ format: 'dsh-qqbot-config', version: 1, roles, presets }, null, 2)], { type: 'application/json' })
+      const config = serializeConfigurationPackage(view, kind)
+      const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
       if (blob.size > CONFIG_MAX_BYTES) throw new Error('配置超过 10 MB，无法导出为可导入文件。')
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -38,10 +30,10 @@ export function DataSettings({ view, onImport, maintenance, onBusy }: { view: Li
     </section>
     <section className="ql-data-section">
       <strong>导出配置</strong>
-      <p className="ql-note">角色配置包含关联的通用提示词。导出不包含记忆、图片、音色、密钥和本机设置。</p>
+      <p className="ql-note">角色配置包含关联的预设。导出不包含记忆、图片、音色、密钥和本机设置。</p>
       <div className="qq-settings-actions">
         <Button size="sm" variant="outline" onClick={() => download('roles')}>导出角色配置</Button>
-        <Button size="sm" variant="outline" onClick={() => download('presets')}>导出通用提示词</Button>
+        <Button size="sm" variant="outline" onClick={() => download('presets')}>导出预设</Button>
         <Button size="sm" variant="outline" onClick={() => download('all')}>合并导出配置</Button>
       </div>
     </section>

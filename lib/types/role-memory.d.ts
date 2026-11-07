@@ -16,6 +16,8 @@ export declare class MemoryStore {
     constructor(dir: string | undefined, warn: Warn);
     /** 释放旧资料副本，后续现读磁盘。 */
     clearCache(): void;
+    /** 仅供同 stamp 数据事务登记关联文件。 */
+    filePath(roleId: string): string | undefined;
     static at(dataDir: string, warn: Warn): MemoryStore;
     /** 角色记忆的当前文本；没有记忆时为空串。 */
     text(roleId: string): string;

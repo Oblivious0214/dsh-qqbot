@@ -32,6 +32,16 @@ export class Maintenance {
   get active(): boolean { return this.busy }
   dispose(): void { this.disposed = true }
   assertAvailable(): void { if (this.busy) throw new Error('正在清理 QQ Bot 数据，请稍后再试。') }
+  /** 数据服务与后台结算也使用同一写入门禁；清理不能穿过 await。 */
+  async write<T>(body: (guard: () => void) => T | Promise<T>): Promise<T> {
+    const epoch = this.dataEpoch
+    const guard = () => {
+      if (this.disposed || epoch !== this.dataEpoch) throw new Error('QQ Bot 数据操作已失效')
+      this.assertAvailable()
+    }
+    guard(); this.writes++
+    try { const result = await body(guard); guard(); return result } finally { this.writes-- }
+  }
   view(): MaintenanceView { return { cacheEpoch: this.cacheEpoch, dataEpoch: this.dataEpoch } }
 
   /** 清理期间拒绝写入，已有保存未结束时拒绝开始清理。 */

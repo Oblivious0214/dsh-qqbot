@@ -1,6 +1,6 @@
 # dsh-qqbot 提示词清单
 
-插件版本 0.37.0，生成于 2026-11-01T14:05:14.182Z。由 `E:/ServeUDSH/work/prompt-inventory-20261031/dump.mjs（node --experimental-transform-types）` 生成，与 `prompt-inventory.json` 同内容。不要手改，改源码后重新生成。
+插件版本 0.43.2，生成于 2026-11-01T14:05:14.182Z。由 `E:/ServeUDSH/work/prompt-inventory-20261031/dump.mjs（node --experimental-transform-types）` 生成，与 `prompt-inventory.json` 同内容。不要手改，改源码后重新生成。
 
 text 为源码导出常量或函数的实际返回值；extracted: "static" 的条目是从源码文本提取的。chars 为 JS 字符串长度（UTF-16 码元，中文一字一码元）。
 
@@ -12,7 +12,7 @@ text 为源码导出常量或函数的实际返回值；extracted: "static" 的�
 | 2 | `persona` | 角色设定 | 系统提示词段 | 200 | — |
 | 3 | `jb-mid` | 通用提示词·中间 | 系统提示词段 | 300 | 0 |
 | 4 | `format-segment` | 分段规则（[qq] 块协议） | 系统提示词段 | 400 | 321 |
-| 5 | `format-meme` | 表情规则 | 系统提示词段 | 410 | 82 |
+| 5 | `format-meme` | 表情规则 | system-section | 410 | 99 |
 | 6 | `format-voice` | 语音规则 | 系统提示词段 | 420 | 309 |
 | 7 | `ext-toy` | 设备联动规则（qqbot:ext:toy） | 系统提示词段 | 500 | 993 |
 | 8 | `ext-quick-replies` | 回复建议规则（qqbot:ext:quick-replies） | 系统提示词段 | 500 | 400 |
@@ -31,13 +31,17 @@ text 为源码导出常量或函数的实际返回值；extracted: "static" 的�
 | 21 | `toy-climax` | 高潮流程通知 | 用户消息 |  | 105 |
 | 22 | `toy-aftercare` | 温存流程通知 | 用户消息 |  | 81 |
 | 23 | `voice-guide` | 语音配置教程（自动选择与三条接入路线） | 用户消息 |  | 949/549/707/722 |
-| 24 | `meme-guide` | 表情包配置教程 | 用户消息 |  | 513 |
+| 24 | `meme-guide` | 表情包配置教程 | user-message |  | 562 |
 | 25 | `phone-guide` | 手机连接教程（局域网／远程） | 用户消息 |  | 302/653 |
 | 26 | `default-jailbreak-head` | 内置默认通用提示词“默认”·开头（《通用破限与规范》） | 内置默认内容 | 100 | 938 |
 | 27 | `default-role-persona` | 内置默认角色“大肥鱼”·正文 | 内置默认内容 | 200 | 2812 |
 | 28 | `default-toy-behavior` | 联动·补充互动规则默认值 | 内置默认内容 | 500 | 66 |
 | 29 | `default-proactivity-texts` | 联动·三档自主性默认说明 | 内置默认内容 | 500 | 144/165/78 |
-| 30 | `assembled-example` | 完整 qqbot:prompt 示例（用 assembleParts 实拼） | 系统提示词段 | 0 | 5938 |
+| 30 | `assembled-example` | 完整 qqbot:prompt 示例（用 assembleParts 实拼） | system-section | 0 | 5955 |
+| 31 | `dynamics-update-tool` | 动态状态更新工具说明 | tool-description | 工具 | 63 |
+| 32 | `dynamics-ptc-declaration` | PTC动态工具声明（complete内） | system-section | 430 | 484 |
+| 33 | `runtime-role-dynamics` | 运行时·动态状态与生效正文 | runtime-context | 1010 | 15 |
+| 34 | `meme-scoped-tool` | 角色表情工具与 PTC 声明 | tool-description | 410 | 63 |
 
 ## 1. 通用提示词·开头（`jb-head`）
 
@@ -98,60 +102,61 @@ QQ 分段：
 
 ## 5. 表情规则（`format-meme`）
 
-- 类别：系统提示词段
-- 位置：410，SECTION_ORDER.FORMAT_MEME，qqbot:format-meme
-- 来源：`src/prompt.ts:71`，`src/format.ts:37`，`src/format.ts:22`
-- 进入条件：仅 qqbot 预设会话的真实组装（agent-loop 每一步都组装一次）；标准会话和其他预设不加载 dsh-qqbot/prompt，不出现。所有段落合并为一个 complete section `qqbot:prompt`（PROMPT_ORDER=0），DSH 自带段落与其他插件的 section 不进入 qqbot 会话。空段整段去掉，段间用两个换行连接。 仅当本步放行的工具集里有 dsh-meme 的 send_meme（context.toolSet.view(scope).has('send_meme')）时出现；没装、停用 dsh-meme 或工具被关时整段不出现。注意：频率为 off 时仍然出现（写“不主动发，只在用户明确要求时发”），并不是 off 就去掉。还要求是真实组装（有 agent）。频率取当前角色 memeFrequency，没有角色或没写时为 medium。
-- 插值：第 3 行按频率四选一；之后最多三行可选：“优先图库：…”（角色 memePacks 的名称，JSON 引号）、“偏好标签：…”（memeTags）、“表情补充要求：\n<memePrompt>”（用户原文，最多 4000 字）。没有角色时无偏好行。
-- 用户可改：频率和偏好可在 QQ Bot 设置 → 角色 → 表情包（优先图库 / 偏好标签 / 表情频率 / 补充提示词）中改；固定句不可改。
+- 来源：src/prompt.ts:71，src/format.ts:37，src/format.ts:22
+- 进入条件：仅 QQ Bot 的真实会话、存在可用 send_meme 时出现；新宿主按本步 toolSet 判断，rc.5 按本会话 scoped 工具判断。频率 off 仍只在明确请求时使用，但执行范围与其他档一致。
+- 插值：可用图库名称、偏好标签和用户补充要求随角色读取。未选图库时使用文字。PTC 模式在此段附同一工具的准确名称、说明与参数，不带候选或图片内容。
+- 用户可改：QQ Bot → 角色 → 表情包：可用图库、偏好标签、表情频率、补充提示词。
 - 缓存：order 410。改当前角色表情设置、装上或停用 dsh-meme（工具出现/消失）会从这里起失效。DSH 为 in-history 模式：qqbot:prompt 文本任何变化都会在历史末尾追加一个新的完整 system 节点（之前的历史前缀仍可复用，但新节点本身全量计费且历史变长）；不支持 in-history 的路由从第一个变化字符起失效。
-- 说明：text 为默认频率 medium、无偏好时的原文。
 
-原文（82 字）：
+原文（99字）：
 
 ```text
 表情包：用 send_meme 按情绪或关键词找候选，挑贴合的一张，按工具说明的方式发出。
 一次回复最多一张；用户在说正事时不发。
 表情频率：适中。气氛合适时使用。
+当前角色未选图库，使用文字回应。
 ```
 
-### 变体 low：表情频率 low（87 字）
+变体：表情频率 low
 
 ```text
 表情包：用 send_meme 按情绪或关键词找候选，挑贴合的一张，按工具说明的方式发出。
 一次回复最多一张；用户在说正事时不发。
 表情频率：低。偶尔使用，不要连续几轮都发。
+当前角色未选图库，使用文字回应。
 ```
 
-### 变体 medium：表情频率 medium（默认）（82 字）
+变体：表情频率 medium
 
 ```text
 表情包：用 send_meme 按情绪或关键词找候选，挑贴合的一张，按工具说明的方式发出。
 一次回复最多一张；用户在说正事时不发。
 表情频率：适中。气氛合适时使用。
+当前角色未选图库，使用文字回应。
 ```
 
-### 变体 high：表情频率 high（88 字）
+变体：表情频率 high
 
 ```text
 表情包：用 send_meme 按情绪或关键词找候选，挑贴合的一张，按工具说明的方式发出。
 一次回复最多一张；用户在说正事时不发。
 表情频率：高。闲聊时积极使用贴合情绪的表情。
+当前角色未选图库，使用文字回应。
 ```
 
-### 变体 off：表情频率 off（40 字）
+变体：表情频率 off
 
 ```text
 表情包：只在用户明确要求时，用 send_meme 找一张贴合的按工具说明发出。
 ```
 
-### 变体 medium+preferences：示例：适中 + 优先图库 + 偏好标签 + 补充要求（括号内为占位）（166 字）
+变体：适中 + 可用图库 + 标签 + 补充要求
 
 ```text
 表情包：用 send_meme 按情绪或关键词找候选，挑贴合的一张，按工具说明的方式发出。
 一次回复最多一张；用户在说正事时不发。
 表情频率：适中。气氛合适时使用。
-优先图库："示例图库A"、"示例图库B"；从已启用图库中优先挑选，没有合适的可用其他图库。
+可用图库："示例图库A"、"示例图库B"。没有合适的表情时继续文字回应。
 偏好标签："开心"、"撒娇"。
 表情补充要求：
 （用户填写的表情补充要求）
@@ -928,15 +933,13 @@ ${output}
 
 ## 24. 表情包配置教程（`meme-guide`）
 
-- 类别：用户消息
-- 位置：新建 standard 预设会话后作为第一条普通用户消息发送
-- 来源：`src/meme-guide.ts:2`，`src/client/meme-help.tsx:25`
+- 来源：src/meme-guide.ts:2，src/client/meme-help.tsx:25
 - 进入条件：用户在 QQ Bot 设置 → 角色 → 表情包 点“怎么做”时，新建标准会话发送；不进入 qqbot 会话。只尝试一次，失败时显示文本供复制。
 - 插值：无。
 - 用户可改：不可编辑。
 - 缓存：标准会话，与 qqbot 前缀无关。
 
-原文（513 字）：
+原文（562字）：
 
 ```text
 帮我给 DSH 里 dsh-qqbot 插件的角色配上表情包。用中文，一步一步带我做，每次只问一个问题，能用工具查的直接查。
@@ -944,7 +947,7 @@ ${output}
 然后问我：想用现成的表情包，还是导入自己 QQ 里收藏的？
 【现成的】DSH 设置 → 表情包 → “发现”，挑喜欢的安装并启用。
 【QQ 收藏】在装 QQ 的电脑上用 QQFavoriteExtract（https://github.com/VanillaNahida/QQFavoriteExtract/releases ）：先登录 QQ、把收藏翻到底让图片加载完，在工具里选账号和收藏，导出到新文件夹，打成 ZIP，再到 DSH 设置 → 表情包 → “图库 → 导入图库”导入并启用。
-最后：DSH 设置 → QQ Bot → 角色，选角色，展开“表情包”，勾选“优先图库”，按喜好选标签和频率，点“保存”。设置页是装插件前打开的就关掉重开。回到 QQ Bot 会话让角色发张表情试试。
+最后：DSH 设置 → QQ Bot → 角色，选角色，展开“表情包”，勾选“可用图库”，按喜好选标签和频率，点“保存”。每个角色只使用自己勾选且全局启用的图库，未选图库时使用文字；多个角色需要的图库可以同时在全局启用。设置页是装插件前打开的就关掉重开。回到 QQ Bot 会话让角色发张表情试试。
 ```
 
 ## 25. 手机连接教程（局域网／远程）（`phone-guide`）
@@ -1120,26 +1123,13 @@ ${output}
 
 ## 30. 完整 qqbot:prompt 示例（用 assembleParts 实拼）（`assembled-example`）
 
-- 类别：系统提示词段
-- 位置：0，PROMPT_ORDER，qqbot:prompt
-- 来源：`src/prompt.ts:57`
+- 来源：src/prompt.ts:57
 - 进入条件：最“满”的情形：默认破限 + 大肥鱼 + dsh-meme 可用（适中）+ 已接入联动（低自主性）+ 快捷回复开启 + 有记忆（占位）。
 - 插值：见各段。
 - 用户可改：见各段。
 - 缓存：见各段。
 
-组成：
-
-- 100 qqbot:jb-head (938 字)
-- 200 qqbot:persona (2812 字)
-- 400 qqbot:format-segment (321 字)
-- 410 qqbot:format-meme (82 字)
-- 420 qqbot:format-voice (309 字)
-- 500 qqbot:ext:quick-replies (400 字)
-- 500 qqbot:ext:toy (993 字)
-- 800 qqbot:role-memory (69 字)
-
-原文（5938 字）：
+原文（5955字）：
 
 ```text
 【最高优先级协议与通用交互规范】
@@ -1211,6 +1201,7 @@ QQ 分段：
 表情包：用 send_meme 按情绪或关键词找候选，挑贴合的一张，按工具说明的方式发出。
 一次回复最多一张；用户在说正事时不发。
 表情频率：适中。气氛合适时使用。
+当前角色未选图库，使用文字回应。
 
 语音：可用状态见运行时 voice 行。默认发文字；语音可用且用户要求语音时，至少一个段落加 "voice":true。按人设和语境偶尔适合用声音时，也可选用语音。语音段在 [qq] 中先写 "voice":true，再写 text，text 写要说的话，不用调工具。一条回复可以文字和语音混发，只有一句语音也用 [qq] 块。例如：
 [qq]{"version":1,"stages":[{"text":"我在呢。"},{"voice":true,"text":"晚安，做个好梦。"}]}[/qq]
@@ -1253,7 +1244,7 @@ tier：low=慢，medium=中，high=快。action：填运行时“可选动作”
 （示例段落）
 ```
 
-### 变体 minimal：最“空”的情形：默认破限、无角色、无 dsh-meme、未接入、快捷回复关（1572 字）
+变体：最“空”的情形：默认破限、无角色、无 dsh-meme、未接入、快捷回复关
 
 ```text
 【最高优先级协议与通用交互规范】
@@ -1285,4 +1276,141 @@ QQ 分段：
 语音：可用状态见运行时 voice 行。默认发文字；语音可用且用户要求语音时，至少一个段落加 "voice":true。按人设和语境偶尔适合用声音时，也可选用语音。语音段在 [qq] 中先写 "voice":true，再写 text，text 写要说的话，不用调工具。一条回复可以文字和语音混发，只有一句语音也用 [qq] 块。例如：
 [qq]{"version":1,"stages":[{"text":"我在呢。"},{"voice":true,"text":"晚安，做个好梦。"}]}[/qq]
 运行时为“全部转语音”时界面自动转换，不用逐段标记。未启用或没有音色时发文字，按状态提示用户开启语音或给角色选音色。
+```
+
+<!-- role-dynamics-supplement -->
+本节为0.40.0当前动态实现的补录；其余既有条目完整保留。补录时间：2026-11-02T15:18:13.802Z。基础清单生成后运行 `scripts/update-dynamics-inventory.mjs`。只更新清单，不修改任何内置指令。
+
+## 31. 动态状态更新工具说明（`dynamics-update-tool`）
+
+- 来源：`src/role-dynamics/model.ts:5`，`src/role-dynamics/agent.ts`
+- 进入条件：仅真实qqbot Agent、启用动态定义且本轮含可见AI可写字段时登记scoped工具；无Agent诊断、静态、disabled及只读轮无更新能力。
+- 插值：说明与JSON Schema固定，参数只有changes目标值；可写字段、值与规则来自本轮冻结context。成功只返回accepted:true。
+- 用户可改：作者编辑动态字段及更新规则；本工具说明使用已批准原文。
+- 缓存：Native工具description随工具声明进入请求；首次启停改变工具及后续前缀。同一启用状态下日常数值不改变声明。
+
+原文（63 字）：
+
+```text
+依据当前状态和已生效设定回应。按字段更新规则，用 qqbot_update_state 提交本轮变化后的值；更新从下一轮生效。
+```
+
+固定参数：
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "changes"
+  ],
+  "properties": {
+    "changes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## 32. PTC动态工具声明（complete内）（`dynamics-ptc-declaration`）
+
+- 来源：`src/role-dynamics/agent.ts:19`，`src/prompt.ts`，`src/order.ts`
+- 进入条件：仅真实qqbot Agent处于PTC且该Agent实际登记qqbot_update_state时，作为唯一qqbot:prompt内的430片段。Native、静态、disabled、只读和诊断不呈现。
+- 插值：工具准确名称、已批准description和完整固定JSON Schema；没有动态值。rc.5 wire工具仍只有run_code，complete移除的tools:sdk不作为发现依据。
+- 用户可改：程序呈现已登记工具声明，不增加指令编辑入口。
+- 缓存：首次加入430片段或工具启停从此处改变稳定前缀；同一启用状态下日常数值、阶段和owner编辑只更新冻结context，跨轮及refresh保持sections字节。
+
+原文（484 字）：
+
+```text
+tools.qqbot_update_state
+{"name":"qqbot_update_state","description":"依据当前状态和已生效设定回应。按字段更新规则，用 qqbot_update_state 提交本轮变化后的值；更新从下一轮生效。","parameters":{"type":"object","additionalProperties":false,"required":["changes"],"properties":{"changes":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["name","value"],"properties":{"name":{"type":"string"},"value":{"oneOf":[{"type":"number"},{"type":"string"},{"type":"boolean"}]}}}}}}}
+```
+
+## 33. 运行时·动态状态与生效正文（`runtime-role-dynamics`）
+
+- 来源：`src/role-dynamics/model.ts:4`，`src/role-dynamics/model.ts:6`，`src/role-dynamics/agent.ts`，`src/order.ts`
+- 进入条件：启用动态角色存在可见字段或命中正文时使用required:true、interpolate:false的1010 context；静态、disabled、空投影及无Agent诊断为空。
+- 插值：唯一projectModel投影按顺序给可见字段和值、可写规则／范围／选项及命中正文；隐藏定义、未命中条目、诊断、版本身份时间不进入。轮初冻结，多step／retry／refresh沿用，候选提交后下轮生效。
+- 用户可改：角色动态定义控制字段、规则、条件和正文；owner状态入口修改当前值并核对CAS。
+- 缓存：可写轮不重复工具说明；没有更新工具时顶部只使用STATE_GUIDANCE首句。日常值和阶段在末尾context变化，稳定section不改；in-history可能追加context，实际供应商缓存率未测。
+
+原文（15 字）：
+
+```text
+依据当前状态和已生效设定回应。
+```
+
+呈现：`[无工具时首句, fields非空时'当前状态：\n'+JSON.stringify(projection.fields), ...projection.texts].filter(Boolean).join('\n\n')`
+
+## 34. 角色表情工具与 PTC 声明（`meme-scoped-tool`）
+
+- 来源：src/meme-agent.ts，src/meme-scope.ts，src/prompt.ts
+- 进入条件：只在 qqbot Agent 注册，且全局 dsh-meme 的 send_meme 仍可用；卸载时撤销遮蔽。Native 使用工具 schema，rc.5 PTC 同时在410段呈现该声明。
+- 插值：候选结果按角色选择与全局启用取交集；marker 含图库／图片身份，界面解析后仅显示图片。空范围返回文字说明。
+- 用户可改：角色图库、标签和频率由用户设置；固定工具说明由程序提供。
+- 缓存：首次替换工具 schema 改变工具前缀；PTC 从410起更新。候选只进入工具结果，不进入稳定system段。
+
+原文（63字）：
+
+```text
+从当前角色的可用图库中按标签或关键词找表情。挑选贴合的一张，将候选的 marker 原样写进回复；没有合适候选时继续文字回应。
+```
+
+变体：PTC声明
+
+```text
+tools.send_meme
+{"name":"send_meme","description":"从当前角色的可用图库中按标签或关键词找表情。挑选贴合的一张，将候选的 marker 原样写进回复；没有合适候选时继续文字回应。","parameters":{"type":"object","properties":{"tag":{"type":"string","description":"表情分类，可用分类见结果 tags。"},"query":{"type":"string","description":"描述或关键词。"},"limit":{"type":"number","description":"候选数量，默认 3，最多 10。"}},"additionalProperties":false}}
+```
+
+参数：
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "tag": {
+      "type": "string",
+      "description": "表情分类，可用分类见结果 tags。"
+    },
+    "query": {
+      "type": "string",
+      "description": "描述或关键词。"
+    },
+    "limit": {
+      "type": "number",
+      "description": "候选数量，默认 3，最多 10。"
+    }
+  },
+  "additionalProperties": false
+}
 ```

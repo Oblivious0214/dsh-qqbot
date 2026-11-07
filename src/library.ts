@@ -14,21 +14,24 @@ import { normalizeMemory } from './memory-format.ts'
 import { isRecord } from './storage.ts'
 import type { UiStore } from './ui.ts'
 import { CONFIG_MAX_BYTES, CONFIG_PATH } from './config-types.ts'
-import { importConfiguration, previewConfiguration } from './config-import.ts'
+import { importConfiguration, previewConfiguration, recoverConfigurationImports } from './config-import.ts'
 
 export const name = 'qqbot-library'
 
 /** 编辑界面需要的全部数据。顺带重新扫描角色库，用户直接改过的文件由此生效。 */
 export function libraryView(data: QqbotData, saved?: string, features: LibraryView['features'] = { meme: false, toy: false }): LibraryView {
+  recoverConfigurationImports(data)
   data.roles.reload()
   const defaultRole = data.bindings.defaultRole
   return {
     features,
     rolesDir: data.roles.dir,
     roles: data.roles.list().map((role) => {
-      const preset = data.presets.roleChoice(role.id)
       return {
         id: role.id, name: role.name, description: role.description, persona: role.persona,
+        ...role.dynamics === undefined ? {} : { dynamics: role.dynamics },
+        ...role.dynamicsError === undefined ? {} : { dynamicsError: role.dynamicsError },
+        ...role.dynamicsRevision === undefined ? {} : { dynamicsRevision: role.dynamicsRevision },
         ...role.memeFrequency === undefined ? {} : { memeFrequency: role.memeFrequency },
         ...role.memePacks === undefined ? {} : { memePacks: role.memePacks },
         ...role.memeTags === undefined ? {} : { memeTags: role.memeTags },
@@ -38,13 +41,12 @@ export function libraryView(data: QqbotData, saved?: string, features: LibraryVi
         ...role.motionActions === undefined ? {} : { motionActions: role.motionActions },
         ...role.motionRanges === undefined ? {} : { motionRanges: role.motionRanges },
         ...role.voice === undefined ? {} : { voice: role.voice },
-        ...preset === undefined ? {} : { preset },
         memory: data.memories.text(role.id),
       }
     }),
     ...defaultRole === undefined ? {} : { defaultRole },
     presets: data.presets.list(),
-    defaultPreset: data.presets.defaultId,
+    currentPreset: data.presets.currentId,
     ...saved === undefined ? {} : { saved },
   }
 }
@@ -80,7 +82,7 @@ function requireRole(data: QqbotData, id: string): void {
  * 执行一个操作。格式错误抛 BadRequest，操作失败（重名、找不到、写不了盘）抛 Error。
  * 保存角色或预设时返回保存的 id。
  */
-export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore): string | undefined {
+export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore): string | undefined | Promise<string | undefined> {
   if (!isRecord(body)) throw new BadRequest('请求格式无效')
   switch (body['action']) {
     case 'role.meme-prompt.save':
@@ -90,7 +92,7 @@ export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore)
       const current = data.roles.get(id)!
       if (body['action'] === 'role.meme-prompt.save') {
         if (typeof body['prompt'] !== 'string') throw new BadRequest('prompt 必须是文本')
-        const { memePrompt: _, ...rest } = current
+        const { memePrompt: _, dynamics: _d, ...rest } = current
         return data.roles.save({ ...rest, ...body['prompt'] === '' ? {} : { memePrompt: body['prompt'] } }, false).id
       }
       if (!ROLE_PROACTIVITIES.includes(body['level'] as RoleProactivity)) throw new BadRequest('自主性档位无效')
@@ -99,7 +101,8 @@ export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore)
       const level = body['level'] as RoleProactivity
       if (body['text'] === undefined) delete texts[level]
       else texts[level] = body['text'] as string
-      return data.roles.save({ ...current, proactivityTexts: texts }, false).id
+      const { dynamics: _d, ...staticFields } = current
+      return data.roles.save({ ...staticFields, proactivityTexts: texts }, false).id
     }
     case 'role.memory.save': {
       const id = text(body, 'id')
@@ -112,41 +115,40 @@ export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore)
     }
     case 'role.save': {
       const draft = body['role']
-      const preset = isRecord(draft) ? draft['preset'] : undefined
       const memory = isRecord(draft) ? draft['memory'] : undefined
-      // 写角色前先校验预设和记忆，失败不能创建半个角色；旧调用未传时保留原绑定和原记忆。
-      if (preset !== undefined && (typeof preset !== 'string' || data.presets.get(preset) === undefined)) {
-        throw new Error('所选通用提示词已不存在，请重新选择')
-      }
+      // 写角色前先校验记忆，旧 preset 字段忽略。
       if (memory !== undefined && typeof memory !== 'string') throw new BadRequest('memory 必须是文本')
       if (typeof memory === 'string') normalizeMemory(memory)
-      const saved = data.roles.save(draft, flag(body, 'create')).id
-      if (typeof preset === 'string') data.presets.assign(saved, preset)
+      const finish = (saved: string) => {
       if (typeof memory === 'string') {
         data.memories.save(saved, memory)
         data.applyMemoryToRole(saved)
       }
       return saved
+      }
+      if (isRecord(draft) && draft['dynamics'] !== undefined) return data.roles.saveAsync(draft, flag(body, 'create')).then(saved => finish(saved.id))
+      return finish(data.roles.save(draft, flag(body, 'create')).id)
     }
-    case 'role.remove':
-      // 会话绑定、默认角色和预设选择都留着：角色卡放回来就恢复。没有角色的会话按无角色运行。
+    case 'role.remove': {
+      const id = text(body, 'id')
+      if (data.roles.transactional) {
+        const memory = data.memories.filePath(id)
+        const avatar = ui?.avatar(id).find()?.file
+        return data.roles.removeAsync(id, [memory, avatar].filter((path): path is string => path !== undefined)).then(() => { data.memories.clearCache(); return undefined })
+      }
+      // 会话绑定和默认角色都留着：角色卡放回来就恢复。没有角色的会话按无角色运行。
       // 头像跟着移到回收站：之后新建同 id 的角色不会继承旧头像。
       // 记忆也一起移走，否则同 id 的新角色会继承它。
       data.roles.remove(text(body, 'id'), (trash, stamp) => {
         ui?.trashAvatar(text(body, 'id'), trash, stamp)
         data.memories.trash(text(body, 'id'), trash, stamp)
-      })
+      }, [data.memories.filePath(id), ui?.avatar(id).find()?.file].filter((path): path is string => path !== undefined))
       return
+    }
     case 'role.default': {
       const id = optionalText(body, 'id')
       if (id !== undefined) requireRole(data, id)
       data.bindings.setDefaultRole(id)
-      return
-    }
-    case 'role.preset': {
-      const id = text(body, 'id')
-      requireRole(data, id)
-      data.presets.assign(id, optionalText(body, 'preset'))
       return
     }
     case 'preset.save': {
@@ -155,8 +157,8 @@ export function applyLibraryAction(data: QqbotData, body: unknown, ui?: UiStore)
     case 'preset.remove':
       data.presets.remove(text(body, 'id'))
       return
-    case 'preset.default':
-      data.presets.setDefault(text(body, 'id'))
+    case 'preset.current':
+      data.presets.setCurrent(text(body, 'id'))
       return
     default:
       throw new BadRequest('不认识的操作')
@@ -223,7 +225,7 @@ export function apply(ctx: Context): void {
             // 手动总结和手动修改一样，已开始的对话立即换上；自动整理等下次压缩。
             data.applyMemoryToRole(id)
           } else {
-            saved = applyLibraryAction(data, body, ctx.qqbot.ui)
+            saved = await applyLibraryAction(data, body, ctx.qqbot.ui)
           }
         } catch (error) {
           if (error instanceof BadRequest) return fail(400, 'bad-request', error.message)

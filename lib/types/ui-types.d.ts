@@ -55,6 +55,7 @@ export type UiRole = {
     readonly id: string;
     readonly name: string;
     readonly voice?: string;
+    readonly dynamics?: true;
 } | null;
 export interface UiSessionView {
     /** 这个会话当前的角色，没有角色时为 null。 */

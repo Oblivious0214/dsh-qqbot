@@ -15,6 +15,7 @@ export const SECTION_ORDER = {
   FORMAT_SEGMENT: 400,
   FORMAT_MEME: 410,
   FORMAT_VOICE: 420,
+  DYNAMICS_TOOL: 430,
   EXT: 500,
   ROLE_MEMORY: 800,
   JB_TAIL: 900,
@@ -26,6 +27,7 @@ export const PROMPT_ORDER = 0
 /** DSH 自带 context 在 100–210，qqbot:runtime 排在它们之后。 */
 export const CONTEXT_ORDER = {
   RUNTIME: 1000,
+  ROLE_DYNAMICS: 1010,
 } as const
 
 export const SECTION_NAME = {
@@ -36,6 +38,7 @@ export const SECTION_NAME = {
   FORMAT_SEGMENT: 'qqbot:format-segment',
   FORMAT_MEME: 'qqbot:format-meme',
   FORMAT_VOICE: 'qqbot:format-voice',
+  DYNAMICS_TOOL: 'qqbot:dynamics-tool',
   JB_TAIL: 'qqbot:jb-tail',
   EXT_PREFIX: 'qqbot:ext:',
   ROLE_MEMORY: 'qqbot:role-memory',
@@ -43,4 +46,5 @@ export const SECTION_NAME = {
 
 export const CONTEXT_NAME = {
   RUNTIME: 'qqbot:runtime',
+  ROLE_DYNAMICS: 'qqbot:role-dynamics',
 } as const

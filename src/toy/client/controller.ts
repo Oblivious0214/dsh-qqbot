@@ -66,6 +66,7 @@ export interface ControllerOptions {
 }
 
 export interface ToySnapshot {
+  readonly deviceConnected: boolean
   readonly actionLibrary?: ActionLibrary
   readonly enabled: boolean
   readonly conflict: string
@@ -163,6 +164,9 @@ export class ToyController {
   private readonly listeners = new Set<() => void>()
   private snapshot: ToySnapshot | undefined
   private disposed = false
+  private deviceConnected = false
+  private recordingConnection = false
+  private promotionOpening: Promise<boolean> | undefined
   private adjust: LiveAdjust = NO_ADJUST
   private phase: BurstPhase | undefined
   private safetyInput = new SafetyWordInput()
@@ -185,6 +189,7 @@ export class ToyController {
 
   getSnapshot = (): ToySnapshot => {
     this.snapshot ??= {
+      deviceConnected: this.deviceConnected || this.settings?.deviceConnected === true,
       enabled: !this.disposed && this.settings !== undefined && this.settings.enabled !== false && this.conflict === '', conflict: this.conflict,
       settings: this.settings, loadError: this.loadError, qqbot: this.qqbot, segments: this.segments !== undefined,
       ...this.actionLibrary === undefined ? {} : { actionLibrary: this.actionLibrary },
@@ -240,6 +245,30 @@ export class ToyController {
       this.loadError = `读取设置失败：${messageOf(error)}`
     }
     this.notify()
+  }
+
+  /** 所有设置入口共用一次首次介绍请求。 */
+  openPromotion(): Promise<boolean> {
+    if (this.disposed || this.getSnapshot().deviceConnected) return Promise.resolve(false)
+    if (this.promotionOpening !== undefined) return this.promotionOpening
+    const epoch = this.epoch
+    this.promotionOpening = this.post({ action: 'promotion.open' }, view => {
+      if (!this.disposed && epoch === this.epoch) { this.acceptView(view); this.notify() }
+    }).then(view => !this.disposed && epoch === this.epoch && !this.getSnapshot().deviceConnected && view.showDeviceIntro === true)
+      .finally(() => { this.promotionOpening = undefined })
+    return this.promotionOpening
+  }
+
+  /** 就绪即记录，不要求先接入对话；断开不清除。写入失败可在下次读取时重试。 */
+  private rememberConnection(): void {
+    if (!this.deviceConnected || this.settings === undefined || this.settings.deviceConnected || this.recordingConnection || this.disposed) return
+    this.recordingConnection = true
+    const epoch = this.epoch
+    void this.post({ action: 'device.connected' }, view => {
+      if (!this.disposed && epoch === this.epoch) { this.acceptView(view); this.notify() }
+    }).catch(error => {
+      if (!this.disposed && epoch === this.epoch) this.say(`保存设备连接记录失败：${messageOf(error)}`)
+    }).finally(() => { this.recordingConnection = false })
   }
 
   /** Serialize the mutation itself, so each edit reads the last accepted snapshot. */
@@ -298,7 +327,7 @@ export class ToyController {
   }
 
   clearCache(): void { this.interruptions.clear(); writeInterruptionHistory(this.interruptions); this.notify() }
-  resetForCleanup(): void { this.draftGeneration++; this.quiesce('QQ Bot 数据已清理，设备已停止并断开。'); this.clearCache() }
+  resetForCleanup(): void { this.draftGeneration++; this.deviceConnected = false; this.quiesce('QQ Bot 数据已清理，设备已停止并断开。'); this.clearCache() }
 
   private quiesce(reason: string): void {
     this.epoch++
@@ -372,6 +401,7 @@ export class ToyController {
   private accept(settings: ToySettings, qqbot: boolean): void {
     if (this.settings?.authorized && !settings.authorized) this.draftGeneration++
     this.settings = settings
+    this.rememberConnection()
     this.qqbot = qqbot
     this.applyConfig()
   }
@@ -412,6 +442,11 @@ export class ToyController {
     try {
       await this.track(this.transport.connect(address))
       if (this.disposed || epoch !== this.epoch) this.transport.disconnect()
+      else if (this.transport.state.phase === 'ready') {
+        this.deviceConnected = true
+        this.rememberConnection()
+        this.notify()
+      }
     } catch (error) {
       if (this.disposed || epoch !== this.epoch || attempt !== this.connectionAttempt) return
       if (this.transport.state.error === '') this.say(messageOf(error))
@@ -440,7 +475,11 @@ export class ToyController {
   }
 
   private follow(): () => void {
+    let phase = this.transport.state.phase
     return this.transport.subscribe(() => {
+      if (phase !== 'ready' && this.transport.state.phase === 'ready') this.deviceConnected = true
+      phase = this.transport.state.phase
+      this.rememberConnection()
       this.applyConfig()
       this.syncStatus()
       this.notify()
@@ -464,8 +503,8 @@ export class ToyController {
       return
     }
     // 超时不清选择：AI 不知道已经超时，下一条回复只写变化项时仍按原来的选择补全（同旧插件）。
-    if (cause !== 'timeout') this.previous = null
-    this.activity = cause === 'timeout' ? 'timeout' : cause === 'error' || cause === 'stop-error' ? 'error' : 'waiting'
+    if (cause !== 'timeout' && cause !== 'complete') this.previous = null
+    this.activity = cause === 'model' ? 'model-stop' : cause === 'timeout' ? 'timeout' : cause === 'error' || cause === 'stop-error' ? 'error' : 'waiting'
     const stage = this.lastStage === undefined ? '' : `第 ${this.lastStage.index + 1} 段`
     if (cause === 'error') this.report(`${stage}动作执行已中断：${error?.message ?? '未提供具体原因'}。请检查动作与用户限制，等待后续有效动作。`)
     else if (cause === 'stop-error') this.report(`停止指令发送失败：${error?.message ?? '未提供具体原因'}。无法确认设备已停下，请检查设备端并手动停止。`)
@@ -783,7 +822,7 @@ export class ToyController {
     try {
       let active = run.start
       for (const intent of resolveStageIntents(stages.slice(0, index + 1), run.start)) if (intent !== undefined) active = intent
-      return active === null ? undefined : pacingHold(stage.text, stage.motion !== undefined, this.pacing)
+      return active === null || this.player.isCompletedSelection(active) ? undefined : pacingHold(stage.text, stage.motion !== undefined, this.pacing)
     } catch {
       // 动作本身不合法时，显示这一段时会停下并报告；这里只退回 qqbot 自己的间隔。
       return undefined
@@ -841,8 +880,9 @@ export class ToyController {
     if (intent === null) this.report(`AI 在第 ${index + 1} 段要求停止；等待后续有效动作。`)
     this.lastStage = { key: runKey(session, reply), index, tail: holdMs === undefined, holdMs }
     this.player.reveal(intent, holdMs)
+    if (this.player.completed) this.activity = 'waiting'
     this.recordAction(session, reply, index, `${this.actionLabel()}${stage.motion === undefined && this.player.intent !== null ? ' · 沿用' : ''}`)
-    if (intent !== undefined) this.previous = this.player.intent
+    if (intent !== undefined && !this.player.completed) this.previous = this.player.intent
     this.notify()
   }
 

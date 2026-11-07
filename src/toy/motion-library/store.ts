@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 import { writeJson, type Warn } from '../storage.ts'
@@ -12,11 +12,11 @@ const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 
 interface StoredLibrary {
   readonly format: typeof FORMAT
-  readonly version: 1
+  readonly version: 2
   readonly revision: number
   readonly library: {
     readonly format: 'dsh-motion-library-preview'
-    readonly version: 1
+    readonly version: 2
     readonly clips: readonly { readonly file: string; readonly [key: string]: unknown }[]
     readonly mappings: ActionLibrary['library']['mappings']
   }
@@ -29,6 +29,7 @@ interface StoredLibrary {
 export class ActionLibraryStore {
   private current: ActionLibrary
   private diskText: string | undefined
+  private lastGoodText: string | undefined
   private lastGood: unknown
   private loadFailed = false
   private readonly tracks: string
@@ -45,6 +46,7 @@ export class ActionLibraryStore {
       const raw = parseJson(this.diskText)
       this.current = this.decode(raw)
       this.lastGood = raw
+      this.lastGoodText = this.diskText
     } catch (error) {
       this.warn(`动作库读取失败，尝试上一份备份：${String(error)}`)
       this.recover()
@@ -58,6 +60,7 @@ export class ActionLibraryStore {
   reset(): void {
     this.diskText = this.readIndex(this.file)
     this.lastGood = undefined
+    this.lastGoodText = undefined
     this.loadFailed = false
     this.commit({ ...defaultActionLibrary(), revision: this.current.revision + 1 })
   }
@@ -83,8 +86,9 @@ export class ActionLibraryStore {
 
   private decode(value: unknown): ActionLibrary {
     const raw = record(value, '动作库')
-    if (raw['format'] !== FORMAT || raw['version'] !== 1) throw new Error('动作库存储版本无效')
+    if (raw['format'] !== FORMAT || (raw['version'] !== 1 && raw['version'] !== 2)) throw new Error('动作库存储版本无效')
     const library = record(raw['library'], '动作目录')
+    if (library['version'] !== raw['version']) throw new Error('动作库存储版本不一致')
     if (!Array.isArray(library['clips']) || library['clips'].length > SCRIPT_LIMITS.clips) throw new Error('动作目录数量无效')
     const clips = library['clips'].map((item: unknown) => {
       const clip = record(item, '动作配置')
@@ -97,7 +101,13 @@ export class ActionLibraryStore {
       if (`${digest(text)}.funscript` !== file) throw new Error('轨迹文件校验失败')
       return { ...clip, ...parseFunscript(text) }
     })
-    return parseActionLibrary({ revision: raw['revision'], library: { ...library, clips }, pools: raw['pools'], burstPool: raw['burstPool'], aftercarePool: raw['aftercarePool'] })
+    const normalized = parseActionLibrary({ revision: raw['revision'], library: { ...library, clips }, pools: raw['pools'], burstPool: raw['burstPool'], aftercarePool: raw['aftercarePool'] })
+    if (raw['version'] !== 1) return normalized
+    const builtins = defaultActionLibrary().library.clips
+    return { ...normalized, library: { ...normalized.library, clips: normalized.library.clips.map(clip => {
+      const original = builtins.find(c => c.id === clip.id && JSON.stringify(c.points) === JSON.stringify(clip.points))
+      return original === undefined ? clip : { ...clip, source: 'builtin', kind: 'loop' }
+    }) } }
   }
 
   private recover(): void {
@@ -110,6 +120,7 @@ export class ActionLibraryStore {
       // 备份仍保留；仅在所有轨迹和配置通过校验后切换当前索引。
       this.diskText = this.readIndex(this.file)
       this.lastGood = raw
+      this.lastGoodText = text
       this.commit(restored)
       this.warn('动作库已从上一份备份恢复。')
     } catch (error) {
@@ -134,14 +145,18 @@ export class ActionLibraryStore {
       }
       return { ...metadata, file }
     })
-    const stored: StoredLibrary = { format: FORMAT, version: 1, revision: parsed.revision,
+    const stored: StoredLibrary = { format: FORMAT, version: 2, revision: parsed.revision,
       library: { ...parsed.library, clips }, pools: parsed.pools,
       ...(parsed.burstPool === undefined ? {} : { burstPool: parsed.burstPool }),
       ...(parsed.aftercarePool === undefined ? {} : { aftercarePool: parsed.aftercarePool }) }
+    if (this.lastGoodText !== undefined && record(parseJson(this.lastGoodText), '动作库')['version'] === 1) {
+      writeFileSync(`${this.file}.pre-v2-${randomUUID()}.bak`, this.lastGoodText, { encoding: 'utf8', flag: 'wx' })
+    }
     if (this.lastGood !== undefined) writeJson(`${this.file}.bak`, this.lastGood)
     writeJson(this.file, stored)
     this.diskText = `${JSON.stringify(stored, null, 2)}\n`
     this.lastGood = stored
+    this.lastGoodText = this.diskText
     this.current = parsed
     // 索引提交成功后的清理失败不把已完成的保存报告为失败。
     try { this.collectTracks(stored) } catch (error) { this.warn(`动作库旧轨迹清理未完成：${String(error)}`) }
@@ -152,8 +167,10 @@ export class ActionLibraryStore {
     // 损坏索引保留期间也保留现场轨迹，方便手动恢复。
     if (readdirSync(dirname(this.file)).some(name => name.startsWith(`${basename(this.file)}.corrupt-`))) return
     const keep = new Set(current.library.clips.map(clip => clip.file))
-    const backup = this.readIndex(`${this.file}.bak`)
-    if (backup !== undefined) {
+    const backups = [`${this.file}.bak`, ...readdirSync(dirname(this.file)).filter(name => name.startsWith(`${basename(this.file)}.pre-v2-`) && name.endsWith('.bak')).map(name => join(dirname(this.file), name))]
+    for (const path of backups) {
+      const backup = this.readIndex(path)
+      if (backup === undefined) continue
       const raw = record(parseJson(backup), '动作备份')
       if (raw['format'] === FORMAT) {
         const library = record(raw['library'], '动作备份目录')

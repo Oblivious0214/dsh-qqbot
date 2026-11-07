@@ -83,6 +83,7 @@ export function parseSettings(value: unknown): ToySettings {
   if (!isRecord(value)) throw new Error('设置格式无效')
   if (value['enabled'] !== undefined && typeof value['enabled'] !== 'boolean') throw new Error('联动开关无效')
   if (value['deviceIntroSeen'] !== undefined && typeof value['deviceIntroSeen'] !== 'boolean') throw new Error('联动介绍状态无效')
+  if (value['deviceConnected'] !== undefined && typeof value['deviceConnected'] !== 'boolean') throw new Error('设备连接记录无效')
   if (typeof value['authorized'] !== 'boolean') throw new Error('授权状态无效')
   const behavior = value['behavior']
   if (typeof behavior !== 'string' || behavior.length > MAX_BEHAVIOR_LENGTH) {
@@ -108,6 +109,7 @@ export function parseSettings(value: unknown): ToySettings {
   return {
     enabled: value['enabled'] !== false, authorized: value['authorized'], motion: parseMotion(value['motion']), behavior, hotkey,
     ...value['deviceIntroSeen'] === undefined ? {} : { deviceIntroSeen: value['deviceIntroSeen'] },
+    ...value['deviceConnected'] === undefined ? {} : { deviceConnected: value['deviceConnected'] },
     ...proactivityTexts === undefined ? {} : { proactivityTexts },
     ...resumeHotkey === undefined ? {} : { resumeHotkey },
     ...burst === undefined ? {} : { burst },

@@ -46,13 +46,13 @@ describe('portable configuration', () => {
     const role = d.roles.list()[0]!
     expect(role.id).toMatch(/^r-[0-9a-f]{8}$/)
     expect(role).toMatchObject({ proactivity: 'follow', proactivityTexts: { follow: '自定义说明。', high: '' }, motionActions: ['slide'] })
-    expect(d.presets.forRole(role.id)).toMatchObject({ name: '测试预设', head: '开头', mid: '中间', tail: '结尾' })
-    expect(d.presets.forRole(role.id).id).toMatch(/^p-[0-9a-f]{8}$/)
-    expect(d.presets.defaultId).toBe('default')
+    expect(d.presets.list().find(p => p.name === '测试预设')).toMatchObject({ head: '开头', mid: '中间', tail: '结尾' })
+    expect(d.presets.current().id).toBe('default')
+    expect(d.presets.currentId).toBe('default')
     expect(d.bindings.defaultRole).toBeUndefined()
     expect(existsSync(join(dir, 'sessions.json'))).toBe(false)
     const reloaded = JailbreakStore.at(dir, () => {})
-    expect(reloaded.forRole(role.id)).toEqual(d.presets.forRole(role.id))
+    expect(reloaded.current()).toEqual(d.presets.current())
   })
 
   it('skips repeats and preserves existing edited content, defaults, bindings and bytes', () => {
@@ -77,7 +77,8 @@ describe('portable configuration', () => {
     apply(d)
     apply(d, config, { ...options, conflict: 'copy' })
     const role = d.roles.list().find(r => r.name === '测试角色（导入）')!
-    expect(d.presets.forRole(role.id).name).toBe('测试预设（导入）')
+    expect(d.presets.list().some(p => p.name === '测试预设（导入）')).toBe(true)
+    expect(d.presets.currentId).toBe('default')
     apply(d, config, { ...options, conflict: 'copy' })
     expect(d.roles.list().map(r => r.name)).toContain('测试角色（导入 2）')
   })
@@ -91,13 +92,13 @@ describe('portable configuration', () => {
     expect(d.presets.list().some(p => p.head === '独立预设')).toBe(true)
   })
 
-  it('supports each category separately and rejects missing dependencies before writing', () => {
-    const { dir, data: d } = data()
-    expect(() => apply(d, config, { ...options, presets: false })).toThrow('同时导入')
-    expect(readdirSync(dir)).toEqual([])
-    expect(apply(d, config, { ...options, roles: false })).toMatchObject({ presets: 1, roles: 0 })
+  it('supports categories independently and ignores old role preset dependencies', () => {
+    const { data: d } = data()
     expect(apply(d, config, { ...options, presets: false })).toMatchObject({ presets: 0, roles: 1 })
-    expect(d.presets.forRole(d.roles.list()[0]!.id).name).toBe('测试预设')
+    expect(d.presets.currentId).toBe('default')
+    expect(apply(d, config, { ...options, roles: false })).toMatchObject({ presets: 1, roles: 0 })
+    expect(apply(d, config, { ...options, presets: false })).toMatchObject({ presets: 0, roles: 0 })
+    expect(d.presets.currentId).toBe('default')
     expect(apply(d, config, { ...options, roles: false, presets: false })).toEqual({ presets: 0, roles: 0, skipped: 0 })
   })
 
@@ -106,11 +107,11 @@ describe('portable configuration', () => {
     apply(d, { format: config.format, version: 1, roles: [{ name: '独立角色', persona: '第一行\r\n第二行' }] })
     const role = d.roles.list()[0]!
     expect(role.persona).toBe('第一行\n第二行')
-    expect(d.presets.roleChoice(role.id)).toBe('default')
+    expect(d.presets.snapshot()).not.toHaveProperty('roles')
   })
 
   it.each([
-    null, {}, { ...config, version: 2 }, { ...config, format: 'old-plugin' },
+    null, {}, { ...config, version: 3 }, { ...config, format: 'old-plugin' },
     { ...config, settings: { authorized: true } },
     { ...config, presets: [{ ...config.presets[0], id: '../../escape' }] },
     { ...config, roles: [{ ...config.roles[0], voice: 'v-12345678' }] },

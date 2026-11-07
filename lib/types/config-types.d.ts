@@ -6,6 +6,8 @@ export interface ConfigOptions {
     readonly roles: boolean;
     readonly conflict: 'skip' | 'copy';
 }
+/** 缺少或为空的分类不参与导入；完整格式仍由服务端校验。 */
+export declare function configImportContents(value: unknown): Pick<ConfigOptions, 'presets' | 'roles'>;
 export interface ConfigEntry {
     readonly kind: 'preset' | 'role';
     readonly name: string;

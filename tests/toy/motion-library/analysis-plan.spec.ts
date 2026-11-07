@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultMotion } from '../../../src/toy/core/config.ts'
-import { analyzeLoops, createReplyPlan, descriptionDraft, emptyLibrary, mapScene, previewPreset, previewScript, queryCatalog, reduceReplyPlan, resolveScene, saveClip, selectAction, selectTimeRange, updateClip, type MotionScript, type PresetPool, type PlanStopReason } from '../../../src/toy/motion-library/index.ts'
+import { createReplyPlan, descriptionDraft, emptyLibrary, mapScene, previewPreset, previewScript, queryCatalog, reduceReplyPlan, resolveScene, saveClip, selectAction, selectTimeRange, updateClip, type MotionScript, type PresetPool, type PlanStopReason } from '../../../src/toy/motion-library/index.ts'
 
 function repeated(count = 6): MotionScript {
   const points = [{ at: 0, pos: 0 }]
@@ -50,53 +50,8 @@ describe('editable descriptions and open catalog', () => {
     expect(text).not.toContain('motion-')
     expect(text).toContain('用户描述')
     expect(queryCatalog(edited, { offset: 1, limit: 1 })).toHaveLength(1)
-    expect(() => updateClip(edited, '演示波形', { name: '长片段' })).toThrow('名称')
+    expect(() => updateClip(edited, '演示波形', { name: '长片段' })).toThrow('同名')
     expect(() => updateClip(edited, '演示波形', { description: 'a'.repeat(241) })).toThrow('描述')
-  })
-})
-
-describe('conservative repeat extraction', () => {
-  it('finds an observed short loop, reports evidence, and never replaces the source automatically', () => {
-    const source = repeated()
-    const result = analyzeLoops(source)
-    expect(result.reason).toBe('repeated-waveform-found')
-    const candidate = result.candidates[0]!
-    expect(candidate.periodMs).toBe(2000)
-    expect(candidate.observedRepeats).toBe(6)
-    expect(candidate.observedCoverage).toBe(1)
-    expect(candidate.maxPositionError).toBe(0)
-    expect(candidate.reviewRequired).toBe(true)
-    expect(candidate.points).toEqual(repeated(1).points)
-    expect(source).toEqual(repeated())
-    expect(result.fallback).toBe('keep-original')
-  })
-
-  it('refuses an isolated closed cycle, open seam, flat or nonrepeating waveform', () => {
-    const inputs = [repeated(1), { points: [{ at: 0, pos: 0 }, { at: 1000, pos: 100 }, { at: 2000, pos: 20 }] },
-      { points: [{ at: 0, pos: 20 }, { at: 20000, pos: 20 }] },
-      { points: [{ at: 0, pos: 0 }, { at: 1000, pos: 20 }, { at: 2000, pos: 0 }, { at: 3000, pos: 40 }, { at: 4000, pos: 0 }, { at: 5000, pos: 90 }, { at: 6000, pos: 0 }] }]
-    for (const input of inputs) {
-      expect(analyzeLoops(input).candidates).toEqual([])
-      expect(analyzeLoops(input).fallback).toBe('keep-original')
-    }
-    expect(() => saveClip(emptyLibrary(), '不闭合', inputs[1]!, 0, 2000, { playback: 'loop' })).toThrow('不闭合')
-  })
-
-  it('does not infer a reliable loop from changing narrow peaks missed by a coarse grid', () => {
-    const points = [{ at: 0, pos: 0 }]
-    for (let cycle = 0; cycle < 3; cycle++) {
-      const at = cycle * 2000
-      points.push({ at: at + 500, pos: 80 }, { at: at + 501, pos: 80 + cycle * 8 }, { at: at + 502, pos: 80 }, { at: at + 2000, pos: 0 })
-    }
-    expect(analyzeLoops({ points }).candidates).toEqual([])
-  })
-
-  it('analyzes long imports while preserving the long original as a fallback', () => {
-    const result = analyzeLoops(repeated(150))
-    expect(result.candidates[0]!.periodMs).toBe(2000)
-    expect(result.candidates[0]!.observedCoverage).toBeLessThan(1)
-    const selected = selectTimeRange(repeated(150), '从0秒到300秒')
-    expect(selected.script.points.at(-1)!.at).toBe(300000)
   })
 })
 

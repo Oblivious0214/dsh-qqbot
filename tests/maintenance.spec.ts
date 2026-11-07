@@ -128,7 +128,7 @@ describe('QQ Bot 数据维护', () => {
     const { service, call } = await fixture()
     const role = service.content.roles.save({ name: '失败时保留', description: '', persona: '正文' }, true)
     const before = (await (await call(STATE_PATH)).json()).actionLibrary
-    const imported = { id: 'motion-30', name: '清理失败保留轨迹', description: '保留', playback: 'once',
+    const imported = { id: 'motion-30', name: '清理失败保留轨迹', description: '保留', source: 'custom', kind: 'segment', playback: 'once',
       points: [{ at: 0, pos: 0 }, { at: 100, pos: 50 }] }
     await call(STATE_PATH, { action: 'library.save', library: { ...before, library: { ...before.library, clips: [...before.library.clips, imported] } } })
     const libraryFile = join(dshHome(), 'toy-buttplug/motion-library.json')

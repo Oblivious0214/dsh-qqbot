@@ -198,7 +198,8 @@ export function uiView(data: QqbotData, ui: UiStore, sessionId: string | undefin
     // 名称按角色库现读，角色改名后旧消息也显示新名字的首字。
     const show = (id: string | null | undefined): UiRole => {
       const role = id == null ? undefined : data.roles.get(id)
-      return role === undefined ? null : { id: role.id, name: role.name, ...role.voice === undefined ? {} : { voice: role.voice } }
+      return role === undefined ? null : { id: role.id, name: role.name, ...role.voice === undefined ? {} : { voice: role.voice },
+        ...role.dynamics?.enabled ? { dynamics: true as const } : {} }
     }
     session = {
       role: show(data.roleIdFor({ id: sessionId })),
@@ -331,6 +332,12 @@ export function apply(ctx: Context): void {
             const agent = typeof id === 'string' ? ctx.agents.get(id as Parameters<typeof ctx.agents.get>[0]) : undefined
             if (!agent || presetForAgent(ctx.agentPresets, agent) !== 'qqbot') throw new Error('请在 QQ Bot 对话中选择角色。')
             if (agent.status !== 'idle' || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0) {
+              throw new Error('请等当前回复和排队消息处理完后再切换角色。')
+            }
+            await ctx.qqbot.dynamicsHost?.prepareSelection(agent.id, typeof body['role'] === 'string' ? body['role'] : undefined)
+            const current = ctx.agents.get(id as Parameters<typeof ctx.agents.get>[0])
+            if (current !== agent || presetForAgent(ctx.agentPresets, current) !== 'qqbot') throw new Error('请在 QQ Bot 对话中选择角色。')
+            if (current.status !== 'idle' || current.inbox.nextTurn.length > 0 || current.inbox.nextStep.length > 0) {
               throw new Error('请等当前回复和排队消息处理完后再切换角色。')
             }
           }

@@ -1,0 +1,45 @@
+import type { Context } from '@deepseek-ai/cordis';
+import type { QqbotData } from '../content.ts';
+import type { Maintenance } from '../maintenance.ts';
+import { RoleDataTransactions } from '../role-transactions.ts';
+import { HostHistoryView } from './host-history.ts';
+import { RoleDynamicsService, type Operation, type Snapshot, type SourceHandle } from './service.ts';
+import { FileJournalStore } from './store.ts';
+import type { DynamicsPublic, PublicOperation, StateView } from './api-types.ts';
+export declare class DynamicsHost {
+    private readonly ctx;
+    readonly data: QqbotData;
+    readonly maintenance: Maintenance;
+    readonly history: HostHistoryView;
+    readonly core: RoleDynamicsService;
+    readonly store: FileJournalStore;
+    readonly transactions: RoleDataTransactions;
+    private owner;
+    private readonly selections;
+    private readonly adapters;
+    private readonly sources;
+    private readonly pluginSources;
+    private readonly cleanups;
+    private disposed;
+    private generation;
+    constructor(ctx: Context, root: string, data: QqbotData, maintenance: Maintenance);
+    private assertGeneration;
+    private renew;
+    onInvalidate(reset: () => void): () => void;
+    private prepareRole;
+    prepareSession(id: string, targetRole?: string | undefined, selectionOnly?: boolean): Promise<void>;
+    attach(id: string): Promise<void>;
+    needsSelection(id: string, nextRole?: string): boolean;
+    prepareSelection(id: string, nextRole?: string): Promise<void>;
+    sealSelection(id: string): void;
+    recordSelection(id: string, start: number): void;
+    state(id: string, expectedRole?: string, preview?: boolean): Promise<StateView | undefined>;
+    ownerCommit(id: string, roleId: string, operation: PublicOperation): Promise<import("./contracts.ts").CommitResult>;
+    preview(id: string): Promise<string>;
+    forPlugin(identity: string | undefined, caller: Context): DynamicsPublic;
+    private registerSource;
+    dispose(): void;
+}
+/** Must run before constructing the bindings store. */
+export declare function recoverDynamicsSelections(root: string): void;
+export declare function candidateOperation(snapshot: Snapshot, source: SourceHandle, start: number, call: number, changes: Operation['changes']): Operation;

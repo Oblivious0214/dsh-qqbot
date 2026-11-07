@@ -2,7 +2,7 @@
 import { writeHeaders } from './cleanup-epoch.ts'
 import { useEffect, useRef, useState } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CONFIG_PATH, type ConfigOptions, type ConfigPreview, type ConfigRequest, type ConfigResult } from '../config-types.ts'
+import { CONFIG_PATH, configImportContents, type ConfigOptions, type ConfigPreview, type ConfigRequest, type ConfigResult } from '../config-types.ts'
 import type { LibraryView } from '../library-types.ts'
 import { ACTION_DIALOG_CLASS, ActionDialog } from './action-dialog.tsx'
 import { ConfigPasswordError, readConfigFile } from './config-file.ts'
@@ -26,7 +26,8 @@ export function ConfigImport({ onClose, onImported }: {
   const [locked, setLocked] = useState<{ file: File; error?: string }>()
   const [fileName, setFileName] = useState('')
   const [config, setConfig] = useState<unknown>()
-  const [options, setOptions] = useState<ConfigOptions>({ presets: true, roles: true, conflict: 'skip' })
+  const [options, setOptions] = useState<ConfigOptions>({ presets: false, roles: false, conflict: 'skip' })
+  const contents = configImportContents(config)
   const [preview, setPreview] = useState<ConfigPreview>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -65,6 +66,7 @@ export function ConfigImport({ onClose, onImported }: {
       const parsed = await readConfigFile(file, abort.signal, password)
       if (generation !== reading.current) return
       setLocked(undefined)
+      setOptions(current => ({ ...current, ...configImportContents(parsed) }))
       setConfig(parsed)
     } catch (error) {
       if (generation === reading.current) {
@@ -98,8 +100,8 @@ export function ConfigImport({ onClose, onImported }: {
       <div><Button size="sm" variant="outline" disabled={busy || loading} onClick={() => { input.current?.click() }}>选择配置文件</Button></div>
       {fileName && <div className="qc-filename">{fileName}</div>}
       {config !== undefined && <fieldset disabled={busy || loading} className="qc-options qq-settings-row">
-        <label><input type="checkbox" checked={options.presets} onChange={e => { changeOptions({ ...options, presets: e.target.checked }) }} />通用提示词</label>
-        <label><input type="checkbox" checked={options.roles} onChange={e => { changeOptions({ ...options, roles: e.target.checked }) }} />角色</label>
+        <label><input type="checkbox" checked={options.presets} disabled={!contents.presets} onChange={e => { changeOptions({ ...options, presets: e.target.checked }) }} />预设</label>
+        <label><input type="checkbox" checked={options.roles} disabled={!contents.roles} onChange={e => { changeOptions({ ...options, roles: e.target.checked }) }} />角色</label>
         <label>重名时<select value={options.conflict} onChange={e => { changeOptions({ ...options, conflict: e.target.value === 'copy' ? 'copy' : 'skip' }) }}>
           <option value="skip">跳过已有内容</option><option value="copy">另存一份</option>
         </select></label>
@@ -108,7 +110,7 @@ export function ConfigImport({ onClose, onImported }: {
       {preview !== undefined && <>
         <div role="status">新增 {additions} 项，跳过 {preview.entries.length - additions} 项</div>
         <ul className="qc-preview" aria-label="导入预览">{preview.entries.map((entry, index) => <li key={index}>
-          <span>{entry.kind === 'preset' ? '通用提示词' : '角色'} · {entry.target}</span>
+          <span>{entry.kind === 'preset' ? '预设' : '角色'} · {entry.target}</span>
           <small>{entry.status === 'skip' ? '跳过' : entry.name !== entry.target ? '另存' : '新增'}</small>
         </li>)}</ul>
       </>}

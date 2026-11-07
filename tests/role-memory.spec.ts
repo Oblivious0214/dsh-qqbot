@@ -210,7 +210,8 @@ describe('session snapshot', () => {
     content.memories.save('alice', MEMORY)
     content.presets.save({ name: '带结尾', head: '', mid: '', tail: '结尾' }, true)
     const preset = content.presets.list().find(p => p.name === '带结尾')!
-    content.presets.assign('alice', preset.id)
+    
+    content.presets.setCurrent(preset.id)
     content.settle({ id: 's1' })
     const names = assembleParts(content, new QqbotRegistryStore(), { id: 's1' }).map(part => part.name)
     expect(names.indexOf('qqbot:role-memory')).toBe(names.indexOf('qqbot:jb-tail') - 1)

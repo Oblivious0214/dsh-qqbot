@@ -88,7 +88,7 @@ ${ROOT} .qq-settings-card { border: 1px solid var(--dsw-alias-border-l2); border
   .dsh-qqbot-library .ql-fields > .ql-field:has(> textarea) > textarea { min-height: 180px; }
 }
 
-/* 独立文本编辑沿用聊天辅助的折叠、字号和按钮，不作用于角色正文或通用提示词。 */
+/* 独立文本编辑沿用聊天辅助的折叠、字号和按钮，不作用于角色正文或预设。 */
 ${ROOT} .qq-text-editor { min-width: 0; margin: 0; }
 ${ROOT} .qq-text-editor.qq-settings-fold { padding: 2px 0 0; }
 .dsh-qqbot-library .ql-meme-group .qq-text-editor.qq-settings-fold { border-top: 0; }

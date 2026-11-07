@@ -43,6 +43,7 @@ interface BindingFile {
 
 export class SessionBindings {
   private state: BindingFile
+  private choiceAdapter: ((sessionId: string, role: RoleChoice, publish: () => void) => void) | undefined
 
   constructor(private readonly file: string | undefined, private readonly warn: Warn, private readonly now = () => new Date()) {
     this.state = file === undefined ? { version: 1, sessions: {} } : this.load(file)
@@ -60,11 +61,19 @@ export class SessionBindings {
     return this.state.sessions[sessionId]?.role
   }
 
+  get filePath(): string | undefined { return this.file }
+  interceptChoices(adapter: (sessionId: string, role: RoleChoice, publish: () => void) => void): () => void {
+    this.choiceAdapter = adapter
+    return () => { if (this.choiceAdapter === adapter) this.choiceAdapter = undefined }
+  }
+
   /** 记下会话的选择；值没变时不写盘。 */
   set(sessionId: string, role: RoleChoice): void {
     const entry = this.state.sessions[sessionId]
     if (entry?.role === role) return
-    this.commitSession(sessionId, { ...entry, role, at: this.now().toISOString() })
+    const publish = () => this.commitSession(sessionId, { ...entry, role, at: this.now().toISOString() })
+    if (this.choiceAdapter) this.choiceAdapter(sessionId, role, publish)
+    else publish()
   }
 
   /** 会话各轮用的角色，按轮次升序；没有记录时为空。 */

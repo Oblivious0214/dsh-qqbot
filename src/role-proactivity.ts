@@ -1,5 +1,5 @@
 import { ROLE_PROACTIVITIES, ROLE_PROACTIVITY_TEXT_LIMIT, type RoleProactivityTexts } from './library-types.ts'
-import { isRecord } from './storage.ts'
+import { isRecord } from './json-record.ts'
 
 /** 空字符串表示只保留档位标题；缺省字段才是使用默认，不能互相替代。 */
 export function validateProactivityTexts(value: unknown): RoleProactivityTexts | undefined {

@@ -55,6 +55,7 @@ export interface PromptView {
   readonly contexts: readonly PromptViewContextItem[]
   /** 上一次请求头里的工具；还没有请求时为空。 */
   readonly tools: readonly PromptViewTool[]
+  readonly dynamics?: { readonly actual?: string; readonly preview: string }
 }
 
 export type PromptViewError = 'bad-request' | 'not-loaded' | 'not-qqbot'

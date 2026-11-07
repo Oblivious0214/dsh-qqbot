@@ -122,12 +122,12 @@ export function verifyAssets() {
     }
     return verifyPreset(entry, text, sources.catalog.value[entry.sourceKey], builtins.clips[i])
   }).filter(Boolean)
-  assert.deepEqual(imported, builtins, 'sequential full imports differ')
+  assert.deepEqual(imported, { ...builtins, clips: builtins.clips.map(c => ({ ...c, source: 'custom' })) }, 'sequential full imports differ')
   assert.deepEqual(index.pools, defaultPresetPools())
   for (const [tier, old] of Object.entries(sources.pools.value)) {
     assert.deepEqual(index.pools[tier], defaultPool(tier, old, sources.catalog.value))
   }
-  assert.deepEqual(parseActionLibrary({ revision: 0, library: imported, pools: index.pools }).library, builtins)
+  assert.deepEqual(parseActionLibrary({ revision: 0, library: imported, pools: index.pools }).library, { ...builtins, clips: builtins.clips.map(c => ({ ...c, source: 'custom' })) })
   const summary = {
     presetCount: presets.length, pointCount: presets.reduce((n, p) => n + p.pointCount, 0),
     closedLoops: presets.filter(p => p.closed).length,

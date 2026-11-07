@@ -21,10 +21,10 @@ export function defaultActionLibrary(): ActionLibrary {
     }
     const text = readFileSync(new URL(file, MOTION_PRESET_ASSETS), 'utf8')
     if (createHash('sha256').update(text).digest('hex') !== entry['sha256']) throw new Error('内置轨迹校验失败')
-    return { ...entry, ...parseFunscript(text) }
+    return { ...entry, source: 'builtin', kind: 'loop', ...parseFunscript(text) }
   })
   return parseActionLibrary({ revision: 0,
-    library: parseLibrary({ format: 'dsh-motion-library-preview', version: 1, clips, mappings: [] }),
+    library: parseLibrary({ format: 'dsh-motion-library-preview', version: 2, clips, mappings: [] }),
     pools: index['pools'],
   })
 }

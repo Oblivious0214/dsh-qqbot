@@ -32,8 +32,10 @@ export declare const BURST_SECONDS: {
 export interface ToySettings {
     /** 功能总开关。新设置默认关闭，旧设置缺省为开启；不代表授权、连接或接入。 */
     readonly enabled?: boolean;
-    /** 首次启用时的图文弹窗已展示，跨页面和重启保留。 */
+    /** 首次进入 QQ Bot 设置时的图文弹窗已展示，跨页面和重启保留。 */
     readonly deviceIntroSeen?: boolean;
+    /** 曾有设备连接就绪；之后永久隐藏设置内的推广。 */
+    readonly deviceConnected?: boolean;
     /** 只读气泡旁显示。默认隐藏两项，从关闭切到开启联动时显示两项一次。 */
     readonly display?: {
         readonly actions: boolean;
@@ -78,6 +80,8 @@ export interface ToySessionView {
     readonly rules: string;
 }
 export interface ToyView {
+    /** 仅首次设置入口请求返回本次是否展示介绍，不属于持久化状态。 */
+    readonly showDeviceIntro?: boolean;
     readonly actionLibrary?: ActionLibrary;
     readonly revision?: number;
     /** 服务重启或联动关闭后改变，防止其他页面错过快速关开仍继续运动。 */
@@ -91,6 +95,10 @@ export interface ToyView {
     readonly session?: ToySessionView;
 }
 export type ToyAction = {
+    readonly action: 'promotion.open';
+} | {
+    readonly action: 'device.connected';
+} | {
     readonly action: 'library.save';
     readonly library: unknown;
 } | {

@@ -81,7 +81,7 @@ export interface UiView {
 }
 
 /** voice：角色卡选的音色（内部键），没选时没有这一项。音色还在不在由浏览器端对照语音设置判断。 */
-export type UiRole = { readonly id: string; readonly name: string; readonly voice?: string } | null
+export type UiRole = { readonly id: string; readonly name: string; readonly voice?: string; readonly dynamics?: true } | null
 
 export interface UiSessionView {
   /** 这个会话当前的角色，没有角色时为 null。 */

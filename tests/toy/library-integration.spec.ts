@@ -233,32 +233,36 @@ describe('every action plays through the same device player', () => {
     expect(player.intent).toBeNull()
   })
 
-  it('repeats an AI single clip until the watchdog, and a text-only bubble does not restart it', async () => {
+  it('completes a new once clip and ignores inherited or repeated selections until stop', async () => {
     const { clock, player, stopped, transport } = setup(once())
     player.reveal(auto, undefined)
-    expect(player.remainingMs()).toBe(30000)
     await clock.advance(29000)
-    expect(stopped).toEqual([])
-    await clock.advance(1001)
-    expect(stopped).toContain('timeout')
+    expect(stopped).toEqual(['complete'])
+    expect(player.completed).toBe(true)
     const count = transport.moves.length
-    player.reveal(undefined, undefined)
+    for (const intent of [undefined, auto, { ...auto, range: 'upper' as const }]) {
+      player.reveal(intent, undefined)
+      await clock.advance(5000)
+    }
+    player.pause(); player.resume(); player.setAdjust({ speed: 100 })
     await clock.advance(5000)
     expect(transport.moves).toHaveLength(count)
+    player.reveal(null, 5000)
+    player.reveal(auto, 5000)
+    await clock.advance(1)
+    expect(transport.moves.length).toBeGreaterThan(count)
   })
 
-  it('keeps repeating a single clip across stages and after a new selection, named or auto', async () => {
-    for (const action of ['温柔正弦', 'auto']) {
-      const timed = setup(once())
-      timed.player.reveal({ ...auto, action }, 40000)
-      await timed.clock.advance(35000)
-      timed.player.reveal(undefined, 40000)
-      await timed.clock.advance(35000)
-      timed.player.reveal({ ...auto, range: 'upper', action }, 40000)
-      await timed.clock.advance(35000)
-      expect(timed.stopped).toEqual([])
-      expect(timed.player.intent).not.toBeNull()
-    }
+  it('retains old once repeat behavior only with the migration marker', async () => {
+    const old = once()
+    const value = { ...old, library: { ...old.library, clips: old.library.clips.map(c => ({ ...c, legacyAiRepeat: true as const })) } }
+    const timed = setup(value)
+    timed.player.reveal(auto, 40000)
+    await timed.clock.advance(35000)
+    timed.player.reveal({ ...auto, range: 'upper' }, 40000)
+    await timed.clock.advance(35000)
+    expect(timed.stopped).toEqual([])
+    expect(timed.player.intent).not.toBeNull()
   })
 
   it('has no whole-selection cap: bubbles keep it going, a missing next stage stops it', async () => {

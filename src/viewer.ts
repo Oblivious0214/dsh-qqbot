@@ -14,6 +14,7 @@ import type {} from './index.ts'
 import { CONTEXT_NAME, SECTION_NAME } from './order.ts'
 import type {} from '@deepseek-ai/dsh-tools'
 import { MEME_TOOL } from './format.ts'
+import { toolDeclaration as memeToolDeclaration } from './meme-agent.ts'
 import { presetForAgent } from './agent-preset.ts'
 import { assembleParts, PART_SEPARATOR, type PromptFeatures } from './prompt.ts'
 import { resolveText, type QqbotRegistryStore, type QqbotSession } from './registry.ts'
@@ -115,7 +116,7 @@ export function apply(ctx: Context): void {
     path: PROMPT_VIEW_PATH,
     methods: ['GET'],
     requestBody: 'buffered',
-    fetch: (request) => {
+    fetch: async (request) => {
       const id = new URL(request.url).searchParams.get('session')
       if (id === null || id === '' || id.length > 512) return Promise.resolve(fail(400, 'bad-request', '缺少会话 id'))
       const agent = ctx.agents.get(id as Parameters<typeof ctx.agents.get>[0])
@@ -131,7 +132,7 @@ export function apply(ctx: Context): void {
       // working-directory 是可选读取；get() 只读投影状态，不做文件 I/O。
       const workingDirectory = ctx.get('workingDirectory')?.get(agent.session)
       const { content, store, lastPrompt } = ctx.qqbot
-      return Promise.resolve(json(200, buildPromptView({
+      const view = buildPromptView({
         session: { id: agent.id },
         content,
         store,
@@ -140,8 +141,16 @@ export function apply(ctx: Context): void {
         tools,
         // 查看器显示的是下一轮要发的内容，所以按当前登记的工具判断，不看上一轮请求。
         // send_meme 没有 when 条件，登记了就会进下一轮的工具集。
-        features: { meme: ctx.get('tools')?.get(MEME_TOOL, agent) !== undefined },
-      })))
+        features: { meme: ctx.get('tools')?.get(MEME_TOOL, agent) !== undefined, memeTool: memeToolDeclaration(ctx, { agent, scope: agent }) },
+      })
+      const roleId = content.roleIdFor({ id: agent.id })
+      if (roleId !== undefined && content.roles.configuration(roleId)?.enabled) {
+        try {
+          const actual = ctx.qqbot.lastDynamics.get(agent)
+          return json(200, { ...view, dynamics: { ...actual === undefined ? {} : { actual }, preview: await ctx.qqbot.dynamicsHost.preview(agent.id) } })
+        } catch (error) { return fail(409, 'not-loaded', error instanceof Error ? error.message : '动态状态预览未完成') }
+      }
+      return json(200, view)
     },
   }), 'qqbot: prompt viewer route')
 }

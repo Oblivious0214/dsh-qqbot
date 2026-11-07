@@ -5,7 +5,7 @@ import type { UiExtensionProps } from '../../client/ui-extensions.tsx'
 import type { ToyController } from './controller.ts'
 import { SwitchRow } from '../../client/switch.tsx'
 import { Consent, ToyPanel } from './panel.tsx'
-import { DeviceIntro } from './device-intro.tsx'
+import { DevicePromotion } from './device-intro.tsx'
 import { ActionDialog } from '../../client/action-dialog.tsx'
 
 export function ToySettingsPage({ controller, onBusy, onDirty, onOpenRoleProactivity }: UiExtensionProps & {
@@ -13,7 +13,6 @@ export function ToySettingsPage({ controller, onBusy, onDirty, onOpenRoleProacti
 }) {
   const toy = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   const [consent, setConsent] = useState(false)
-  const [intro, setIntro] = useState(false)
   const [proactivityGuide, setProactivityGuide] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -30,18 +29,19 @@ export function ToySettingsPage({ controller, onBusy, onDirty, onOpenRoleProacti
     submitting.current = true
     setSaving(true)
     setError('')
-    const firstEnable = enabled && toy.settings?.deviceIntroSeen !== true
     try {
       await controller.setEnabled(enabled)
-      if (firstEnable && controller.getSnapshot().enabled) setIntro(true)
     }
     catch (reason) { setError(`保存失败：${reason instanceof Error ? reason.message : String(reason)}`) }
     finally { submitting.current = false; setSaving(false) }
   }
   return <div className="ql-form qq-settings-scope">
-    <SwitchRow label="启用设备联动" title={dirty ? '先保存修改' : undefined} checked={toy.settings !== undefined && toy.settings.enabled !== false}
-      disabled={toy.settings === undefined || toy.busy || dirty || saving}
-      onChange={enabled => { void enable(enabled) }} />
+    <div className="qq-settings-row" style={{ flexWrap: 'wrap', gap: 10 }}>
+      <SwitchRow label="启用设备联动" title={dirty ? '先保存修改' : undefined} checked={toy.settings !== undefined && toy.settings.enabled !== false}
+        disabled={toy.settings === undefined || toy.busy || dirty || saving}
+        onChange={enabled => { void enable(enabled) }} />
+      <DevicePromotion controller={controller} />
+    </div>
     {(error || toy.loadError || toy.conflict) && <p className="ql-warn" role="alert">{error || toy.loadError || toy.conflict}</p>}
     {(!toy.enabled || !toy.settings?.authorized) && toy.notice && <p className="ql-note" role="status">{toy.notice}</p>}
     {toy.loadError && <Button variant="outline" size="sm" onClick={() => { void controller.load() }}>重试</Button>}
@@ -56,11 +56,9 @@ export function ToySettingsPage({ controller, onBusy, onDirty, onOpenRoleProacti
           close={() => { setConsent(false) }} onBusy={setChildBusy} onDirty={changeDirty} />
       </>
       : <div className="ql-actions qq-settings-actions"><Button size="sm" variant="outline" onClick={() => { setConsent(true) }}>首次联动授权</Button></div>)}
-    {consent && toy.enabled && <Consent controller={controller} close={() => { setConsent(false) }} accept={firstEnable => {
+    {consent && toy.enabled && <Consent controller={controller} close={() => { setConsent(false) }} accept={() => {
       setConsent(false)
-      if (firstEnable) setIntro(true)
     }} />}
-    {intro && toy.enabled && <DeviceIntro close={() => { setIntro(false) }} />}
     {proactivityGuide && <ActionDialog title="AI主动性" cancelLabel="关闭" confirmLabel="前往角色设置"
       onCancel={() => { setProactivityGuide(false) }}
       onConfirm={() => { setProactivityGuide(false); onOpenRoleProactivity?.() }}>

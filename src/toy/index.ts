@@ -19,7 +19,7 @@ import { SessionStates, validSessionId, type SessionRole } from './sessions.ts'
 import { parseSettings, SettingsStore } from './settings.ts'
 import { dataDir, isRecord } from './storage.ts'
 import { ActionLibraryStore } from './motion-library/store.ts'
-import { presetRuntime } from './motion-library/config.ts'
+import { parseActionLibrary, presetRuntime } from './motion-library/config.ts'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
@@ -45,6 +45,7 @@ export const inject = ['connection']
 
 /** dsh-qqbot 登记服务中本插件用到的部分。只按结构使用，不依赖 dsh-qqbot 的包。 */
 interface QqbotRegistry {
+  content?: { roles: { list(): readonly { name: string; motionActions?: readonly string[] }[] } }
   extension(entry: { name: string; text: string | ((session: { id: string }) => string) }): () => void
   runtime(name: string, text: string | ((session: { id: string }) => string)): () => void
   /**
@@ -184,21 +185,52 @@ export class ToyHost {
     }
   }
 
+  /** 原子领取首次介绍，多个页面同时打开时仅有一个页面展示。 */
+  openPromotion(): ToyView {
+    const showDeviceIntro = !this.settings.value.deviceIntroSeen && !this.settings.value.deviceConnected
+    if (showDeviceIntro) {
+      this.settings.save({ ...this.settings.value, deviceIntroSeen: true })
+      this.changed()
+    }
+    return { ...this.view(undefined), showDeviceIntro }
+  }
+
   /** 执行一个操作，返回操作涉及的会话 id。格式错误抛 BadRequest，操作失败抛 Error。 */
   apply(body: unknown): string | undefined {
     if (!isRecord(body)) throw new BadRequest('请求格式无效')
     this.refreshRegistration()
     const action = body['action']
+    if (action === 'device.connected') {
+      if (!this.settings.value.deviceConnected) {
+        this.settings.save({ ...this.settings.value, deviceConnected: true, deviceIntroSeen: true })
+        this.changed()
+      }
+      return undefined
+    }
     if (action === 'library.save') {
-      try { this.actionLibrary.save(body['library']) }
+      try {
+        const next = parseActionLibrary(body['library'])
+        const roles = this.registry?.content?.roles.list() ?? []
+        for (const old of this.actionLibrary.value.library.clips) {
+          if (next.library.clips.find(c => c.id === old.id)?.name === old.name) continue
+          if (this.settings.value.motion.standby?.preset === old.name) throw new Error(`“${old.name}”仍被待机引用，请先修改待机设置`)
+          const role = roles.find(r => r.motionActions?.includes(old.name))
+          if (role) throw new Error(`“${old.name}”仍被角色“${role.name}”引用，请先修改角色偏好动作`)
+        }
+        const standby = this.settings.value.motion.standby
+        if (standby) {
+          const clip = next.library.clips.find(c => c.name === standby.preset)
+          if (!clip || clip.points.length < 3 || Math.abs(clip.points[0]!.pos - clip.points.at(-1)!.pos) > 1e-6) throw new Error('待机动作的起点和终点位置不同，请换一个')
+        }
+        this.actionLibrary.save(next)
+      }
       catch (error) { throw new BadRequest(error instanceof Error ? error.message : String(error)) }
       this.changed()
       return undefined
     }
     if (action === 'module.enable') {
       if (typeof body['enabled'] !== 'boolean') throw new BadRequest('联动开关无效')
-      this.settings.save({ ...this.settings.value, enabled: body['enabled'],
-        ...body['enabled'] && !this.conflict ? { deviceIntroSeen: true } : {} })
+      this.settings.save({ ...this.settings.value, enabled: body['enabled'] })
       if (!body['enabled']) this.controlEpoch = randomUUID()
       this.sessions.settingsChanged()
       this.refreshRegistration()
@@ -211,9 +243,14 @@ export class ToyHost {
         next = parseSettings(body['settings'])
         // 普通设置表单不得用旧快照重新开启总开关。
         next = { ...next, enabled: this.settings.value.enabled !== false,
-          ...this.settings.value.deviceIntroSeen || next.authorized && !this.settings.value.authorized ? { deviceIntroSeen: true } : {} }
+          ...this.settings.value.deviceIntroSeen ? { deviceIntroSeen: true } : {},
+          ...this.settings.value.deviceConnected ? { deviceConnected: true, deviceIntroSeen: true } : {} }
       } catch (error) {
         throw new BadRequest(error instanceof Error ? error.message : String(error))
+      }
+      if (next.motion.standby) {
+        const clip = this.actionLibrary.value.library.clips.find(c => c.name === next.motion.standby!.preset)
+        if (!clip || clip.points.length < 3 || Math.abs(clip.points[0]!.pos - clip.points.at(-1)!.pos) > 1e-6) throw new BadRequest('待机动作须选择闭合轨迹')
       }
       this.settings.save(next)
       if (!next.authorized) this.controlEpoch = randomUUID()
@@ -348,6 +385,7 @@ export function apply(ctx: Context): void {
           return fail(400, 'bad-request', '请求不是有效的 JSON')
         }
         try {
+          if (isRecord(body) && body['action'] === 'promotion.open') return json(200, host.openPromotion())
           session = host.apply(body)
         } catch (error) {
           if (error instanceof BadRequest) return fail(400, 'bad-request', error.message)

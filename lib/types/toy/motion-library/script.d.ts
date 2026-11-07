@@ -24,5 +24,10 @@ export declare function parsePoints(value: unknown): MotionPoint[];
 export declare function parseFunscript(text: string): MotionScript;
 /** 轨迹落盘只保存单轴标准字段，名称、分组及播放配置由库索引保存。 */
 export declare function serializeFunscript(script: MotionScript): string;
+/**
+ * 循环动作首尾位置不同时，在结尾补一个回到起点的点，时间按结尾那段的速度推算，
+ * 末尾停留时沿用最近的移动速度；不能再增加时长或点数时，改接原片段尾部。
+ */
+export declare function closeLoop(points: readonly MotionPoint[]): MotionPoint[];
 /** 截取闭区间，边界按线性插值补点，片段从零开始，保留中间点及停留。 */
 export declare function sliceScript(script: MotionScript, fromMs: number, toMs: number): MotionScript;

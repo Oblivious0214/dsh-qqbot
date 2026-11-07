@@ -30,13 +30,13 @@ describe('independent role text saves', () => {
     // 模拟另一处先保存了角色，独立文本保存必须合并当前资料。
     data.roles.save({ ...data.roles.get('alice')!, name: '最新名称' }, false)
     expect(applyLibraryAction(data, { action: 'role.meme-prompt.save', id: 'alice', prompt: '新要求' })).toBe('alice')
-    const { memory: _, preset: _preset, ...roleBefore } = before.roles[0]!
+    const { memory: _, ...roleBefore } = before.roles[0]!
     expect(data.roles.get('alice')).toEqual({ ...roleBefore, name: '最新名称', memePrompt: '新要求' })
     expect(readFileSync(file, 'utf8')).toContain('custom: 保留自定义字段')
     applyLibraryAction(data, { action: 'role.meme-prompt.save', id: 'alice', prompt: '' })
     expect(data.roles.get('alice')).not.toHaveProperty('memePrompt')
     expect(data.memories.text('alice')).toBe(before.roles[0]!.memory)
-    expect(data.presets.roleChoice('alice')).toBe(before.roles[0]!.preset)
+    expect(data.presets.currentId).toBe(before.currentPreset)
   })
 
   it('saves or resets one autonomy level without changing the actual level or other texts', () => {

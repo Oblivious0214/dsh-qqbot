@@ -3,6 +3,7 @@
  * 预设内的 dsh-qqbot/prompt 读取这些条目，组装成 qqbot 会话的 section 和 context。
  */
 import type { MotionAction, MotionRange, RoleProactivity, RoleProactivityTexts } from './library-types.ts';
+import type { DynamicsPublic } from './role-dynamics/api-types.ts';
 /** 组装提示词时所属的 qqbot 会话。 */
 export interface QqbotSession {
     readonly id: string;
@@ -32,6 +33,7 @@ export interface QqbotRoleInfo {
 }
 /** 外部插件通过 `ctx.inject(['qqbot'], ...)` 可选接入的接口。 */
 export interface QqbotRegistry {
+    readonly dynamics: DynamicsPublic;
     /** 在外部槽位登记一段规则，返回 disposer。 */
     extension(entry: QqbotExtensionEntry): () => void;
     /** 写入运行时状态，进入 `qqbot:runtime` context，返回 disposer。 */
@@ -51,7 +53,7 @@ export interface QqbotRegistrySnapshot {
     } & QqbotSource)[];
 }
 /** 登记部分；`role()` 由 QqbotService 按角色库实现。 */
-export declare class QqbotRegistryStore implements Omit<QqbotRegistry, 'role'> {
+export declare class QqbotRegistryStore implements Omit<QqbotRegistry, 'role' | 'dynamics'> {
     private readonly extensions;
     private readonly runtimes;
     private readonly listeners;

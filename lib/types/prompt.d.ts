@@ -21,6 +21,8 @@ export declare const PART_SEPARATOR = "\n\n";
 export interface PromptFeatures {
     /** 本会话能用 dsh-meme 的 send_meme。 */
     readonly meme: boolean;
+    readonly memeTool?: string;
+    readonly dynamicsTool?: string;
 }
 /**
  * 按 SECTION_ORDER 列出本会话的各段，去掉空段。同 order 按名称排序，和 DSH 的 section 排序规则一致。

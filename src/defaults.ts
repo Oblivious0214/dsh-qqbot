@@ -20,7 +20,7 @@ export function initializeDefaultConfiguration(dir: string, warn: Warn): boolean
     const roles = new RoleLibrary(join(staging, 'roles'), warn)
     const role = roles.save({ name: DEFAULT_ROLE_NAME, description: '', persona: DEFAULT_ROLE_PERSONA }, true)
     const presets = JailbreakStore.at(staging, warn)
-    presets.assign(role.id, presets.defaultId)
+    presets.setCurrent(presets.currentId)
     SessionBindings.at(staging, warn).setDefaultRole(role.id)
     mkdirSync(join(staging, 'images', 'avatars'), { recursive: true })
     const avatar = join('images', 'avatars', `${role.id}.png`)

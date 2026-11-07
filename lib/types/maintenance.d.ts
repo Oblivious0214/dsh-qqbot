@@ -20,6 +20,8 @@ export declare class Maintenance {
     get active(): boolean;
     dispose(): void;
     assertAvailable(): void;
+    /** 数据服务与后台结算也使用同一写入门禁；清理不能穿过 await。 */
+    write<T>(body: (guard: () => void) => T | Promise<T>): Promise<T>;
     view(): MaintenanceView;
     /** 清理期间拒绝写入，已有保存未结束时拒绝开始清理。 */
     route(handler: (request: Request) => Promise<Response>): (request: Request) => Promise<Response>;

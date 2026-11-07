@@ -88,8 +88,8 @@ describe('对话空闲时切换角色', () => {
     const sessionId = `started-${host}`
     const agentContext = {} as Context
     if (!data.roles.get('bob')) data.roles.save({ id: 'bob', name: '鲍勃', description: '', persona: '鲍勃的设定。' }, true)
-    if (!data.presets.get('bob-preset')) data.presets.save({ id: 'bob-preset', name: '鲍勃模板', head: '鲍勃的通用提示词。', mid: '', tail: '' }, true)
-    data.presets.assign('bob', 'bob-preset')
+    if (!data.presets.get('bob-preset')) data.presets.save({ id: 'bob-preset', name: '鲍勃模板', head: '鲍勃的预设。', mid: '', tail: '' }, true)
+    
     data.bindings.set(sessionId, 'alice')
     data.recordTurn({ id: sessionId }, 1)
     const agent = { ctx: agentContext, session: { id: sessionId }, status: 'idle', inbox: { nextTurn: [], nextStep: [] } }
@@ -108,7 +108,7 @@ describe('对话空闲时切换角色', () => {
     expect(data.bindings.turnsOf(sessionId)).toEqual([{ turn: 1, role: 'alice' }])
     expect((await select('bob')).status).toBe(200)
     expect(data.personaFor({ id: sessionId })).toBe('鲍勃的设定。')
-    expect(data.jailbreakFor({ id: sessionId }).head).toBe('鲍勃的通用提示词。')
+    expect(data.jailbreakFor({ id: sessionId }).id).toBe('default')
     expect(data.bindings.turnsOf(sessionId)).toEqual([{ turn: 1, role: 'alice' }])
     data.recordTurn({ id: sessionId }, 2)
     expect(data.bindings.turnsOf(sessionId)).toEqual([{ turn: 1, role: 'alice' }, { turn: 2, role: 'bob' }])

@@ -12,7 +12,7 @@ import { RoleLibrary, type Role } from './roles.ts';
 import type { Warn } from './storage.ts';
 export { DEFAULT_JAILBREAK, type JailbreakPreset } from './presets.ts';
 export interface QqbotContent {
-    jailbreakFor(session: QqbotSession): JailbreakPreset;
+    jailbreakFor(_session: QqbotSession): JailbreakPreset;
     /** 当前会话绑定的角色正文；没有角色时返回空串。 */
     personaFor(session: QqbotSession): string;
     /** 当前会话的角色 id；没有角色时为空。供 `qqbot:runtime` 和查看器使用。 */
@@ -43,7 +43,7 @@ export declare class QqbotData implements QqbotContent {
     choiceFor(session: QqbotSession): RoleChoice;
     /** 会话当前在用的角色。绑定的角色已从角色库删掉时为空，会话按无角色运行，绑定保留。 */
     roleFor(session: QqbotSession): Role | undefined;
-    jailbreakFor(session: QqbotSession): JailbreakPreset;
+    jailbreakFor(_session: QqbotSession): JailbreakPreset;
     personaFor(session: QqbotSession): string;
     roleIdFor(session: QqbotSession): string | undefined;
     memeFrequencyFor(session: QqbotSession): MemeFrequency;

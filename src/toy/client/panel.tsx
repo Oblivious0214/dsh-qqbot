@@ -74,7 +74,7 @@ function QqbotToyButton({ sessionId, controller, useChat, useSession }: ButtonPr
 }
 
 /** 首次授权。建议起步值：行程 0–50，速度上限 300。暂停快捷键默认不设，这里推荐用户勾选设好。 */
-export function Consent({ controller, close, accept }: { controller: ToyController; close: () => void; accept: (firstEnable: boolean) => void }) {
+export function Consent({ controller, close, accept }: { controller: ToyController; close: () => void; accept: () => void }) {
   const toy = useToy(controller)
   const [recommended, setRecommended] = useState(true)
   const [pauseKey, setPauseKey] = useState(false)
@@ -88,7 +88,7 @@ export function Consent({ controller, close, accept }: { controller: ToyControll
     try {
       const hotkey = pauseKey && settings.resumeHotkey !== RECOMMENDED_HOTKEY ? RECOMMENDED_HOTKEY : settings.hotkey
       await controller.saveSettings({ ...settings, authorized: true, motion, hotkey })
-      accept(settings.deviceIntroSeen !== true)
+      accept()
     } catch (reason) {
       setError(`保存失败：${messageOf(reason)}`)
     }
@@ -96,7 +96,7 @@ export function Consent({ controller, close, accept }: { controller: ToyControll
   return <Modal open onClose={close} title="首次联动授权" headless className={`${ROOT_CLASS} tb-window`}>
     <div className="tb-header"><h2>首次联动授权</h2></div>
     <div className="tb-scroll">
-      <p>允许 AI 控制设备，行程和速度不会超过设置的上限。聊天里说"停"不保证停下，请用暂停按钮或快捷键。</p>
+      <p>授权后，你将把设备控制权交给 AI，使用风险由你自行承担。请提前设置好行程范围和速度上限，需要停止时请使用暂停按钮或快捷键。</p>
       <SwitchRow label="使用建议起步值：行程 0–50，速度上限 300" title="之后可以按体验逐步放大"
         checked={recommended} onChange={setRecommended} />
       {toy.settings?.hotkey === NO_HOTKEY && <SwitchRow label={`设置暂停快捷键 ${hotkeyLabel(RECOMMENDED_HOTKEY)}（推荐）`}
@@ -555,7 +555,7 @@ function AutoStopSection({ draft, edit }: EditProps) {
     </div>
     {standby !== undefined && <>
       <label className="tb-compact-field"><span>待机动作</span><select aria-label="待机动作" value={standby.preset} onChange={event => { set({ standby: { ...standby, preset: event.target.value } }) }}>
-        {draft.actionLibrary?.library.clips.map(clip => <option key={clip.id} value={clip.name}>{clip.name}</option>)}
+        {draft.actionLibrary?.library.clips.filter(clip => clip.points.length >= 3 && Math.abs(clip.points[0]!.pos - clip.points.at(-1)!.pos) <= 1e-6).map(clip => <option key={clip.id} value={clip.name}>{clip.name}</option>)}
       </select></label>
       <details className="tb-fold tb-subsettings qq-settings-fold">
         <summary>待机细调</summary>

@@ -1,3 +1,4 @@
+import type { RoleDynamicsConfig } from './role-dynamics/types.ts';
 /**
  * 角色和破限预设编辑接口的约定，host 和浏览器端共用。不 import 任何东西，两端都能直接打包。
  * 接口只有一个路径：GET 读全部，POST 提交一个操作并返回操作后的全部数据。DSH 的 fetch 路由只支持 GET、HEAD、POST。
@@ -43,6 +44,9 @@ export declare const MOTION_RANGES: readonly ["full", "lower_half", "upper_half"
 export type MotionRange = typeof MOTION_RANGES[number];
 export declare const MOTION_RANGE_LABELS: Record<MotionRange, string>;
 export interface LibraryRole extends MemePreferences {
+    readonly dynamics?: RoleDynamicsConfig;
+    readonly dynamicsError?: string;
+    readonly dynamicsRevision?: string;
     /** 内部键，自动生成，界面上不显示。 */
     readonly id: string;
     readonly name: string;
@@ -58,8 +62,6 @@ export interface LibraryRole extends MemePreferences {
     readonly motionRanges?: readonly MotionRange[];
     /** 音色的内部键（语音设置里的音色）；没选时为空。 */
     readonly voice?: string;
-    /** 单独选的破限预设；跟随默认时为空。 */
-    readonly preset?: string;
     /** 跨会话的角色记忆（固定栏目的文本）；没有时为空串。 */
     readonly memory: string;
 }
@@ -83,12 +85,16 @@ export interface LibraryView {
     /** 新 QQ 会话的默认角色；为空表示新会话不带角色。 */
     readonly defaultRole?: string;
     readonly presets: readonly LibraryPreset[];
-    readonly defaultPreset: string;
+    readonly currentPreset: string;
     /** role.save 和 preset.save 成功后，保存的条目 id（新建角色的 id 由服务端生成）。 */
     readonly saved?: string;
 }
 /** 新建时不带 id，由服务端生成；修改时带上原 id。 */
 export interface LibraryRoleDraft extends MemePreferences {
+    readonly dynamics?: RoleDynamicsConfig | null;
+    readonly dynamicsBaseRevision?: string;
+    readonly resetDynamics?: boolean;
+    readonly dynamicsRenames?: Readonly<Record<string, string>>;
     readonly id?: string;
     readonly name: string;
     readonly description: string;
@@ -99,8 +105,6 @@ export interface LibraryRoleDraft extends MemePreferences {
     readonly motionActions?: readonly MotionAction[];
     readonly motionRanges?: readonly MotionRange[];
     readonly voice?: string;
-    /** 角色编辑器选择的具体预设，随角色保存。旧调用未传时保留原选择。 */
-    readonly preset?: string;
     /** 角色记忆，随角色保存。未传时不改。 */
     readonly memory?: string;
 }
@@ -135,12 +139,6 @@ export type LibraryAction = {
  | {
     readonly action: 'role.default';
     readonly id?: string;
-}
-/** preset 为空表示跟随默认预设。 */
- | {
-    readonly action: 'role.preset';
-    readonly id: string;
-    readonly preset?: string;
 } | {
     readonly action: 'preset.save';
     readonly create: boolean;
@@ -149,7 +147,7 @@ export type LibraryAction = {
     readonly action: 'preset.remove';
     readonly id: string;
 } | {
-    readonly action: 'preset.default';
+    readonly action: 'preset.current';
     readonly id: string;
 };
 /** 新建时不带 id，由服务端生成；修改时带上原 id。 */

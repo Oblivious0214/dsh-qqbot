@@ -3,13 +3,20 @@ import { type MotionConfig } from '../core/config.ts';
 import { type LiveAdjust, type MotionProfile, type Packet } from '../core/motion.ts';
 import type { Intent } from '../core/intent.ts';
 import type { MotionClip } from './library.ts';
+export interface PlaybackCursor {
+    readonly sourceMs: number;
+    readonly pass: number;
+    readonly completed: boolean;
+}
 export declare class PresetPlayback {
     readonly name: string;
     private readonly steps;
     private readonly looping;
-    /** 单次动作从头重复播放（AI 动作都这样播）。 */
+    /** 仅用于旧 v1 once 的 AI 兼容重播。 */
     private repeating;
     private index;
+    private pass;
+    private readonly endMs;
     /** 循环时回到的步序号：片段写了 loopFromMs 就从那里循环，否则从头。 */
     private loopIndex;
     private offset;
@@ -18,7 +25,8 @@ export declare class PresetPlayback {
     private readonly cap;
     private readonly start;
     /** clip 由调用方从动作池选定（见 selectAction）；intent 只提供范围和速度档。 */
-    constructor(intent: Intent, config: MotionConfig, clip: MotionClip, profile: MotionProfile, adjust?: LiveAdjust);
+    constructor(intent: Intent, config: MotionConfig, clip: MotionClip, profile: MotionProfile, adjust?: LiveAdjust, cursor?: PlaybackCursor);
+    cursor(): PlaybackCursor;
     /** 完整走一遍的时长（不含进入包），按该档速度算，不含升速；有循环起点时也按整条轨迹算。 */
     get passMs(): number;
     /** 第二遍起每遍的时长：有循环起点时只算从起点到终点。 */

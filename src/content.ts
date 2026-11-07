@@ -15,7 +15,7 @@ import type { Warn } from './storage.ts'
 export { DEFAULT_JAILBREAK, type JailbreakPreset } from './presets.ts'
 
 export interface QqbotContent {
-  jailbreakFor(session: QqbotSession): JailbreakPreset
+  jailbreakFor(_session: QqbotSession): JailbreakPreset
   /** 当前会话绑定的角色正文；没有角色时返回空串。 */
   personaFor(session: QqbotSession): string
   /** 当前会话的角色 id；没有角色时为空。供 `qqbot:runtime` 和查看器使用。 */
@@ -70,8 +70,8 @@ export class QqbotData implements QqbotContent {
     return choice === NO_ROLE ? undefined : this.roles.get(choice)
   }
 
-  jailbreakFor(session: QqbotSession): JailbreakPreset {
-    return this.presets.forRole(this.roleFor(session)?.id)
+  jailbreakFor(_session: QqbotSession): JailbreakPreset {
+    return this.presets.current()
   }
 
   personaFor(session: QqbotSession): string {

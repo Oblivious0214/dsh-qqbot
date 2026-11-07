@@ -52,7 +52,7 @@ export function MemeFields({ draft, active, available, onChange, promptEditor }:
     {available && catalogue === undefined && error === undefined && <div className="ql-note" role="status">正在读取图库…</div>}
     {error !== undefined && <div className="ql-state ql-warn" role="alert"><span>{error}</span>
       <Button size="sm" variant="outline" onClick={() => { setAttempt(n => n + 1) }}>重试</Button></div>}
-    <fieldset className="qm-choices"><legend title="只优先使用，不限制其他图库；图库仍需在 dsh-meme 中启用">优先图库</legend>
+    <fieldset className="qm-choices"><legend title="只使用勾选且已在 dsh-meme 启用的图库；未勾选时不发表情">可用图库</legend>
       {[...packs.values()].map(pack => <label className="ql-toggle" key={pack.id}>
         <input type="checkbox" checked={selected.has(pack.id)} onChange={event => {
           const { memePacks: _, ...rest } = draft

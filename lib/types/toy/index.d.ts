@@ -31,6 +31,14 @@ export declare const name = "toy-buttplug";
 export declare const inject: string[];
 /** dsh-qqbot 登记服务中本插件用到的部分。只按结构使用，不依赖 dsh-qqbot 的包。 */
 interface QqbotRegistry {
+    content?: {
+        roles: {
+            list(): readonly {
+                name: string;
+                motionActions?: readonly string[];
+            }[];
+        };
+    };
     extension(entry: {
         name: string;
         text: string | ((session: {
@@ -84,6 +92,8 @@ export declare class ToyHost {
     /** 会话当前的角色。未设置或不认识的档位按低自主性处理，不认识的偏好丢掉。 */
     private roleOf;
     view(session: string | undefined): ToyView;
+    /** 原子领取首次介绍，多个页面同时打开时仅有一个页面展示。 */
+    openPromotion(): ToyView;
     /** 执行一个操作，返回操作涉及的会话 id。格式错误抛 BadRequest，操作失败抛 Error。 */
     apply(body: unknown): string | undefined;
     /** 向 qqbot 登记规则和状态，返回撤销函数。 */

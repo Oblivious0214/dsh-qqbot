@@ -1,0 +1,10 @@
+import { type Condition, type RoleDynamicsConfig, type StateField, type StateValue, type Values } from './types.ts';
+export declare const bytes: (value: string) => number;
+export declare function jsonData(value: unknown, path?: string, seen?: Set<object>, depth?: number): void;
+export declare function object(value: unknown, path: string, keys: readonly string[]): Record<string, unknown>;
+export declare function normalizeName(value: unknown, path?: string): string;
+export declare function validateValue(field: StateField, value: unknown, path?: string): StateValue;
+export declare function validateCondition(config: RoleDynamicsConfig, value: unknown, path?: string): Condition;
+export declare function validateConfig(input: unknown): RoleDynamicsConfig;
+export declare function initialValues(config: RoleDynamicsConfig): Values;
+export declare function validateValues(config: RoleDynamicsConfig, values: unknown): Values;

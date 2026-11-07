@@ -33,7 +33,7 @@
 
 **1. 安装 DSH 并配置 API key**
 
-下载并安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。
+下载并安装 [DeepSeek Harness](https://www.deepseek.com/harness/)。
 
 API key 在 DeepSeek 开放平台获取：登录 [platform.deepseek.com](https://platform.deepseek.com/)，在 [API keys](https://platform.deepseek.com/api_keys) 页面创建一个 key，复制后填进 DSH 的设置。
 

@@ -151,29 +151,18 @@ describe('role files written by the editor', () => {
 })
 
 describe('library actions', () => {
-  it('saves a concrete preset with the role and keeps it when the default changes', () => {
+  it('role saves ignore legacy preset fields and preserve the current preset', () => {
     const { dir, data: d } = data()
     d.presets.save({ id: 'soft', name: '温和', head: 'H', mid: '', tail: '' }, true)
-    applyLibraryAction(d, { action: 'role.save', create: true, role: { ...draft, preset: 'default' } })
-    d.presets.setDefault('soft')
-    expect(d.presets.forRole('alice').id).toBe('default')
-    applyLibraryAction(d, { action: 'role.save', create: false, role: { ...draft, persona: '新设定', preset: 'soft' } })
-    expect(libraryView(d).roles[0]).toMatchObject({ persona: '新设定', preset: 'soft' })
-    // 预设关系仍放预设存储，不混进角色正文或卡片字段。
+    applyLibraryAction(d, { action: 'role.save', create: true, role: { ...draft, preset: 'missing' } })
+    expect(d.presets.currentId).toBe('default')
+    d.presets.setCurrent('soft')
+    applyLibraryAction(d, { action: 'role.save', create: false, role: { ...draft, persona: '新设定', preset: null } })
+    expect(libraryView(d).roles[0]).toMatchObject({ persona: '新设定' })
+    expect(libraryView(d).roles[0]).not.toHaveProperty('preset')
     expect(readFileSync(join(dir, 'roles', 'alice', 'ROLE.md'), 'utf8')).not.toContain('preset:')
-    // 旧调用不传预设，也不能意外清空已选关系。
-    applyLibraryAction(d, { action: 'role.save', create: false, role: draft })
-    expect(d.presets.roleChoice('alice')).toBe('soft')
-  })
-
-  it('rejects missing presets before writing or overwriting a role', () => {
-    const { data: d } = data()
-    expect(() => applyLibraryAction(d, { action: 'role.save', create: true, role: { ...draft, preset: 'missing' } })).toThrow('重新选择')
-    expect(d.roles.list()).toEqual([])
-    applyLibraryAction(d, { action: 'role.save', create: true, role: { ...draft, preset: 'default' } })
-    expect(() => applyLibraryAction(d, { action: 'role.save', create: false, role: { ...draft, name: '不应写入', preset: null } })).toThrow('重新选择')
-    expect(d.roles.get('alice')?.name).toBe(draft.name)
-    expect(d.presets.roleChoice('alice')).toBe('default')
+    expect(d.presets.currentId).toBe('soft')
+    expect(() => applyLibraryAction(d, { action: 'role.preset', id: 'alice', preset: 'default' })).toThrow(BadRequest)
   })
 
   it('makes up the id of a new preset and refuses a second preset with the same name', () => {
@@ -181,31 +170,30 @@ describe('library actions', () => {
     const id = applyLibraryAction(d, { action: 'preset.save', create: true, preset: { name: '温和', head: 'H', mid: '', tail: '' } })
     expect(id).toMatch(/^p-[0-9a-f]{8}$/)
     expect(d.presets.get(id!)?.head).toBe('H')
-    expect(() => applyLibraryAction(d, { action: 'preset.save', create: true, preset: { name: '温和', head: '', mid: '', tail: '' } })).toThrow('已经有叫"温和"的通用提示词')
+    expect(() => applyLibraryAction(d, { action: 'preset.save', create: true, preset: { name: '温和', head: '', mid: '', tail: '' } })).toThrow('已经有叫"温和"的预设')
     expect(() => applyLibraryAction(d, { action: 'preset.save', create: false, preset: { id, name: '默认', head: '', mid: '', tail: '' } })).toThrow('已经有叫')
     applyLibraryAction(d, { action: 'preset.save', create: false, preset: { id, name: '温和', head: 'H2', mid: '', tail: '' } })
     expect(d.presets.get(id!)?.head).toBe('H2')
   })
 
-  it('saves presets with create/overwrite checks and assigns them to roles', () => {
+  it('saves presets with create/overwrite checks and activates them globally', () => {
     const { data: d } = data()
     const preset = { id: 'soft', name: '温和', head: 'H', mid: '', tail: 'T' }
     applyLibraryAction(d, { action: 'preset.save', create: true, preset })
     expect(() => applyLibraryAction(d, { action: 'preset.save', create: true, preset })).toThrow('已经存在')
     expect(() => applyLibraryAction(d, { action: 'preset.save', create: false, preset: { ...preset, id: 'nope' } })).toThrow('不在了')
     applyLibraryAction(d, { action: 'role.save', create: true, role: draft })
-    expect(() => applyLibraryAction(d, { action: 'role.preset', id: 'bob', preset: 'soft' })).toThrow('不在角色库')
-    applyLibraryAction(d, { action: 'role.preset', id: 'alice', preset: 'soft' })
+    applyLibraryAction(d, { action: 'preset.current', id: 'soft' })
     applyLibraryAction(d, { action: 'role.default', id: 'alice' })
     const view = libraryView(d)
-    expect(view.roles).toEqual([{ ...draft, preset: 'soft', memory: '' }])
+    expect(view.roles).toEqual([{ ...draft, memory: '', dynamicsRevision: d.roles.get('alice')!.dynamicsRevision }])
     expect(view.defaultRole).toBe('alice')
     expect(view.presets.map(p => p.id)).toEqual(['default', 'soft'])
     // 新会话用默认角色和它选的预设。
     expect(d.jailbreakFor({ id: 'new' }).head).toBe('H')
-    applyLibraryAction(d, { action: 'role.preset', id: 'alice' })
     applyLibraryAction(d, { action: 'role.default' })
-    expect(libraryView(d).roles[0]?.preset).toBeUndefined()
+    expect(libraryView(d).roles[0]).not.toHaveProperty('preset')
+    expect(d.presets.currentId).toBe('soft')
     expect(libraryView(d).defaultRole).toBeUndefined()
   })
 
@@ -214,7 +202,7 @@ describe('library actions', () => {
     expect(() => applyLibraryAction(d, null)).toThrow(BadRequest)
     expect(() => applyLibraryAction(d, { action: 'drop.all' })).toThrow(BadRequest)
     expect(() => applyLibraryAction(d, { action: 'preset.remove' })).toThrow(BadRequest)
-    expect(() => applyLibraryAction(d, { action: 'preset.remove', id: 'default' })).toThrow('至少要保留一份通用提示词')
+    expect(() => applyLibraryAction(d, { action: 'preset.remove', id: 'default' })).toThrow('至少要保留一份预设')
   })
 
   it('tells the prompt viewer which role and preset to edit', () => {
@@ -251,7 +239,7 @@ describe('library route', () => {
     expect((await call('{')).status).toBe(400)
     expect((await call({ action: 'nope' })).body.error).toBe('bad-request')
     const failed = await call({ action: 'preset.remove', id: 'default' })
-    expect([failed.status, failed.body.error, failed.body.message]).toEqual([409, 'failed', '至少要保留一份通用提示词'])
+    expect([failed.status, failed.body.error, failed.body.message]).toEqual([409, 'failed', '至少要保留一份预设'])
     const saved = await call({ action: 'role.save', create: true, role: draft })
     expect(saved.status).toBe(200)
     expect(saved.body.roles.map(r => r.id)).toEqual(['alice'])

@@ -6,6 +6,7 @@ export declare class ActionLibraryStore {
     private readonly warn;
     private current;
     private diskText;
+    private lastGoodText;
     private lastGood;
     private loadFailed;
     private readonly tracks;

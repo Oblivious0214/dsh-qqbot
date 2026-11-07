@@ -5,19 +5,38 @@
  * 手写的文件不写 id 时用文件名。用户按名称认角色，所以编辑器保存时要求名称不重复。
  */
 
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { isMemeFrequency, type MemeFrequency } from './format.ts'
-import { MOTION_ACTION_LIMIT, MOTION_RANGES, motionActionName, ROLE_PROACTIVITIES, type MotionAction, type MotionRange, type RoleProactivity } from './library-types.ts'
-import { isRecord, renameWithRetry, writeText, type Warn } from './storage.ts'
+import { MOTION_RANGES, type MotionAction, type MotionRange, type RoleProactivity } from './library-types.ts'
+import { renameWithRetry, writeText, type Warn } from './storage.ts'
 import { VOICE_ID_PATTERN } from './voice-types.ts'
 import type { MemePreferences } from './library-types.ts'
 import { validateMemePreferences } from './meme-preferences.ts'
 import { validateProactivityTexts } from './role-proactivity.ts'
 import type { RoleProactivityTexts } from './library-types.ts'
+import { validateConfig } from './role-dynamics/validate.ts'
+import type { RoleDynamicsConfig } from './role-dynamics/types.ts'
+import { digest } from './role-dynamics/history.ts'
+import { FileDataTransaction } from './data-transactions.ts'
+import { recoverConfigurationFiles } from './config-import-recovery.ts'
+
+export interface PreparedRoleSave {
+  readonly id: string; readonly file: string; readonly existing?: string; readonly text: string
+  readonly draft: RoleDraft; readonly current?: Role; readonly create: boolean
+}
+export interface RoleTransactions {
+  save(prepared: PreparedRoleSave): Promise<Role>
+  remove(id: string, extras: readonly string[]): Promise<string>
+  restore(stamp: string): Promise<void>
+}
 
 export interface Role extends MemePreferences {
+  readonly dynamics?: RoleDynamicsConfig
+  /** 损坏配置保留静态资料，但所有动态／分享／覆盖路径必须报告此错误。 */
+  readonly dynamicsError?: string
+  readonly dynamicsRevision?: string
   readonly id: string
   readonly name: string
   readonly description: string
@@ -36,12 +55,8 @@ export interface Role extends MemePreferences {
 }
 
 /** 接口和头像文件名接受的 id 格式。扫描时更宽松，手写的文件名不合规也能读到。 */
-export const ROLE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
-
-export function isRoleProactivity(value: unknown): value is RoleProactivity {
-  return typeof value === 'string' && (ROLE_PROACTIVITIES as readonly string[]).includes(value)
-}
-
+export { ROLE_ID_PATTERN, isRoleProactivity, validateRoleDraft, type RoleDraft } from './role-validation.ts'
+import { isRoleProactivity, validateRoleDraft, actionNames, type RoleDraft } from './role-validation.ts'
 /** 逗号分隔的列表：按 choices 的顺序去重，丢掉不认识的值；一个都不剩时为空。 */
 function pickList<T extends string>(raw: string | undefined, choices: readonly T[]): T[] | undefined {
   if (raw === undefined) return undefined
@@ -101,11 +116,23 @@ export function parseRole(text: string, fallbackId: string): Role | undefined {
   const motionActions = actionNames(scalar(front, 'motionActions')?.split(/[,，]/), false)
   const motionRanges = pickList(scalar(front, 'motionRanges'), MOTION_RANGES)
   const voice = scalar(front, 'voice')?.trim()
+  let dynamics: RoleDynamicsConfig | undefined
+  let dynamicsError: string | undefined
+  const raw = rawScalar(front, 'dynamics')
+  if (raw !== undefined) {
+    try {
+      if ((front.match(/^dynamics[ \t]*:/gm) ?? []).length !== 1) throw new Error('dynamics 重复定义')
+      dynamics = validateConfig(JSON.parse(raw))
+    } catch (error) { dynamicsError = `动态设定无效：${error instanceof Error ? error.message : String(error)}` }
+  }
   return {
     id,
     name: (scalar(front, 'name') ?? id).trim() || id,
     description: (scalar(front, 'description') ?? '').trim(),
     persona,
+    ...dynamics === undefined ? {} : { dynamics },
+    ...dynamicsError === undefined ? {} : { dynamicsError },
+    dynamicsRevision: dynamicsError === undefined ? digest(dynamics ?? null) : digest(raw),
     ...readMemePreferences(front),
     ...isMemeFrequency(memeFrequency) ? { memeFrequency } : {},
     ...isRoleProactivity(proactivity) ? { proactivity } : {},
@@ -132,83 +159,6 @@ export function roleEntries(dir: string): [entry: string, file: string, fallback
   return result
 }
 
-/** 编辑界面提交的角色内容。修改时带 id；新建时不带，由 save() 生成。 */
-export interface RoleDraft extends MemePreferences {
-  readonly id?: string
-  readonly name: string
-  readonly description: string
-  readonly persona: string
-  /** 为空表示用默认档，保存时去掉这一行。 */
-  readonly memeFrequency?: MemeFrequency
-  /** 为空表示使用低自主性，保存时去掉这一行。 */
-  readonly proactivity?: RoleProactivity
-  readonly proactivityTexts?: RoleProactivityTexts
-  /** 为空表示没有偏好，保存时去掉这一行。 */
-  readonly motionActions?: readonly MotionAction[]
-  readonly motionRanges?: readonly MotionRange[]
-  /** 为空表示不用语音，保存时去掉这一行。 */
-  readonly voice?: string
-}
-
-const NAME_LIMIT = 64
-const DESCRIPTION_LIMIT = 200
-const PERSONA_LIMIT = 50_000
-
-/** 校验编辑界面提交的角色；不合规时抛出可以直接展示给用户的错误。 */
-export function validateRoleDraft(value: unknown): RoleDraft {
-  if (!isRecord(value)) throw new TypeError('角色格式无效')
-  const { id, name, description, persona, memeFrequency, proactivity, motionActions, motionRanges, voice } = value
-  if (id !== undefined && (typeof id !== 'string' || !ROLE_ID_PATTERN.test(id))) throw new TypeError('角色 id 无效')
-  if (typeof name !== 'string' || name.trim() === '' || name.length > NAME_LIMIT || /[\r\n]/.test(name)) {
-    throw new TypeError(`角色名称不能为空，不能换行，最多 ${NAME_LIMIT} 个字符`)
-  }
-  if (typeof description !== 'string' || description.length > DESCRIPTION_LIMIT || /[\r\n]/.test(description)) {
-    throw new TypeError(`角色简介不能换行，最多 ${DESCRIPTION_LIMIT} 个字符`)
-  }
-  if (typeof persona !== 'string' || persona.trim() === '' || persona.length > PERSONA_LIMIT) {
-    throw new TypeError(`角色设定不能为空，最多 ${PERSONA_LIMIT} 个字符`)
-  }
-  if (memeFrequency !== undefined && !isMemeFrequency(memeFrequency)) throw new TypeError('表情频率无效')
-  if (proactivity !== undefined && !isRoleProactivity(proactivity)) throw new TypeError('联动主动性无效')
-  const proactivityTexts = validateProactivityTexts(value['proactivityTexts'])
-  if (motionActions !== undefined && !Array.isArray(motionActions)) throw new TypeError('偏好动作无效')
-  const actions = actionNames(motionActions, true)
-  const ranges = validList(motionRanges, MOTION_RANGES, '偏好范围无效')
-  if (voice !== undefined && (typeof voice !== 'string' || !VOICE_ID_PATTERN.test(voice))) throw new TypeError('音色无效')
-  return {
-    ...id === undefined ? {} : { id }, name: name.trim(), description: description.trim(), persona: persona.trim(),
-    ...validateMemePreferences(value),
-    ...memeFrequency === undefined ? {} : { memeFrequency },
-    ...proactivity === undefined ? {} : { proactivity },
-    ...proactivityTexts === undefined ? {} : { proactivityTexts },
-    ...actions === undefined ? {} : { motionActions: actions },
-    ...ranges === undefined ? {} : { motionRanges: ranges },
-    ...voice === undefined ? {} : { voice },
-  }
-}
-
-/** 偏好动作名：去重、保留顺序、最多 MOTION_ACTION_LIMIT 个；strict 时不合规的名称报错，否则丢掉。空列表当作没写。 */
-function actionNames(values: readonly unknown[] | undefined, strict: boolean): string[] | undefined {
-  if (values === undefined) return undefined
-  const names: string[] = []
-  for (const value of values) {
-    const name = motionActionName(value)
-    if (name === undefined) { if (strict) throw new TypeError('偏好动作无效'); continue }
-    if (!names.includes(name)) names.push(name)
-  }
-  if (strict && names.length > MOTION_ACTION_LIMIT) throw new TypeError(`偏好动作最多 ${MOTION_ACTION_LIMIT} 个`)
-  const kept = names.slice(0, MOTION_ACTION_LIMIT)
-  return kept.length === 0 ? undefined : kept
-}
-
-/** 编辑界面提交的列表：每项都要认识；按 choices 的顺序去重，空列表当作没写。 */
-function validList<T extends string>(value: unknown, choices: readonly T[], message: string): T[] | undefined {
-  if (value === undefined) return undefined
-  if (!Array.isArray(value) || value.some(v => !choices.includes(v as T))) throw new TypeError(message)
-  const picked = choices.filter(c => value.includes(c))
-  return picked.length === 0 ? undefined : picked
-}
-
 /**
  * 替换 frontmatter 里的一个字段，没有就追加到末尾。值总是加双引号，scalar() 去掉首尾引号后原样还原。
  * 只改这一行，其他字段（用户手写的字段）原样保留。
@@ -226,6 +176,8 @@ function removeField(front: string, key: string): string {
 
 /** 把编辑结果写成角色文件文本。existing 为原文件内容；新建时为空，id 写进 frontmatter，用户改目录名也不丢绑定。 */
 export function renderRole(draft: RoleDraft & { readonly id: string }, existing: string | undefined): string {
+  const prior = existing === undefined ? undefined : parseRole(existing, draft.id)
+  if (prior?.dynamicsError !== undefined) throw new TypeError(prior.dynamicsError)
   // splitFrontmatter 的 front 以换行开头、不以换行结尾（取的是两条 --- 之间）。
   let front = existing === undefined ? `\nid: ${draft.id}` : splitFrontmatter(existing).front
   front = setField(front, 'name', draft.name)
@@ -252,15 +204,40 @@ export function renderRole(draft: RoleDraft & { readonly id: string }, existing:
     ? removeField(front, 'motionRanges')
     : setField(front, 'motionRanges', draft.motionRanges.join(', '))
   front = draft.voice === undefined ? removeField(front, 'voice') : setField(front, 'voice', draft.voice)
+  if (draft.dynamics === null) front = removeField(front, 'dynamics')
+  else if (draft.dynamics !== undefined) {
+    const line = `dynamics: ${JSON.stringify(validateConfig(draft.dynamics))}`
+    front = /^dynamics[ \t]*:.*$/m.test(front) ? front.replace(/^dynamics[ \t]*:.*$/m, () => line) : `${front.replace(/\n+$/, '')}\n${line}`
+  }
   return `---${front}\n---\n\n${draft.persona}\n`
 }
 
 export class RoleLibrary {
+  private transactions: RoleTransactions | undefined
+  private readonly blocked = new Set<string>()
+  private readonly writing = new Set<string>()
+  get transactional(): boolean { return this.transactions !== undefined }
+  useTransactions(transactions: RoleTransactions): void { this.transactions = transactions }
+  gate(id: string, blocked: boolean): void { if (blocked) this.blocked.add(id); else this.blocked.delete(id) }
+  reserve(id: string, busy: boolean): void { if (busy) this.writing.add(id); else this.writing.delete(id) }
+  assertReady(id: string): void { if (this.blocked.has(id) || this.writing.has(id)) throw new Error('角色资料事务尚未完成，请恢复后再试') }
+  configuration(id: string): RoleDynamicsConfig | undefined {
+    if (this.blocked.has(id)) throw new Error('角色资料事务需要恢复')
+    this.reload()
+    const role = this.get(id)
+    if (role?.dynamicsError) throw new TypeError(role.dynamicsError)
+    return role?.dynamics
+  }
+  fileFor(id: string): string | undefined { this.reload(); return this.files.get(id) }
+  /** 预览必须绑定实际字节，包含未知 frontmatter 和手写修改。 */
+  contents(): readonly { file: string; text: string }[] { return roleEntries(this.dir).filter(([, file]) => existsSync(file)).map(([, file]) => ({ file, text: readFileSync(file, 'utf8') })) }
   private roles = new Map<string, Role>()
   /** 角色 id → 文件路径。frontmatter 里的 id 可以和文件名不同，写回时按这里找文件。 */
   private files = new Map<string, string>()
 
   constructor(readonly dir: string, private readonly warn: Warn) {
+    FileDataTransaction.recover(dirname(dir), 'role-transactions')
+    recoverConfigurationFiles(dir)
     this.reload()
   }
 
@@ -296,11 +273,12 @@ export class RoleLibrary {
    * 修改时 id 必须已存在。名称不能和别的角色重复。
    * 修改只换 name、description、memeFrequency、proactivity、motionActions、motionRanges、voice 和正文，frontmatter 其他字段保留。新建写成 `<id>/ROLE.md`。
    */
-  save(value: unknown, create: boolean): Role {
+  prepareSave(value: unknown, create: boolean): PreparedRoleSave {
     const draft = validateRoleDraft(value)
     this.reload()
     if (!create && draft.id === undefined) throw new TypeError('缺少角色 id')
     const id = draft.id ?? this.freshId()
+    this.assertReady(id)
     const existingFile = this.files.get(id)
     if (create && existingFile !== undefined) throw new Error('这个角色已经存在')
     if (!create && existingFile === undefined) throw new Error('这个角色已经不在角色库里，可能已在文件里删除')
@@ -311,11 +289,40 @@ export class RoleLibrary {
       throw new Error('角色库里有同名的文件，但读不出角色，请先检查这个文件')
     }
     const existing = existingFile === undefined ? undefined : readFileSync(existingFile, 'utf8')
-    writeText(file, renderRole({ ...draft, id }, existing))
+    const current = this.get(id)
+    if (current?.dynamicsError) throw new TypeError(current.dynamicsError)
+    if (!create && draft.dynamics !== undefined && draft.dynamicsBaseRevision !== current?.dynamicsRevision) throw new Error('动态配置基线已变化，请重新读取角色后保存')
+    const text = renderRole({ ...draft, id }, existing)
+    return { id, file, text, draft, create, ...existing === undefined ? {} : { existing }, ...current === undefined ? {} : { current } }
+  }
+  publish(prepared: PreparedRoleSave): Role {
+    if ((existsSync(prepared.file) ? readFileSync(prepared.file, 'utf8') : undefined) !== prepared.existing) throw new Error('角色文件已变化，请重新读取后保存')
     this.reload()
-    const saved = this.roles.get(id)
-    if (saved === undefined) throw new Error(`角色"${draft.name}"写入后读不出来`)
+    if (this.list().some(role => role.id !== prepared.id && role.name === prepared.draft.name)) throw new Error(`已经有叫"${prepared.draft.name}"的角色，换个名称`)
+    writeText(prepared.file, prepared.text)
+    this.reload()
+    const saved = this.roles.get(prepared.id)
+    if (saved === undefined) throw new Error('角色写入后读不出来')
     return saved
+  }
+  save(value: unknown, create: boolean): Role {
+    const prepared = this.prepareSave(value, create)
+    const changed = prepared.draft.dynamics !== undefined && (prepared.draft.resetDynamics === true || digest(prepared.current?.dynamics ?? null) !== digest(prepared.draft.dynamics))
+    if (changed && !create && (this.transactions || existsSync(join(dirname(this.dir), 'role-dynamics', 'roles', createHash('sha256').update(prepared.id).digest('hex'))))) throw new Error('动态配置保存需要等待角色事务，请使用 saveAsync')
+    return this.publish(prepared)
+  }
+  async saveAsync(value: unknown, create: boolean): Promise<Role> {
+    const prepared = this.prepareSave(value, create)
+    if (this.transactions) return this.transactions.save(prepared)
+    return this.save(value, create)
+  }
+  removeAsync(id: string, extras: readonly string[] = []): Promise<string> {
+    if (!this.transactions) throw new Error('角色回收事务未接入')
+    return this.transactions.remove(id, extras)
+  }
+  restore(stamp: string): Promise<void> {
+    if (!this.transactions) throw new Error('角色回收事务未接入')
+    return this.transactions.restore(stamp)
   }
 
   /** 新角色的 id：`r-` 加 8 位十六进制，避开已有的角色和同名的文件、目录（不覆盖读不出角色的手写文件）。 */
@@ -336,17 +343,23 @@ export class RoleLibrary {
    * 删除角色：移到 `<数据目录>/roles-trash/`，不真正删除文件，用户可以手动放回。
    * 目录形式的角色整个目录一起移走。alsoMove 用同一个时间戳把相关文件（头像）也移进回收站。
    */
-  remove(id: string, alsoMove?: (trashDir: string, stamp: string) => void): void {
+  remove(id: string, alsoMove?: (trashDir: string, stamp: string) => void, extras: readonly string[] = []): void {
+    this.assertReady(id)
+    if (this.transactions || existsSync(join(dirname(this.dir), 'role-dynamics', 'roles', createHash('sha256').update(id).digest('hex')))) throw new Error('角色回收需要等待角色事务，请使用 removeAsync')
     this.reload()
     const file = this.files.get(id)
     if (file === undefined) throw new Error('这个角色已经不在角色库里，可能已在文件里删除')
     const source = basename(file) === 'ROLE.md' && dirname(dirname(file)) === this.dir ? dirname(file) : file
     const trash = join(dirname(this.dir), 'roles-trash')
     mkdirSync(trash, { recursive: true })
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    renameWithRetry(source, join(trash, `${stamp}-${basename(source)}`))
-    this.reload()
-    alsoMove?.(trash, stamp)
+    const tx = FileDataTransaction.prepare(dirname(this.dir), 'role-transactions', [source, ...extras], { kind: 'static-remove', roleId: id })
+    const stamp = tx.manifest.stamp
+    try {
+      renameWithRetry(source, join(trash, `${stamp}-${basename(source)}`))
+      alsoMove?.(trash, stamp)
+      tx.commit()
+    } catch (error) { if (!tx.committed) tx.rollback(); throw error }
+    finally { this.reload() }
   }
 
   get(id: string): Role | undefined {

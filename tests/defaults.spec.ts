@@ -38,8 +38,8 @@ describe('first-use defaults', () => {
       expect(role.persona).toBe(DEFAULT_ROLE_PERSONA)
       expect(role.id).toMatch(/^r-[0-9a-f]{8}$/)
       expect(content.bindings.defaultRole).toBe(role.id)
-      expect(content.presets.forRole(role.id)).toMatchObject({ id: 'default', head: DEFAULT_PRESET_HEAD, mid: '', tail: '' })
-      expect(content.presets.roleChoice(role.id)).toBe('default')
+      expect(content.presets.current()).toMatchObject({ id: 'default', head: DEFAULT_PRESET_HEAD, mid: '', tail: '' })
+      expect(content.presets.snapshot()).not.toHaveProperty('roles')
       const response = imageResponse(ui, new Request(`http://localhost${IMAGE_PATH}?kind=avatar&role=${role.id}`))
       expect(response.status).toBe(200)
       expect(response.headers.get('content-type')).toBe('image/png')
@@ -61,7 +61,7 @@ describe('first-use defaults', () => {
     const role = roles.list()[0]!
     roles.save({ ...role, persona: '用户修改后的正文。' }, false)
     const presets = JailbreakStore.at(dir, warn)
-    presets.save({ ...presets.forRole(role.id), head: '用户修改后的通用规范。' }, false)
+    presets.save({ ...presets.current(), head: '用户修改后的通用规范。' }, false)
     SessionBindings.at(dir, warn).setDefaultRole(undefined)
     const avatar = new UiStore(dir, warn).avatar(role.id).find()!.file
     writeFileSync(avatar, Buffer.from('用户替换的图片'))

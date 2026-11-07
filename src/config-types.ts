@@ -8,6 +8,15 @@ export interface ConfigOptions {
   readonly conflict: 'skip' | 'copy'
 }
 
+/** 缺少或为空的分类不参与导入；完整格式仍由服务端校验。 */
+export function configImportContents(value: unknown): Pick<ConfigOptions, 'presets' | 'roles'> {
+  const config = value !== null && typeof value === 'object' ? value as Record<string, unknown> : {}
+  return {
+    presets: Array.isArray(config['presets']) && config['presets'].length > 0,
+    roles: Array.isArray(config['roles']) && config['roles'].length > 0,
+  }
+}
+
 export interface ConfigEntry {
   readonly kind: 'preset' | 'role'
   readonly name: string

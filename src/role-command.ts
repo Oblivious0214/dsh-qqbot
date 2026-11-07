@@ -12,6 +12,7 @@ import type { QqbotData } from './content.ts'
 import type {} from './index.ts'
 import type { QqbotSession } from './registry.ts'
 import type { Role } from './roles.ts'
+import { presetForAgent } from './agent-preset.ts'
 
 export const name = 'qqbot-role-command'
 export const inject = ['commands', 'qqbot', 'agents']
@@ -41,7 +42,7 @@ export function overview(data: QqbotData, session: QqbotSession): string {
   const fallback = fallbackId === undefined ? '无' : data.roles.get(fallbackId)?.name ?? '已不在角色库'
   return [
     `当前角色：${current}`,
-    `通用提示词：${preset.name}`,
+    `预设：${preset.name}`,
     `新会话默认角色：${fallback}`,
     '',
     roster(data, role?.id),
@@ -101,6 +102,16 @@ export function apply(ctx: Context): void {
         ctx.qqbot.maintenance.assertAvailable()
         const busy = agent.status !== 'idle'
           || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0
+        const host = ctx.qqbot.dynamicsHost, nextRole = data.roles.find(rawInput.trim())?.id
+        if (!busy && host?.needsSelection(agent.id, nextRole)) return host.prepareSelection(agent.id, nextRole).then(
+          () => {
+            const current = (ctx.get?.('agents') ?? agent.ctx.get('agents'))?.get(agent.id)
+            const presets = ctx.get?.('agentPresets') ?? agent.ctx.get('agentPresets')
+            if (current !== agent || !presets || presetForAgent(presets, current) !== 'qqbot') return { kind: 'error' as const, text: '角色没有切换：请在 QQ Bot 对话中选择角色。' }
+            return runRole(data, { id: current.id }, rawInput, current.status !== 'idle'
+              || current.inbox.nextTurn.length > 0 || current.inbox.nextStep.length > 0)
+          },
+        ).catch(error => ({ kind: 'error' as const, text: `角色没有切换：${(error as Error).message}` }))
         return runRole(data, { id: agent.id }, rawInput, busy)
       } catch (error) {
         return { kind: 'error', text: `角色没有切换：${(error as Error).message}` }

@@ -4,6 +4,7 @@
  */
 
 import type { MotionAction, MotionRange, RoleProactivity, RoleProactivityTexts } from './library-types.ts'
+import type { DynamicsPublic } from './role-dynamics/api-types.ts'
 
 /** 组装提示词时所属的 qqbot 会话。 */
 export interface QqbotSession {
@@ -38,6 +39,7 @@ export interface QqbotRoleInfo {
 
 /** 外部插件通过 `ctx.inject(['qqbot'], ...)` 可选接入的接口。 */
 export interface QqbotRegistry {
+  readonly dynamics: DynamicsPublic
   /** 在外部槽位登记一段规则，返回 disposer。 */
   extension(entry: QqbotExtensionEntry): () => void
   /** 写入运行时状态，进入 `qqbot:runtime` context，返回 disposer。 */
@@ -59,7 +61,7 @@ export interface QqbotRegistrySnapshot {
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 
 /** 登记部分；`role()` 由 QqbotService 按角色库实现。 */
-export class QqbotRegistryStore implements Omit<QqbotRegistry, 'role'> {
+export class QqbotRegistryStore implements Omit<QqbotRegistry, 'role' | 'dynamics'> {
   private readonly extensions = new Map<string, QqbotExtensionEntry & QqbotSource>()
   // 值包一层对象，旧 disposer 才不会误删同名同文本的新登记。
   private readonly runtimes = new Map<string, { readonly text: QqbotText } & QqbotSource>()

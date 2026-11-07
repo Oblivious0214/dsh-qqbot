@@ -269,3 +269,8 @@ parseTimedStream 的流式读取改写自 dsh-serveu 的 src/live-stream.js（pa
 0.17.0 设置统一：src/client/settings-style.ts 为本项目公共布局与控件样式，
 沿用上述来源的主题、卡片与滑条实现；src/client/switch.tsx 保留原 QQ NT 开关。
 角色自主性改为内嵌编辑，设置保存队列为本项目新增实现；既有版权与许可保持。
+
+0.42.0 自定义脚本范围图：
+- src/toy/client/preset-library.tsx、src/toy/motion-library/heatmap.ts 参考 ServeUCentral
+  Shared/Controls/ScriptKeyframesHeatmap.cs 的五档配色和位置包络展示，自行以 React/SVG 实现；
+  保留本项目线段积分、原点保存及范围交互，未复制该项目源码。

@@ -5,15 +5,18 @@ import type { Intent } from '../core/intent.ts'
 import { previewPreset } from './catalog.ts'
 import type { MotionClip } from './library.ts'
 
-interface Step { readonly from: number; readonly to: number; readonly durationMs: number }
+export interface PlaybackCursor { readonly sourceMs: number; readonly pass: number; readonly completed: boolean }
+interface Step { readonly from: number; readonly to: number; readonly durationMs: number; readonly sourceFromMs: number; readonly sourceToMs: number }
 
 export class PresetPlayback {
   readonly name: string
   private readonly steps: Step[] = []
   private readonly looping: boolean
-  /** 单次动作从头重复播放（AI 动作都这样播）。 */
+  /** 仅用于旧 v1 once 的 AI 兼容重播。 */
   private repeating = false
   private index = 0
+  private pass = 0
+  private readonly endMs: number
   /** 循环时回到的步序号：片段写了 loopFromMs 就从那里循环，否则从头。 */
   private loopIndex = 0
   private offset = 0
@@ -23,8 +26,9 @@ export class PresetPlayback {
   private readonly start: number
 
   /** clip 由调用方从动作池选定（见 selectAction）；intent 只提供范围和速度档。 */
-  constructor(intent: Intent, config: MotionConfig, clip: MotionClip, profile: MotionProfile, adjust: LiveAdjust = NO_ADJUST) {
+  constructor(intent: Intent, config: MotionConfig, clip: MotionClip, profile: MotionProfile, adjust: LiveAdjust = NO_ADJUST, cursor?: PlaybackCursor) {
     this.name = clip.name
+    this.endMs = clip.points.at(-1)!.at
     this.looping = clip.playback === 'loop'
     this.quantize = profile.quantize ?? (speed => speed)
     const budget = tierBudget(config, intent.tier)
@@ -38,6 +42,7 @@ export class PresetPlayback {
     for (let i = 1; i < preview.legs.length; i++) peak = Math.max(peak, Math.abs(preview.legs[i]!.target - preview.legs[i - 1]!.target) * 1000 / preview.legs[i]!.durationMs)
     const factor = adjust.speed === undefined || peak === 0 ? 1 : actual.speed / peak
     let from = preview.legs[0]!.target
+    let sourceFrom = preview.legs[0]!.sourceAtMs
     for (const leg of preview.legs.slice(1)) {
       if (this.looping && clip.loopFromMs !== undefined && leg.sourceAtMs > clip.loopFromMs && this.loopIndex === 0) this.loopIndex = this.steps.length
       const legMs = leg.durationMs / factor
@@ -46,10 +51,24 @@ export class PresetPlayback {
       for (let i = 1; i <= count; i++) {
         const to = Math.round(from + (leg.target - from) * i / count)
         const previous = this.steps.at(-1)?.to ?? from
-        this.steps.push({ from: previous, to, durationMs })
+        this.steps.push({ from: previous, to, durationMs, sourceFromMs: sourceFrom + (leg.sourceAtMs - sourceFrom) * (i - 1) / count, sourceToMs: sourceFrom + (leg.sourceAtMs - sourceFrom) * i / count })
       }
       from = leg.target
+      sourceFrom = leg.sourceAtMs
     }
+    if (cursor !== undefined) {
+      this.pass = cursor.pass
+      this.index = cursor.completed ? this.steps.length : this.steps.findIndex(step => step.sourceToMs > cursor.sourceMs)
+      if (this.index < 0) this.index = this.steps.length
+      const step = this.steps[this.index]
+      if (step !== undefined) this.offset = step.durationMs * Math.max(0, (cursor.sourceMs - step.sourceFromMs) / (step.sourceToMs - step.sourceFromMs))
+    }
+  }
+
+  cursor(): PlaybackCursor {
+    const step = this.steps[this.index]
+    return { sourceMs: step === undefined ? this.endMs : step.sourceFromMs + (step.sourceToMs - step.sourceFromMs) * this.offset / step.durationMs,
+      pass: this.pass, completed: step === undefined }
   }
 
   /** 完整走一遍的时长（不含进入包），按该档速度算，不含升速；有循环起点时也按整条轨迹算。 */
@@ -94,6 +113,6 @@ export class PresetPlayback {
     if (elapsedMs + 1e-6 < packet.durationMs) return
     this.offset = 0
     this.index++
-    if (this.index === this.steps.length && (this.looping || this.repeating)) this.index = this.looping ? this.loopIndex : 0
+    if (this.index === this.steps.length && (this.looping || this.repeating)) { this.pass++; this.index = this.looping ? this.loopIndex : 0 }
   }
 }

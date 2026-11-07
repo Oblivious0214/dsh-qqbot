@@ -114,7 +114,7 @@ export function apply(ctx: Context): void {
 
   // 提示词查看器的"编辑"打开独立编辑器弹窗，挂在常驻的 shell.overlay。
   const editorTarget = createSnapshotStore<EditorTarget | null>(null, { flush: 'sync' })
-  const openEditor = (target: EditorTarget) => { editorTarget.set(target) }
+  const openEditor = (target: EditorTarget) => { editorTarget.set({ ...target, sessionId:target.sessionId ?? ctx.uiSession.adapter.current.getSnapshot().key }) }
   ctx.plugin(toy, { openSettings: () => { openEditor({ tab: 'toy' }) },
     openRoleProactivity: (sessionId: string) => {
       const role = ui.session(sessionId)?.role
@@ -131,7 +131,8 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'qqbot-library-editor',
-    inject: (): LibraryEditorInjected => ({ hooks: { editorTarget }, closeEditor, ui, voice: voiceState, extensions, memeGuide, maintenance, phoneGuide }),
+    inject: (): LibraryEditorInjected => ({ hooks: { editorTarget }, closeEditor, ui, voice: voiceState, extensions, memeGuide, maintenance, phoneGuide,
+      dynamicsContext: { catalog:ctx.sessions.list } }),
   }, LibraryEditorHost))
 
   // 选中设置侧栏的"QQ Bot"即关闭宿主设置并打开独立编辑器。

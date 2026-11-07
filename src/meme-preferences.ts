@@ -1,7 +1,7 @@
 /** 角色自己的表情偏好。格式独立于 dsh-meme，只借用它的只读图库目录。 */
 import type { MemePackChoice, MemePreferences } from './library-types.ts'
 import { MEME_PROMPT_LIMIT } from './library-types.ts'
-import { isRecord } from './storage.ts'
+import { isRecord } from './json-record.ts'
 
 const validName = (value: unknown): value is string => typeof value === 'string' && value.trim() !== ''
   && value.length <= 256 && !/[\u0000-\u001f\u007f]/.test(value)

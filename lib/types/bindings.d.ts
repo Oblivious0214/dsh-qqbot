@@ -22,12 +22,15 @@ export declare class SessionBindings {
     private readonly warn;
     private readonly now;
     private state;
+    private choiceAdapter;
     constructor(file: string | undefined, warn: Warn, now?: () => Date);
     /** 从磁盘重新读取；清理后不保留旧会话绑定。 */
     reload(): void;
     static at(dir: string, warn: Warn): SessionBindings;
     /** 会话的选择；没有记录时为 undefined。 */
     get(sessionId: string): RoleChoice | undefined;
+    get filePath(): string | undefined;
+    interceptChoices(adapter: (sessionId: string, role: RoleChoice, publish: () => void) => void): () => void;
     /** 记下会话的选择；值没变时不写盘。 */
     set(sessionId: string, role: RoleChoice): void;
     /** 会话各轮用的角色，按轮次升序；没有记录时为空。 */

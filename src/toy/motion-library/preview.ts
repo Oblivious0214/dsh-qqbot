@@ -57,7 +57,7 @@ function bounds(low: number, high: number): readonly [number, number] {
 export function previewScript(script: MotionScript, options: PreviewOptions): MotionPreview {
   const points = parsePoints(script.points)
   const sourceDurationMs = points[points.length - 1]!.at
-  if (points[0]!.at !== 0 || sourceDurationMs > SCRIPT_LIMITS.clipDurationMs) throw new Error('请先截取从零开始且不超过 600 秒的片段')
+  if (points[0]!.at !== 0 || sourceDurationMs > SCRIPT_LIMITS.clipDurationMs) throw new Error('请先截取从零开始、不超过 600 秒的片段')
   if (options.closedLoop !== undefined && typeof options.closedLoop !== 'boolean') throw new Error('循环标记无效')
   if (options.closedLoop && Math.abs(points[0]!.pos - points[points.length - 1]!.pos) > 1e-6) throw new Error('循环首尾不闭合')
   let [low, high] = bounds(options.minPosition, options.maxPosition)
@@ -141,7 +141,7 @@ export function createStandbySample(options: StandbySampleOptions): MotionScript
     for (const pos of [high, 0]) {
       const speed = slow + (fast - slow) * rng()
       at += Math.max(100, Math.ceil(high / speed * 1000))
-      if (at > SCRIPT_LIMITS.clipDurationMs) throw new Error('样本超过 120 秒，请减少往返数')
+      if (at > SCRIPT_LIMITS.clipDurationMs) throw new Error('待机样本超过 600 秒，请减少往返数')
       points.push({ at, pos })
     }
   }

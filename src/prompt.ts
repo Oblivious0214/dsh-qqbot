@@ -15,6 +15,8 @@ import { resolveText, type QqbotRegistryStore, type QqbotSession } from './regis
 import { memoryRule } from './memory-format.ts'
 import * as memoryAgent from './memory-agent.ts'
 import * as roleCommand from './role-command.ts'
+import * as roleDynamics from './role-dynamics/agent.ts'
+import * as memeAgent from './meme-agent.ts'
 
 export const name = 'qqbot-prompt'
 export const inject = ['systemPrompt', 'qqbot']
@@ -35,6 +37,8 @@ export const PART_SEPARATOR = '\n\n'
 export interface PromptFeatures {
   /** 本会话能用 dsh-meme 的 send_meme。 */
   readonly meme: boolean
+  readonly memeTool?: string
+  readonly dynamicsTool?: string
 }
 
 const NO_FEATURES: PromptFeatures = { meme: false }
@@ -46,8 +50,10 @@ function sessionOf(context: AssembleContext): QqbotSession | undefined {
 }
 
 /** 真实组装带着本步放行的工具集；send_meme 不在里面（没装 dsh-meme、被关掉）时不写表情规则。 */
-function featuresOf(context: AssembleContext): PromptFeatures {
-  return { meme: context.toolSet?.view(context.scope).has(MEME_TOOL) === true }
+function featuresOf(ctx: Context, context: AssembleContext): PromptFeatures {
+  return { meme: context.toolSet !== undefined ? context.toolSet.view(context.scope).has(MEME_TOOL)
+    : context.agent !== undefined && ctx.get('tools')?.get(MEME_TOOL, context.agent) !== undefined,
+  memeTool: memeAgent.toolDeclaration(ctx, context) }
 }
 
 /**
@@ -70,9 +76,10 @@ export function assembleParts(
     {
       name: SECTION_NAME.FORMAT_MEME,
       order: SECTION_ORDER.FORMAT_MEME,
-      text: features.meme ? perSession(s => memeRule(content.memeFrequencyFor(s), content.memePreferencesFor(s))) : '',
+      text: features.meme ? perSession(s => [memeRule(content.memeFrequencyFor(s), content.memePreferencesFor(s)), features.memeTool].filter(Boolean).join('\n')) : '',
     },
     { name: SECTION_NAME.FORMAT_VOICE, order: SECTION_ORDER.FORMAT_VOICE, text: VOICE_RULE },
+    { name: SECTION_NAME.DYNAMICS_TOOL, order: SECTION_ORDER.DYNAMICS_TOOL, text: features.dynamicsTool ?? '' },
     ...store.snapshot().extensions.map(entry => ({
       name: `${SECTION_NAME.EXT_PREFIX}${entry.name}`,
       order: SECTION_ORDER.EXT,
@@ -113,7 +120,7 @@ export function apply(ctx: Context): void {
       const session = sessionOf(context)
       // 只有 agent-loop 的真实组装带 agent（agent-loop/src/agent.ts）。新会话在这里定下角色，之后改默认角色不影响它。
       if (session !== undefined) content.settle(session)
-      const text = assembleParts(content, store, session, featuresOf(context)).map(part => part.text).join(PART_SEPARATOR)
+      const text = assembleParts(content, store, session, { ...featuresOf(ctx, context), dynamicsTool: roleDynamics.toolDeclaration(ctx, context) }).map(part => part.text).join(PART_SEPARATOR)
       // 这份记录就是发给模型的系统提示词。
       if (context.agent !== undefined) ctx.qqbot.lastPrompt.set(context.agent, text)
       return text
@@ -143,6 +150,8 @@ export function apply(ctx: Context): void {
 
   // `/role` 挂在预设内，所以只出现在 qqbot 会话里。缺 commands 服务（无 UI 的场景）时不加载。
   ctx.plugin(roleCommand)
+  ctx.plugin(roleDynamics)
+  ctx.plugin(memeAgent)
 
   // 角色记忆的空闲和开新会话触发，只在 qqbot 会话里。
   ctx.plugin(memoryAgent)

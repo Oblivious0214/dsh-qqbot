@@ -62,7 +62,7 @@ describe('single package linkage', () => {
     expect(host.view('s1').session?.attached).toBe(false)
   })
 
-  it('remembers the first device introduction through toggles, stale forms and host reload', () => {
+  it('remembers the first settings introduction through toggles, stale forms and host reload', () => {
     const dir = mkdtempSync(join(process.env['DSH_HOME']!, 'intro-'))
     const host = new ToyHost(dir, () => {})
     const initial = host.settings.value
@@ -70,6 +70,8 @@ describe('single package linkage', () => {
     host.apply({ action: 'module.enable', enabled: false })
     expect(host.settings.value.deviceIntroSeen).toBeUndefined()
     host.apply({ action: 'module.enable', enabled: true })
+    expect(host.settings.value.deviceIntroSeen).toBeUndefined()
+    expect(host.openPromotion().showDeviceIntro).toBe(true)
     expect(host.settings.value.deviceIntroSeen).toBe(true)
     host.apply({ action: 'settings.save', settings: initial })
     host.apply({ action: 'module.enable', enabled: false })
@@ -77,10 +79,12 @@ describe('single package linkage', () => {
     expect(host.settings.value.authorized).toBe(false)
   })
 
-  it('also remembers first authorization when settings are saved', () => {
+  it('authorization does not consume the settings introduction', () => {
     const dir = mkdtempSync(join(process.env['DSH_HOME']!, 'intro-consent-'))
     const host = new ToyHost(dir, () => {})
     host.apply({ action: 'settings.save', settings: { ...host.settings.value, authorized: true } })
+    expect(new ToyHost(dir, () => {}).settings.value.deviceIntroSeen).toBeUndefined()
+    expect(host.openPromotion().showDeviceIntro).toBe(true)
     expect(new ToyHost(dir, () => {}).settings.value.deviceIntroSeen).toBe(true)
     host.apply({ action: 'settings.save', settings: { ...host.settings.value, authorized: false, deviceIntroSeen: false } })
     expect(host.settings.value.deviceIntroSeen).toBe(true)

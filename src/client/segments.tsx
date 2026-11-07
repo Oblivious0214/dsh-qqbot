@@ -36,6 +36,8 @@ import type { VoicePlayer } from './voice-player.ts'
 import type { VoiceState } from './voice-state.ts'
 import { projectReplyOptions } from '../auto-reply/reply-options.ts'
 import { ReplyOptions } from './auto-reply/reply-options.tsx'
+import { useMemeScope } from './meme-scope.ts'
+import { projectMemes } from '../meme-scope.ts'
 import type { QuickReplyState } from './auto-reply/quick-state.ts'
 
 /** 语音条用到的共享状态，index.tsx 创建。 */
@@ -129,6 +131,7 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
     useSyncExternalStore(voice.state.subscribe, voice.state.getVersion)
     const root = useRef<HTMLDivElement>(null)
     const data = props.node.data
+    const memeScope = useMemeScope(props.sessionId, data.turn, ui.getVersion(), data.blocks.some(block => block.kind === 'text' && /\[表情:|\/dsh-memes\//.test(block.text)))
     const running = data.status === 'running'
     const role = ui.roleAt(props.sessionId, data.turn)
     useEffect(() => { ui.noteTurn(props.sessionId, data.turn) }, [props.sessionId, data.turn])
@@ -186,7 +189,9 @@ function createView(model: SegmentModel, filter: QqbotSessionFilter, ui: UiState
 
     const projected = frozen ?? blocks
     if (frozen === undefined) model.remember(displayKey, props.sessionId, projected)
-    const node = projected === data.blocks ? props.node : { ...props.node, data: { ...data, blocks: projected } }
+    const memeOrigin = /^https?:$/.test(window.location.protocol) ? window.location.href : memeScope.origin
+    const memeBlocks = projected.map(block => block.kind === 'text' ? { ...block, text: projectMemes(block.text, memeScope.memes, memeOrigin) } : block)
+    const node = { ...props.node, data: { ...data, blocks: memeBlocks } }
 
     // dsh-meme 会把图片提到最近的 data-time-hover-root / data-chat-flow-key 行首。
     // 宿主的一行包含整条回复；给 QQ 正文气泡单独划定边界，避免末段表情被移到第一句前，

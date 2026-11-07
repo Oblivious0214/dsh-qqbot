@@ -71,6 +71,36 @@ export function serializeFunscript(script: MotionScript): string {
   return `${JSON.stringify({ version: '1.0', actions: parsePoints(script.points) }, null, 2)}\n`
 }
 
+/**
+ * 循环动作首尾位置不同时，在结尾补一个回到起点的点，时间按结尾那段的速度推算，
+ * 末尾停留时沿用最近的移动速度；不能再增加时长或点数时，改接原片段尾部。
+ */
+export function closeLoop(points: readonly MotionPoint[]): MotionPoint[] {
+  const parsed = parsePoints(points)
+  const first = parsed[0]!, last = parsed[parsed.length - 1]!
+  if (first.pos === last.pos) return parsed
+  if (last.at - first.at > SCRIPT_LIMITS.clipDurationMs) throw new Error('循环片段不能超过 600 秒')
+  let speed = 0
+  for (let i = parsed.length - 1; i > 0; i--) {
+    const a = parsed[i - 1]!, b = parsed[i]!
+    speed = Math.abs(b.pos - a.pos) / (b.at - a.at)
+    if (speed > 0) break
+  }
+  const bridgeMs = Math.max(1, Math.ceil(Math.abs(first.pos - last.pos) / speed))
+  const at = last.at + bridgeMs
+  if (at - first.at <= SCRIPT_LIMITS.clipDurationMs && at <= SCRIPT_LIMITS.sourceDurationMs && parsed.length < SCRIPT_LIMITS.points) {
+    return parsePoints([...parsed, { at, pos: first.pos }])
+  }
+  // 保留前部原点；在尾部插值接入回程，结尾精确落到起点。为接点和终点预留两个名额。
+  const tailMs = Math.min(bridgeMs, Math.max(1, Math.round((last.at - first.at) * .1)))
+  const latestJoin = parsed.length === SCRIPT_LIMITS.points ? parsed[parsed.length - 2]!.at : last.at - 1
+  const joinAt = Math.max(first.at, Math.min(last.at - tailMs, latestJoin))
+  const rightIndex = parsed.findIndex(p => p.at >= joinAt)
+  const right = parsed[rightIndex]!, left = parsed[Math.max(0, rightIndex - 1)]!
+  const pos = right.at === joinAt ? right.pos : left.pos + (right.pos - left.pos) * (joinAt - left.at) / (right.at - left.at)
+  return parsePoints([...parsed.filter(p => p.at < joinAt), { at: joinAt, pos }, { at: last.at, pos: first.pos }])
+}
+
 /** 截取闭区间，边界按线性插值补点，片段从零开始，保留中间点及停留。 */
 export function sliceScript(script: MotionScript, fromMs: number, toMs: number): MotionScript {
   const points = parsePoints(script.points)

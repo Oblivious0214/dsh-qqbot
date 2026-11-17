@@ -183,4 +183,18 @@ describe('按会话保存快捷选项勾选状态', () => {
     const pending = state.refresh('s'); state.dispose(); finish({ enabled: true }); await pending
     expect(state.get('s')).toBe(false)
   })
+  it.each([true, false])('轮询失败保留上次读取的开关 %s，恢复后采用服务端状态', async enabled => {
+    const request = vi.fn(async () => ({ enabled }))
+    const state = new QuickReplyState(request)
+    await state.refresh('s')
+    request.mockRejectedValueOnce(new Error('offline'))
+    await expect(state.refresh('s')).rejects.toThrow('offline')
+    expect(state.get('s')).toBe(enabled)
+    request.mockResolvedValueOnce({ enabled: !enabled })
+    await state.refresh('s')
+    expect(state.get('s')).toBe(!enabled)
+    state.clearCache()
+    expect(state.get('s')).toBe(false)
+    state.dispose()
+  })
 })

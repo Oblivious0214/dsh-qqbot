@@ -39,7 +39,8 @@ export class QuickReplyState {
     const pending = this.request({ action: 'quick.get', session }, this.lifetime.signal).then(view => {
       if (current()) { this.adopt(session, view); this.changed() }
     }, (error: unknown) => {
-      if (current()) { this.values.delete(session); this.changed() }
+      // A failed poll says nothing about the saved preference. Keep the last
+      // successful view until a later read or an explicit cache reset.
       throw error
     }).finally(() => { this.reads.delete(session) })
     this.reads.set(session, pending)

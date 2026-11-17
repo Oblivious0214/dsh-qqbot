@@ -1,7 +1,7 @@
 {
   "meta": {
     "generated_at": "2026-11-01T14:05:14.182Z",
-    "plugin_version": "0.43.2",
+    "plugin_version": "0.45.0",
     "generator": "E:/ServeUDSH/work/prompt-inventory-20261031/dump.mjs（node --experimental-transform-types）",
     "note": "text 为源码导出常量或函数的实际返回值；extracted: \"static\" 的条目是从源码文本提取的。chars 为 JS 字符串长度（UTF-16 码元，中文一字一码元）。",
     "section_order": {
@@ -28,6 +28,10 @@
     "meme_scope_supplement": {
       "generated_at": "2026-11-04T12:03:47.930Z",
       "generator": "scripts/update-meme-inventory.mjs"
+    },
+    "image_supplement": {
+      "generated_at": "2026-11-11T03:28:06.618Z",
+      "generator": "scripts/update-image-inventory.mjs"
     }
   },
   "entries": [

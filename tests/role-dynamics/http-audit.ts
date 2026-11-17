@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
 import { createServer } from 'node:http'
-import { HostConnectionService } from '../../../../qqbot/src/deepseek-harness/packages/client/connection/src/rpc-host.ts'
-import { bridge as developmentBridge } from '../../../../qqbot/src/deepseek-harness/packages/client/connection/src/http-bridge.ts'
+import { HostConnectionService } from '../../.dev/dsh/packages/client/connection/src/rpc-host.ts'
+import { bridge as developmentBridge } from '../../.dev/dsh/packages/client/connection/src/http-bridge.ts'
 import { hostFixture } from './host-fixture.ts'
 import { STATE_PATH, LIBRARY_STATE_PATH } from '../../src/role-dynamics/api-types.ts'
 export async function auditStateHttp(bridge: typeof developmentBridge = developmentBridge, routePath = STATE_PATH) {

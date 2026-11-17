@@ -2,7 +2,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { createRequire } from 'node:module'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { constants, runInThisContext } from 'node:vm'
 import { QqbotService } from '../../src/index.ts'
 import * as prompt from '../../src/prompt.ts'
@@ -17,9 +17,9 @@ const nativeImport = runInThisContext('(url) => import(url)', { importModuleDyna
 export const scope = await nativeImport(pathToFileURL(require.resolve('@deepseek-ai/dsh-scope')).href)
 /** Execute retained rc.5 code unchanged apart from dependency URL resolution. */
 async function rc5(name: string) {
-  const file = resolve('../../work/role-dynamics-plan-20261102/step-01-evidence/installed-host/dsh/node_modules/@deepseek-ai', name, 'lib/index.js')
+  const file = fileURLToPath(new URL(`../fixtures/host-rc5/${name}.js`, import.meta.url))
   const code = readFileSync(file, 'utf8').replace(/from "(@deepseek-ai\/[^\"]+)"/g, (_, spec) => {
-    const dependency = spec === '@deepseek-ai/dsh-sandbox' ? resolve('../../qqbot/src/deepseek-harness/packages/sandbox/sandbox/lib/index.js') : require.resolve(spec)
+    const dependency = spec === '@deepseek-ai/dsh-sandbox' ? fileURLToPath(new URL('../../.dev/dsh/packages/sandbox/sandbox/lib/index.js', import.meta.url)) : require.resolve(spec)
     return `from ${JSON.stringify(pathToFileURL(dependency).href)}`
   })
   return nativeImport(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)

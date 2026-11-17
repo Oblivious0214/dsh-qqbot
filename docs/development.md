@@ -2,36 +2,26 @@
 
 普通安装在 DSH 的“添加插件”中填写仓库地址：https://github.com/Oblivious0214/dsh-qqbot 。安装入口使用默认分支，不追加版本标签。用于安装的公开分支需随版本提交 lib 构建产物；本地开发分支仍忽略 lib。不发布 npm。
 
-## 环境与布局
+## 开发位置与依赖
 
-Node.js 24、pnpm 10。开发依赖基线：DeepSeek Harness 0.2.1-rc.3，提交 22ddee3792402c3e70ec5f86a63c3e3e895a2f60。开发依赖链接到已准备好的宿主源码，目录按下列方式放置：
+本机源码在 `E:/ServeU/AIChat/qqbot/`，在此执行全部 pnpm 命令。使用 Node.js 24 和 pnpm 10；本机开发宿主环境已准备好，位于 `.dev/dsh/`，package.json 与 lockfile 的 `link:./.dev/dsh/...` 指向这里，不需要重装 profile 或启动宿主。
 
-```text
-workspace/
-  plugins/dsh-qqbot/
-  qqbot/src/deepseek-harness/
-```
-
-从 workspace 开始：
-
-```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git qqbot/src/deepseek-harness
-git -C qqbot/src/deepseek-harness checkout 22ddee3792402c3e70ec5f86a63c3e3e895a2f60
-git clone https://github.com/Oblivious0214/dsh-qqbot.git plugins/dsh-qqbot
-cd qqbot/src/deepseek-harness
-pnpm install
-pnpm run build
-cd ../../../plugins/dsh-qqbot
-pnpm install --frozen-lockfile
+```powershell
+cd E:\ServeU\AIChat\qqbot
 pnpm run typecheck
 pnpm test
 pnpm run build
-pnpm pack --out ../../dsh-qqbot-0.43.2.tgz
 ```
 
-宿主准备方式以 [官方源码运行文档](https://github.com/deepseek-ai/deepseek-harness/blob/22ddee3792402c3e70ec5f86a63c3e3e895a2f60/README.zh.md#run-from-source) 为准。插件运行时与宿主共用 cordis、compaction-basic 和 llm；它们是 peer 依赖，不打入插件。
+清理旧 lib 前先确认绝对路径并备份；安装包统一放 `output/`。当前安装来源原包为 `output/dsh-qqbot-0.43.1.tgz`，它与源码版本分别管理，目录整理不会自动安装新构建。新包使用新版本号，不覆盖旧原包。
 
-清理旧 lib 产物后再构建；测试使用独立临时资料目录和模拟设备。设备及手机的真机验证范围见 [发布说明](https://github.com/Oblivious0214/dsh-qqbot/releases/tag/v0.36.2)。
+角色动态兼容测试的 rc.5 原始 JS 快照在 `tests/fixtures/host-rc5/`，许可证随夹具保留。其余测试和依赖均从本仓库内定位，不再读取旧的根 work、qqbot/src 或 reference。
+
+首次在新机器准备源码时，将宿主检出到本仓库 `.dev/dsh/`，按其官方开发说明准备依赖和构建产物，再在插件根执行 `pnpm install --frozen-lockfile`。本机宿主源码包含既有本地修改，不自行 checkout、重置或更新它；不要把开发依赖和本机私有资料打入插件包。
+
+宿主运行时与插件共用 cordis、compaction-basic 和 llm，它们是 peer 依赖，不打入插件。本机 .dev 目录不提交进插件仓库；两份小型 rc.5 测试夹具随 tests 维护。
+
+目录精简、已知测试限制及安装来源调整见 [清理记录](cleanup-20261117.md)。
 
 ## 角色表情范围（0.41.0）
 

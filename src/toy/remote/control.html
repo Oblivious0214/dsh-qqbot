@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>抚物设备</title>
+<style>body{font:16px system-ui;background:#f5f7fa;color:#18283a;margin:0}main{max-width:520px;margin:40px auto;padding:24px;background:white;border-radius:18px}h1{font-size:24px}label{display:flex;align-items:center;gap:10px;margin:18px 0;flex-wrap:wrap}input{padding:10px;border:1px solid #ccd4dd;border-radius:8px;min-width:240px}button{padding:10px 18px;border:0;border-radius:9px;background:#dce8f6;cursor:pointer;margin:5px 8px 5px 0}#pause{display:block;background:#c83252;color:white;width:100%;font-size:20px;padding:18px;margin:24px 0}#error{color:#a52642;white-space:pre-wrap}small{color:#65768a}</style>
+<main><h1>抚物设备</h1><p id="status">未接入</p><small id="device"></small>
+<label>聊天服务器<input id="address" placeholder="wss://服务器/device/ws"></label>
+<label>配对码<input id="pairCode" autocomplete="off" type="password"></label>
+<label>行程下限<input id="minPosition" type="number" min="0" max="99"></label>
+<label>行程上限<input id="maxPosition" type="number" min="1" max="100"></label>
+<label>速度上限<input id="maxSpeed" type="number" min="2" max="500"></label>
+<button id="deviceConnect">连接设备</button><button id="connect">接入对话</button><button id="disconnect">退出联动</button>
+<button id="pause">暂停设备</button><p id="error" role="alert"></p></main>
+<script>
+const $=id=>document.getElementById(id);let initialized=false;
+async function state(){try{const r=await fetch('/state');if(!r.ok)throw Error('请重新打开设备页面');const s=await r.json();$('status').textContent=s.status;$('device').textContent=(s.simulated?'模拟设备 · ':'')+s.device;if(!initialized){$('address').value=s.address;for(const key of ['minPosition','maxPosition','maxSpeed'])$(key).value=s.config[key];initialized=true}if(s.error)$('error').textContent=s.error}catch(e){$('error').textContent=e.message}}
+async function action(path,body={}){try{$('error').textContent='';const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.error);await state()}catch(e){$('error').textContent=e.message}}
+$('deviceConnect').onclick=()=>action('/device');$('connect').onclick=async()=>{await action('/connect',{address:$('address').value,pairCode:$('pairCode').value});$('pairCode').value=''};$('disconnect').onclick=()=>action('/disconnect');$('pause').onclick=()=>action('/pause');
+for(const key of ['minPosition','maxPosition','maxSpeed'])$(key).onchange=()=>action('/settings',Object.fromEntries(['minPosition','maxPosition','maxSpeed'].map(k=>[k,Number($(k).value)])));
+// 页面关闭停止；设备执行在本地 Node，暂停不依赖云端。
+addEventListener('pagehide',()=>fetch('/pause',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}));
+state();setInterval(state,1000);
+</script></html>

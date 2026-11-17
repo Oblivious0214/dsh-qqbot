@@ -10,7 +10,7 @@ import { DESCRIPTIONS, GENERATED, RENAMES, defaultPool, lastRoundTrip } from './
 export { defaultPool }
 
 export const pluginRoot = new URL('../', import.meta.url)
-export const workspaceRoot = new URL('../../../', import.meta.url)
+export const workspaceRoot = pluginRoot
 export const assetRoot = new URL('assets/motion-presets/', pluginRoot)
 export const sourcePaths = {
   catalog: 'legacy/dsh-serveu/src/catalog.json',

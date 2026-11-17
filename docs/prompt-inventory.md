@@ -1,6 +1,6 @@
 # dsh-qqbot 提示词清单
 
-插件版本 0.43.2，生成于 2026-11-01T14:05:14.182Z。由 `E:/ServeUDSH/work/prompt-inventory-20261031/dump.mjs（node --experimental-transform-types）` 生成，与 `prompt-inventory.json` 同内容。不要手改，改源码后重新生成。
+插件版本 0.45.0，生成于 2026-11-01T14:05:14.182Z。由 `E:/ServeUDSH/work/prompt-inventory-20261031/dump.mjs（node --experimental-transform-types）` 生成，与 `prompt-inventory.json` 同内容。不要手改，改源码后重新生成。
 
 text 为源码导出常量或函数的实际返回值；extracted: "static" 的条目是从源码文本提取的。chars 为 JS 字符串长度（UTF-16 码元，中文一字一码元）。
 

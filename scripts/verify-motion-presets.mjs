@@ -1,6 +1,6 @@
 /** 离线验证；读取真实解析器/保存接口，不导入控制器或设备连接。 */
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 import { parseFunscript } from '../src/toy/motion-library/script.ts'
@@ -146,6 +146,9 @@ export function verifyAssets() {
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   assert.ok(process.argv.slice(2).every(arg => arg === '--report'), 'Usage: node verify-motion-presets.mjs [--report]')
   const result = verifyAssets()
-  if (process.argv.includes('--report')) writeFileSync(new URL('work/funscript-presets-20261031/verification.json', workspaceRoot), jsonText(result))
+  if (process.argv.includes('--report')) {
+    mkdirSync(new URL('codex-temp/', workspaceRoot), { recursive: true })
+    writeFileSync(new URL('codex-temp/motion-presets-verification.json', workspaceRoot), jsonText(result))
+  }
   console.log(JSON.stringify(result.summary, null, 2))
 }

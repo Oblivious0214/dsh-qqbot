@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -16,6 +16,11 @@ export function ReplyOptions({ quick, replies, turn, step, sessionId, useInput, 
     const tail = value.legacy.nodes.findLast(node => node.kind === 'assistant' || node.kind === 'user' || node.kind === 'steering')
     return tail?.kind === 'assistant' && tail.turn === turn && tail.step === step
   })
+  // Chat rows can mount independently of the composer (history/slot remounts).
+  // The latest reply must load its own settings before deciding to hide them.
+  useEffect(() => {
+    if (latest) void quick.refresh(sessionId).catch(() => {})
+  }, [quick, sessionId, turn, step, latest])
   const [picked, setPicked] = useState(false)
   const picking = useRef(false)
   const send = quick.clickMode(sessionId) === 'send'

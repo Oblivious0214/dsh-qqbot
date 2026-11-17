@@ -15,6 +15,7 @@ export declare const SECTION_ORDER: {
     readonly FORMAT_MEME: 410;
     readonly FORMAT_VOICE: 420;
     readonly DYNAMICS_TOOL: 430;
+    readonly IMAGE_TOOL: 440;
     readonly EXT: 500;
     readonly ROLE_MEMORY: 800;
     readonly JB_TAIL: 900;
@@ -35,6 +36,7 @@ export declare const SECTION_NAME: {
     readonly FORMAT_MEME: "qqbot:format-meme";
     readonly FORMAT_VOICE: "qqbot:format-voice";
     readonly DYNAMICS_TOOL: "qqbot:dynamics-tool";
+    readonly IMAGE_TOOL: "qqbot:image-tool";
     readonly JB_TAIL: "qqbot:jb-tail";
     readonly EXT_PREFIX: "qqbot:ext:";
     readonly ROLE_MEMORY: "qqbot:role-memory";
